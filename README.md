@@ -230,38 +230,29 @@ back: [VENDOR.md](VENDOR.md).
 
 ## Deploying to modals.codelove.in
 
-`next build` produces a fully static site in `out/` — no server needed. Size check (full library):
+Locally, `next build` produces a fully static site in `out/` (for `npm start` and the Android app build); Firebase App
+Hosting builds the same code as a Next.js server. Size check (full library):
 
 - Repository: ~650 MB, ~14,000 asset files in `public/` (every file well under GitHub's 100 MB limit).
 - Build: ~4 minutes; `out/` is ~2.3 GB / ~54,000 files (728 MB of `public/` assets + ~6,900 model pages at ~230 KB each).
 
-**Firebase Hosting (current host)** — project `d-models-bfb95`, live at https://d-models-bfb95.web.app.
-`firebase.json` serves `out/` (Firebase's default trailing-slash handling matches `trailingSlash: true`; `404.html` is
-the not-found page) and gives `/_next/static` a one-year cache and models / images / decoders a one-week cache.
+**Firebase App Hosting (current host)** — project `d-models-bfb95`, backend `three-d-models` in `asia-southeast1`
+(Singapore), live at https://three-d-models--d-models-bfb95.asia-southeast1.hosted.app. The backend is connected to
+the GitHub repo, so every push to `main` builds and rolls out the site (~10–15 minutes; Firebase console → App Hosting →
+`three-d-models` → Rollouts). There is no deploy command — just `git push`.
 
-```bash
-npm i -g firebase-tools && firebase login   # once
-npm run build                               # → out/
-npm run deploy                              # firebase deploy --only hosting
-```
-
-- The first deploy uploads all ~54,000 files; later deploys upload only the files that changed.
-- On a low-memory PC, build with fewer workers: `CIRCLE_NODE_TOTAL=4 npm run build` (3 workers instead of CPUs − 1).
-- Free (Spark) plan limits: 10 GB stored, **10 GB/month downloaded** — over that the site is switched off until the month
-  ends. Upgrade to Blaze (same free amounts, then $0.15/GB) before traffic grows. In Hosting → Release history → ⋮ →
-  Release storage settings, keep only the last few releases so old versions don't fill the 10 GB.
-- The project is on the Blaze plan: the free Spark plan refuses executable files, including the Kingdom Clash APK.
-- Custom domain: Hosting → Add custom domain → `modals.codelove.in`, then add the TXT/A records Firebase shows at the
-  DNS provider for `codelove.in` (replacing the Vercel CNAME).
+- App Hosting runs the site as a Next.js server on Cloud Run. Its adapter sets `NEXT_PRIVATE_STANDALONE=true`, and
+  `next.config.ts` then skips `output: "export"` (a static export fails there with
+  `.next/standalone/.next/routes-manifest.json` not found).
+- `apphosting.yaml` scales to zero when idle and caps the backend at 4 instances (1 GiB each).
+- The project is on the Blaze plan (pay as you go, after the monthly no-cost amounts).
+- Custom domain: App Hosting → `three-d-models` → Settings → Domains → add `modals.codelove.in`, then add the records
+  Firebase shows at the DNS provider for `codelove.in` (replacing the Vercel CNAME).
 - Analytics: `src/components/firebase-analytics.tsx` starts Google Analytics for Firebase on the published site only
   (not in `next dev`, on localhost, or in the Android app). The web config is in `src/lib/firebase.ts` — those values
   are public identifiers, not secrets.
-
-**Firebase App Hosting (auto deploy from GitHub)** — an App Hosting backend connected to the GitHub repo builds and
-rolls out every push to `main` (Firebase console → App Hosting → the backend → Rollouts). App Hosting runs the site as
-a Next.js server on Cloud Run: its adapter sets `NEXT_PRIVATE_STANDALONE=true`, and `next.config.ts` then skips
-`output: "export"` (a static export fails there with `.next/standalone/.next/routes-manifest.json` not found).
-`apphosting.yaml` scales to zero when idle and caps it at 4 instances.
+- The earlier static Firebase Hosting site (`d-models-bfb95.web.app`) is disabled.
+- On a low-memory PC, build locally with fewer workers: `CIRCLE_NODE_TOTAL=4 npm run build` (3 workers instead of CPUs − 1).
 
 **Vercel via Git (alternative)** — Git deployments have no limit on output files; builds must finish in 45 minutes.
 1. Push the repository to GitHub under your **personal account** (Vercel Hobby can't connect repos owned by a GitHub

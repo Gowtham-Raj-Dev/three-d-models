@@ -10,7 +10,6 @@
     "build": "next build",
     "postbuild": "node scripts/fix-static-export.mjs",
     "start": "npx serve@latest out",
-    "deploy": "firebase deploy --only hosting",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "models:fetch": "node scripts/fetch-rocketbox.mjs",
