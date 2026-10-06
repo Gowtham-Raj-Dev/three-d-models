@@ -1,0 +1,8 @@
+# Firebase App Hosting (backend connected to GitHub: every push to main builds and rolls out).
+# https://firebase.google.com/docs/app-hosting/configure
+runConfig:
+  minInstances: 0 # scale to zero when idle (no cost)
+  maxInstances: 4 # cost cap; pages are cached by App Hosting's CDN
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 1024
