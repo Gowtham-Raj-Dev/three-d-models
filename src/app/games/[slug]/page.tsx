@@ -1,0 +1,365 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ChevronRight, Download, Gamepad2, Hourglass, Keyboard, ListChecks, Music, Play, Smartphone } from "lucide-react";
+import { ComingSoonArt, GameCard } from "@/components/game-card";
+import { JsonLd } from "@/components/json-ld";
+import { asset } from "@/lib/asset";
+import { androidApp } from "@/lib/game-apps";
+import { formatBytes, formatNumber } from "@/lib/catalog";
+import { gameDisplayClass } from "@/lib/game-fonts";
+import { gameDownloadBytes, gameModels } from "@/lib/game-models";
+import { GAME_SHORTCUTS, games, getGame } from "@/lib/games";
+import { pageMetadata } from "@/lib/seo";
+import { absoluteUrl, SITE } from "@/lib/site";
+
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+  return games.map((g) => ({ slug: g.slug }));
+}
+
+export async function generateMetadata({ params }: PageProps<"/games/[slug]">): Promise<Metadata> {
+  const { slug } = await params;
+  const game = getGame(slug);
+  if (!game) return {};
+  if (game.comingSoon) {
+    return {
+      ...pageMetadata({ title: `${game.title} — Coming Soon`, description: game.description, path: `/games/${game.slug}/` }),
+      robots: { index: false, follow: true },
+    };
+  }
+  return {
+    ...pageMetadata({
+      title: `${game.title} — Free 3D ${game.genre} Game in Your Browser`,
+      description: game.description,
+      path: `/games/${game.slug}/`,
+      image: { url: game.cover, alt: `${game.title} gameplay` },
+    }),
+    keywords: [game.title, game.genre, "free browser game", "3D game", "three.js game", ...game.collections],
+  };
+}
+
+function Kbd({ children }: { children: string }) {
+  return <kbd className="rounded-md border border-line-strong border-b-2 bg-elevated px-1.5 py-0.5 font-mono text-[11px] text-fg">{children}</kbd>;
+}
+
+export default async function GameDetailsPage({ params }: PageProps<"/games/[slug]">) {
+  const { slug } = await params;
+  const game = getGame(slug);
+  if (!game) notFound();
+  const models = gameModels(game);
+  const bytes = gameDownloadBytes(game);
+  const packs = [...new Map(models.map((m) => [m.collectionKey, m.collection])).values()];
+  const withThumbs = models.filter((m) => m.thumb);
+  const shown = withThumbs.slice(0, 48);
+  const others = games.filter((g) => g.slug !== game.slug && !g.comingSoon).slice(0, 3);
+  const playHref = `/games/${game.slug}/play/`;
+  const soon = game.comingSoon === true;
+  const app = soon ? null : androidApp(game.slug);
+
+  return (
+    <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 sm:pt-10">
+      <JsonLd
+        data={[
+          ...(soon
+            ? []
+            : [
+                {
+                  "@context": "https://schema.org",
+                  "@type": "VideoGame",
+                  name: game.title,
+                  description: game.description,
+                  url: absoluteUrl(`/games/${game.slug}/`),
+                  image: absoluteUrl(game.cover),
+                  genre: game.genre,
+                  gamePlatform: app ? ["Web browser", "Android"] : "Web browser",
+                  applicationCategory: "Game",
+                  operatingSystem: app ? "Any (browser), Android (app)" : "Any",
+                  playMode: "SinglePlayer",
+                  isAccessibleForFree: true,
+                  offers: { "@type": "Offer", price: 0, priceCurrency: "USD" },
+                  publisher: { "@type": "Organization", name: SITE.name, url: absoluteUrl("/") },
+                },
+              ]),
+          {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Games", item: absoluteUrl("/games/") },
+              { "@type": "ListItem", position: 2, name: game.title, item: absoluteUrl(`/games/${game.slug}/`) },
+            ],
+          },
+        ]}
+      />
+
+      <nav aria-label="Breadcrumb" className="mb-5 flex items-center gap-1.5 text-sm text-subtle">
+        <Link href="/games/" className="hover:text-fg">
+          Games
+        </Link>
+        <ChevronRight className="size-3.5" />
+        <span className="text-muted">{game.title}</span>
+      </nav>
+
+      {/* Hero: cover beside the title, tagline and play/download buttons; the longer copy sits below. */}
+      <section className="grid gap-8 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:items-center">
+        {soon ? (
+          <div className="relative aspect-[1200/630] overflow-hidden rounded-3xl border border-line">
+            <ComingSoonArt game={game} titleClass="text-5xl sm:text-7xl" />
+          </div>
+        ) : (
+          <Link
+            href={playHref}
+            className="group relative block aspect-[1200/630] overflow-hidden rounded-3xl border border-line bg-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={asset(game.cover)}
+              alt={`${game.title} gameplay`}
+              width={1200}
+              height={630}
+              fetchPriority="high"
+              decoding="async"
+              className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/5 to-transparent transition group-hover:from-black/60" />
+            <span
+              className="absolute top-1/2 left-1/2 grid size-20 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-black/80 shadow-2xl shadow-black/50 transition duration-300 group-hover:scale-110"
+              style={{ background: game.accent }}
+            >
+              <Play className="size-8 translate-x-0.5 fill-current" />
+            </span>
+          </Link>
+        )}
+
+        <div className="space-y-4">
+          <p className="inline-flex items-center gap-1.5 text-xs font-semibold tracking-[0.14em] uppercase" style={{ color: game.accent }}>
+            <Gamepad2 className="size-4" /> {game.genre}
+          </p>
+          <h1 className={`text-4xl sm:text-6xl ${gameDisplayClass(game.slug)}`} style={{ color: game.accent }}>
+            {game.title}
+          </h1>
+          <p className="text-lg font-medium text-fg">{game.tagline}</p>
+          {soon ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                className="inline-flex items-center gap-2 rounded-full border-2 px-6 py-3 text-base font-bold"
+                style={{ borderColor: game.accent, color: game.accent }}
+              >
+                <Hourglass className="size-5" /> Coming soon
+              </span>
+              <span className="text-sm text-subtle">Still being built — check back soon.</span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                href={playHref}
+                className="inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-base font-bold text-black/85 shadow-lg shadow-black/30 transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                style={{ background: game.accent }}
+              >
+                <Play className="size-5 fill-current" /> Play now — free
+              </Link>
+              {app ? (
+                <a
+                  href={asset(app.apk)}
+                  download={`${game.slug}-${app.version}.apk`}
+                  type="application/vnd.android.package-archive"
+                  className="inline-flex items-center gap-2 rounded-full border-2 px-6 py-3 text-base font-bold transition hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  style={{ borderColor: game.accent, color: game.accent }}
+                >
+                  <Download className="size-5" /> Download for Android
+                </a>
+              ) : (
+                <span className="text-sm text-subtle">No download · no sign-up</span>
+              )}
+            </div>
+          )}
+          {app && (
+            <div className="rounded-2xl border border-line bg-surface p-4">
+              <div className="flex items-center gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl text-black/80" style={{ background: game.accent }}>
+                  <Smartphone className="size-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-fg">{game.title} for Android</p>
+                  <p className="text-xs text-subtle">
+                    v{app.version} · {formatBytes(app.bytes)} APK · Android {app.minAndroid}+ · landscape, full screen · plays offline
+                  </p>
+                </div>
+              </div>
+              <details className="group mt-3 text-sm">
+                <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted hover:text-fg">
+                  <ChevronRight className="size-3.5 transition group-open:rotate-90" /> How to install
+                </summary>
+                <ol className="mt-2 list-decimal space-y-1 pl-9 text-xs leading-relaxed text-muted">
+                  <li>Tap “Download for Android” on your phone (or copy the APK to it).</li>
+                  <li>Open the downloaded file. If Android asks, allow your browser to “Install unknown apps”.</li>
+                  <li>Tap Install, then open {game.title} from your home screen. It always plays in landscape and keeps your village on the phone.</li>
+                </ol>
+                <p className="mt-2 pl-4 font-mono text-[10px] break-all text-subtle">SHA-256 {app.sha256}</p>
+              </details>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* About */}
+      <section className="mt-8 space-y-4">
+        <p className="leading-relaxed text-muted">{game.description}</p>
+        <ul className="flex flex-wrap gap-2 text-xs text-muted">
+          <li className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5">
+            <Keyboard className="size-3.5" /> Keyboard & mouse
+          </li>
+          <li className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5">
+            <Smartphone className="size-3.5" /> {app ? "Touch screens · Android app" : "Touch screens"}
+          </li>
+          <li className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5">
+            <Music className="size-3.5" /> Music: “{game.music}”
+          </li>
+          {bytes > 0 && !soon && (
+            <li className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5">
+              <Download className="size-3.5" /> {formatBytes(bytes)} of models
+            </li>
+          )}
+        </ul>
+      </section>
+
+      {/* Features */}
+      <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {game.features.map((f) => (
+          <div key={f} className="flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3.5 text-sm font-medium text-fg">
+            <span className="size-2 shrink-0 rounded-full" style={{ background: game.accent }} />
+            {f}
+          </div>
+        ))}
+      </section>
+
+      {/* How to play + controls */}
+      <section className="mt-12 grid gap-6 lg:grid-cols-2">
+        <div className="rounded-3xl border border-line bg-surface p-6 sm:p-7">
+          <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+            <ListChecks className="size-5" style={{ color: game.accent }} /> How to play
+          </h2>
+          <ol className="mt-5 space-y-3">
+            {game.howTo.map((line, i) => (
+              <li key={line} className="flex gap-3 text-sm leading-relaxed text-muted">
+                <span
+                  className="grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-bold text-black/80"
+                  style={{ background: game.accent }}
+                >
+                  {i + 1}
+                </span>
+                {line}
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className="rounded-3xl border border-line bg-surface p-6 sm:p-7">
+          <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+            <Keyboard className="size-5" style={{ color: game.accent }} /> Controls
+          </h2>
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-line text-xs text-subtle">
+                  <th className="pb-2 font-medium">Action</th>
+                  <th className="pb-2 font-medium">Keyboard / mouse</th>
+                  <th className="pb-2 font-medium">Touch</th>
+                </tr>
+              </thead>
+              <tbody>
+                {game.controls.map((c) => (
+                  <tr key={c.action} className="border-b border-line/60 last:border-0">
+                    <td className="py-2.5 pr-3 font-medium text-fg">{c.action}</td>
+                    <td className="py-2.5 pr-3">
+                      <span className="flex flex-wrap gap-1">
+                        {c.keys.map((k) => (
+                          <Kbd key={k}>{k}</Kbd>
+                        ))}
+                      </span>
+                    </td>
+                    <td className="py-2.5 text-muted">{c.touch ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <h3 className="mt-6 mb-2 text-xs font-semibold tracking-wide text-subtle uppercase">Shortcuts in every game</h3>
+          <ul className="grid gap-1.5 sm:grid-cols-2">
+            {GAME_SHORTCUTS.map((s) => (
+              <li key={s.action} className="flex items-center justify-between gap-2 rounded-xl bg-elevated px-3 py-2 text-xs text-muted">
+                {s.action}
+                <span className="flex gap-1">
+                  {s.keys.map((k) => (
+                    <Kbd key={k}>{k}</Kbd>
+                  ))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* Models used */}
+      {models.length > 0 && (
+        <section className="mt-12">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">Built with {formatNumber(models.length)} models from this library</h2>
+              <p className="mt-1 text-sm text-muted">
+                Every 3D model in {game.title} comes from{" "}
+                {packs.map((name, i) => (
+                  <span key={name}>
+                    {i > 0 && (i === packs.length - 1 ? " and " : ", ")}
+                    <Link href={`/models/?collection=${encodeURIComponent(name)}`} className="text-fg underline-offset-2 hover:underline">
+                      {name}
+                    </Link>
+                  </span>
+                ))}
+                . Click any model to view and download it.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12">
+            {shown.map((m) => (
+              <Link
+                key={m.slug}
+                href={`/models/${m.slug}/`}
+                title={`${m.title} — ${m.collection}`}
+                className="group relative grid aspect-square place-items-center overflow-hidden rounded-xl border border-line bg-surface transition hover:border-line-strong"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={asset(m.thumb!.src)}
+                  alt={m.title}
+                  width={96}
+                  height={96}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-[82%] w-[82%] object-contain transition-transform duration-300 group-hover:scale-110"
+                />
+              </Link>
+            ))}
+          </div>
+          {withThumbs.length > shown.length && <p className="mt-3 text-sm text-subtle">+ {withThumbs.length - shown.length} more models</p>}
+        </section>
+      )}
+
+      {/* More games */}
+      <section className="mt-16">
+        <div className="mb-4 flex items-end justify-between gap-2">
+          <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">More games</h2>
+          <Link href="/games/" className="text-sm text-muted hover:text-fg">
+            All games →
+          </Link>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {others.map((g) => (
+            <GameCard key={g.slug} game={g} modelCount={gameModels(g).length} android={!!androidApp(g.slug)} />
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}

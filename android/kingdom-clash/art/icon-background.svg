@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <defs>
+    <radialGradient id="sky" cx="0.5" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="0.6" stop-color="#1e40af"/>
+      <stop offset="1" stop-color="#0b1d4a"/>
+    </radialGradient>
+  </defs>
+  <rect width="108" height="108" fill="url(#sky)"/>
+  <!-- Faint sun rays -->
+  <g fill="#ffffff" opacity="0.07">
+    <path d="M54 54 L40 0 H68 Z"/>
+    <path d="M54 54 L108 30 V62 Z"/>
+    <path d="M54 54 L0 30 V62 Z"/>
+    <path d="M54 54 L68 108 H40 Z"/>
+  </g>
+</svg>

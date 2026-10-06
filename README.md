@@ -235,7 +235,30 @@ back: [VENDOR.md](VENDOR.md).
 - Repository: ~650 MB, ~14,000 asset files in `public/` (every file well under GitHub's 100 MB limit).
 - Build: ~4 minutes; `out/` is ~2.3 GB / ~54,000 files (728 MB of `public/` assets + ~6,900 model pages at ~230 KB each).
 
-**Vercel via Git (recommended)** — Git deployments have no limit on output files; builds must finish in 45 minutes.
+**Firebase Hosting (current host)** — project `d-models-bfb95`, live at https://d-models-bfb95.web.app.
+`firebase.json` serves `out/` (Firebase's default trailing-slash handling matches `trailingSlash: true`; `404.html` is
+the not-found page) and gives `/_next/static` a one-year cache and models / images / decoders a one-week cache.
+
+```bash
+npm i -g firebase-tools && firebase login   # once
+npm run build                               # → out/
+npm run deploy                              # firebase deploy --only hosting
+```
+
+- The first deploy uploads all ~54,000 files; later deploys upload only the files that changed.
+- On a low-memory PC, build with fewer workers: `CIRCLE_NODE_TOTAL=4 npm run build` (3 workers instead of CPUs − 1).
+- Free (Spark) plan limits: 10 GB stored, **10 GB/month downloaded** — over that the site is switched off until the month
+  ends. Upgrade to Blaze (same free amounts, then $0.15/GB) before traffic grows. In Hosting → Release history → ⋮ →
+  Release storage settings, keep only the last few releases so old versions don't fill the 10 GB.
+- The Spark plan refuses executable files, so `firebase.json` ignores `**/*.apk`: the Kingdom Clash Android download
+  (`/downloads/kingdom-clash.apk`) is not on Firebase. After upgrading to Blaze, remove that ignore entry and deploy again.
+- Custom domain: Hosting → Add custom domain → `modals.codelove.in`, then add the TXT/A records Firebase shows at the
+  DNS provider for `codelove.in` (replacing the Vercel CNAME).
+- Analytics: `src/components/firebase-analytics.tsx` starts Google Analytics for Firebase on the published site only
+  (not in `next dev`, on localhost, or in the Android app). The web config is in `src/lib/firebase.ts` — those values
+  are public identifiers, not secrets.
+
+**Vercel via Git (alternative)** — Git deployments have no limit on output files; builds must finish in 45 minutes.
 1. Push the repository to GitHub under your **personal account** (Vercel Hobby can't connect repos owned by a GitHub
    organization).
 2. In Vercel: Add New → Project → import the repo (framework preset: Next.js, defaults are fine). Every push to `main`

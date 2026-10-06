@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kingdom Clash</string>
+    <string name="press_back_again">Press back again to exit</string>
+    <string name="webview_title">Update Android System WebView</string>
+    <string name="webview_message">Kingdom Clash needs a newer Android System WebView (this phone has version %1$d). Update it from the Play Store, then open the game again.</string>
+    <string name="webview_update">Update</string>
+</resources>

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <!-- Adaptive icon foreground: keep everything inside the 66-unit safe circle around (54, 54). -->
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fef3c7"/>
+      <stop offset="0.45" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="blade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#94a3b8"/>
+    </linearGradient>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <g stroke="#1f2937" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" transform="translate(54 55) scale(0.84) translate(-54 -51)">
+    <!-- Crossed swords behind the shield -->
+    <g transform="rotate(-42 54 58)">
+      <rect x="51" y="24" width="6" height="50" rx="2" fill="url(#blade)"/>
+      <rect x="44" y="72" width="20" height="5" rx="2" fill="url(#gold)"/>
+      <rect x="51.5" y="77" width="5" height="9" rx="1.5" fill="#92400e"/>
+    </g>
+    <g transform="rotate(42 54 58)">
+      <rect x="51" y="24" width="6" height="50" rx="2" fill="url(#blade)"/>
+      <rect x="44" y="72" width="20" height="5" rx="2" fill="url(#gold)"/>
+      <rect x="51.5" y="77" width="5" height="9" rx="1.5" fill="#92400e"/>
+    </g>
+    <!-- Shield -->
+    <path d="M54 34 L73 39.5 V56 C73 69 64.5 76.5 54 81 C43.5 76.5 35 69 35 56 V39.5 Z" fill="url(#gold)" stroke-width="3"/>
+    <path d="M54 40 L67.5 44 V56 C67.5 65.5 61.5 71.5 54 75 C46.5 71.5 40.5 65.5 40.5 56 V44 Z" fill="url(#field)" stroke-width="2"/>
+    <!-- Castle on the shield -->
+    <path d="M45.5 69 V53 H48.5 V56 H51.5 V53 H56.5 V56 H59.5 V53 H62.5 V69 Z" fill="#fef3c7" stroke-width="2"/>
+    <path d="M51 69 V63.5 A3 3 0 0 1 57 63.5 V69 Z" fill="#1f2937" stroke="none"/>
+    <!-- Crown -->
+    <path d="M42 33 L44 21.5 L49.5 27.5 L54 19.5 L58.5 27.5 L64 21.5 L66 33 Z" fill="url(#gold)"/>
+    <circle cx="54" cy="19.5" r="2.2" fill="#ef4444" stroke-width="1.6"/>
+  </g>
+</svg>

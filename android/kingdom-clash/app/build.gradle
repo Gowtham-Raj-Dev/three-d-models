@@ -1,0 +1,60 @@
+plugins {
+    id "com.android.application"
+}
+
+// Release signing: keystore.properties (storeFile, storePassword, keyAlias, keyPassword) next to
+// settings.gradle — kept out of git. Without it the release APK is signed with the debug key.
+def signing = new Properties()
+def signingFile = rootProject.file("keystore.properties")
+if (signingFile.exists()) signingFile.withInputStream { signing.load(it) }
+
+android {
+    namespace "com.codelove.kingdomclash"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.codelove.kingdomclash"
+        minSdk 24
+        targetSdk 35
+        // Bump both for every APK you publish (the download button shows versionName).
+        versionCode 2
+        versionName "1.0.1"
+    }
+
+    signingConfigs {
+        release {
+            if (signingFile.exists()) {
+                storeFile rootProject.file(signing["storeFile"])
+                storePassword signing["storePassword"]
+                keyAlias signing["keyAlias"]
+                keyPassword signing["keyPassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingFile.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // The packed site lives in assets/www/_next/: drop the default rule that skips "_*" folders.
+    androidResources {
+        ignoreAssetsPattern "!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
+
+    // Release lint needs a lot of memory and checks nothing this tiny app can get wrong.
+    lint {
+        checkReleaseBuilds false
+    }
+}

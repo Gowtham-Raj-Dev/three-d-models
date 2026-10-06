@@ -1,0 +1,85 @@
+import { GAME as skyHop } from "@/components/games/sky-hop/manifest";
+import { GAME as turboKarts } from "@/components/games/turbo-karts/manifest";
+import { GAME as siegeSmash } from "@/components/games/siege-smash/manifest";
+import { GAME as kingdomClash } from "@/components/games/kingdom-clash/manifest";
+import { GAME as castaway } from "@/components/games/castaway/manifest";
+import { GAME as novaStrike } from "@/components/games/nova-strike/manifest";
+import { GAME as nightHeist } from "@/components/games/night-heist/manifest";
+import { GAME as skyCourier } from "@/components/games/sky-courier/manifest";
+import { GAME as beatStreet } from "@/components/games/beat-street/manifest";
+import { GAME as puttParadise } from "@/components/games/putt-paradise/manifest";
+import { GAME as cannonCove } from "@/components/games/cannon-cove/manifest";
+import { GAME as cryptKnight } from "@/components/games/crypt-knight/manifest";
+import { GAME as hexHaven } from "@/components/games/hex-haven/manifest";
+import { GAME as orderUp } from "@/components/games/order-up/manifest";
+import { GAME as saucerSiege } from "@/components/games/saucer-siege/manifest";
+import { GAME as skateRush } from "@/components/games/skate-rush/manifest";
+
+/**
+ * Browser games built entirely from the library's own 3D models, playable at /games/<slug>/.
+ * Each game describes itself in its own manifest (src/components/games/<slug>/manifest.ts) —
+ * kept free of three.js so the server pages can read it.
+ */
+
+export interface GameControl {
+  action: string;
+  keys: string[];
+  touch?: string;
+}
+
+export interface GameEntry {
+  slug: string;
+  title: string;
+  tagline: string;
+  description: string;
+  genre: string;
+  /** Theme colour of the game's UI (hex). */
+  accent: string;
+  /** Cover image in /public (1200×630). */
+  cover: string;
+  /** Library model keys the game loads ("mini-skate/skateboard" → /library/mini-skate/skateboard.glb). */
+  models: readonly string[];
+  /** Library collections those models come from. */
+  collections: string[];
+  controls: GameControl[];
+  /** Goal and tips, shown in "How to play" and on the games page. */
+  howTo: string[];
+  /** Short highlights for the games page. */
+  features: string[];
+  /** Name of the game's soundtrack. */
+  music: string;
+  /** Still being built: listed as "Coming soon", with no cover and no playable route. */
+  comingSoon?: boolean;
+}
+
+/** Shortcuts every game supports (each game adds its own controls). */
+export const GAME_SHORTCUTS: { action: string; keys: string[] }[] = [
+  { action: "Pause / resume", keys: ["Esc", "P"] },
+  { action: "Music on / off", keys: ["M"] },
+  { action: "Sound effects on / off", keys: ["N"] },
+  { action: "How to play", keys: ["H"] },
+  { action: "Fullscreen", keys: ["F"] },
+];
+
+export const games: GameEntry[] = [
+  skateRush,
+  saucerSiege,
+  cannonCove,
+  cryptKnight,
+  orderUp,
+  hexHaven,
+  skyHop,
+  turboKarts,
+  siegeSmash,
+  beatStreet,
+  puttParadise,
+  kingdomClash,
+  castaway,
+  novaStrike,
+  nightHeist,
+  skyCourier,
+];
+
+export function getGame(slug: string): GameEntry | undefined {
+  return games.find((g) => g.slug === slug);
+}

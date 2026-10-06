@@ -1,0 +1,58 @@
+{
+  "name": "rocketbox-showcase",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "postbuild": "node scripts/fix-static-export.mjs",
+    "start": "npx serve@latest out",
+    "deploy": "firebase deploy --only hosting",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "models:fetch": "node scripts/fetch-rocketbox.mjs",
+    "models:build": "node scripts/build-models.mjs",
+    "models:catalog": "node scripts/build-models.mjs --catalog-only",
+    "models:og": "node scripts/build-og.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "models:stamp": "node scripts/stamp-licenses.mjs",
+    "library:build": "node scripts/build-library.mjs",
+    "decoders": "node scripts/copy-decoders.mjs",
+    "android:build": "node scripts/build-android.mjs"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.1",
+    "cannon-es": "^0.20.0",
+    "fflate": "^0.8.3",
+    "firebase": "^12.19.0",
+    "lucide-react": "^1.52.0",
+    "next": "16.3.8",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.186.0",
+    "draco3dgltf": "^1.5.7",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.8",
+    "fbx2gltf": "^0.9.7-p1",
+    "geist": "^1.7.2",
+    "meshoptimizer": "^1.3.0",
+    "puppeteer-core": "^25.12.0",
+    "sharp": "^0.35.5",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
