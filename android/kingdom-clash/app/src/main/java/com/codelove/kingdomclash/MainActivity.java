@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.view.Display;
 import android.view.DisplayCutout;
 import android.view.View;
 import android.view.ViewGroup;
@@ -27,6 +28,8 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import java.util.Locale;
+
 /**
  * Kingdom Clash for Android: one full-screen, landscape-only WebView that plays the game from files
  * packed inside the APK (assets/www, copied there by scripts/build-android.mjs), so it works offline.
@@ -36,8 +39,12 @@ import android.widget.Toast;
  * WebAudio and fetch() behave exactly as in the browser.
  *
  * Page bridge (src/components/games/shared/native-app.ts): the user agent ends with
- * "KingdomClashApp/<version>", the back button calls window.__nativeBack(), and going to / coming
- * back from the background fires a "nativeapp" event with detail "pause" / "resume".
+ * "KingdomClashApp/<version>", the back button calls window.__nativeBack(), going to / coming
+ * back from the background fires a "nativeapp" event with detail "pause" / "resume", and the
+ * camera cutout's safe area arrives as the CSS variables --app-safe-left/top/right/bottom.
+ *
+ * The game draws edge to edge, under the camera cutout too (no empty strip beside it); only its
+ * buttons keep out of the cutout, using those variables.
  */
 public class MainActivity extends Activity {
     static final String HOST = "appassets.androidplatform.net";
@@ -49,7 +56,10 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private AssetServer assets;
+    private UpdateChecker updates;
     private long lastBack;
+    /** The cutout's safe-area insets in CSS pixels: left, top, right, bottom. */
+    private final float[] safeArea = new float[4];
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,7 +73,7 @@ public class MainActivity extends Activity {
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(BACKGROUND);
-        // Keep the game out of the camera notch: pad by the cutout, the bars stay hidden.
+        // The game fills the whole screen; the page keeps its buttons out of the camera cutout.
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             int l = 0, t = 0, r = 0, b = 0;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -75,7 +85,12 @@ public class MainActivity extends Activity {
                     b = cutout.getSafeInsetBottom();
                 }
             }
-            v.setPadding(l, t, r, b);
+            float density = getResources().getDisplayMetrics().density;
+            safeArea[0] = l / density;
+            safeArea[1] = t / density;
+            safeArea[2] = r / density;
+            safeArea[3] = b / density;
+            sendSafeArea();
             return insets;
         });
         setContentView(root);
@@ -84,8 +99,47 @@ public class MainActivity extends Activity {
         web = createWebView();
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         hideSystemBars();
+        preferSixtyHz();
         web.loadUrl(START_URL);
         checkWebViewVersion();
+        // A newer version on the website? Asked a few seconds in, once the game is up.
+        updates = new UpdateChecker(this);
+        root.postDelayed(() -> {
+            if (!isFinishing()) updates.check();
+        }, 4000);
+    }
+
+    /**
+     * Runs a 90 / 120 Hz screen at 60 Hz while the game is open: a steady 60 fps looks smoother
+     * than a frame rate jumping between 60 and 120, and the phone stays cooler (no throttling later).
+     */
+    private void preferSixtyHz() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        Display display = getWindowManager().getDefaultDisplay();
+        Display.Mode current = display.getMode();
+        Display.Mode best = null;
+        for (Display.Mode m : display.getSupportedModes()) {
+            if (m.getPhysicalWidth() != current.getPhysicalWidth() || m.getPhysicalHeight() != current.getPhysicalHeight()) continue;
+            if (m.getRefreshRate() < 59f) continue;
+            if (best == null || m.getRefreshRate() < best.getRefreshRate()) best = m;
+        }
+        if (best == null || best.getModeId() == current.getModeId()) return;
+        WindowManager.LayoutParams lp = getWindow().getAttributes();
+        lp.preferredDisplayModeId = best.getModeId();
+        getWindow().setAttributes(lp);
+    }
+
+    /**
+     * Hands the cutout's safe area to the page (again after every page load) as a style element of
+     * its own — not a style attribute on <html>, which React would see as a hydration mismatch.
+     */
+    private void sendSafeArea() {
+        if (web == null) return;
+        String css = String.format(Locale.ROOT, ":root{--app-safe-left:%.1fpx;--app-safe-top:%.1fpx;--app-safe-right:%.1fpx;--app-safe-bottom:%.1fpx}",
+                safeArea[0], safeArea[1], safeArea[2], safeArea[3]);
+        String js = "(function(){var s=document.getElementById('app-safe-area');if(!s){s=document.createElement('style');s.id='app-safe-area';"
+                + "(document.head||document.documentElement).appendChild(s)}s.textContent='" + css + "'})()";
+        web.evaluateJavascript(js, null);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -113,6 +167,9 @@ public class MainActivity extends Activity {
         s.setTextZoom(100);
         s.setUserAgentString(s.getUserAgentString() + " KingdomClashApp/" + BuildConfig.VERSION_NAME);
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        // The game is the whole app: keep its page process at foreground priority so Android
+        // doesn't kill it (and reload the game) under memory pressure while it's on screen.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) view.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
 
         view.setWebChromeClient(new WebChromeClient());
         view.setWebViewClient(new WebViewClient() {
@@ -133,6 +190,11 @@ public class MainActivity extends Activity {
                     // No browser: stay in the game.
                 }
                 return true;
+            }
+
+            @Override
+            public void onPageFinished(WebView v, String url) {
+                sendSafeArea();
             }
 
             @Override
@@ -223,6 +285,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (updates != null) updates.dispose();
         if (web != null) {
             web.destroy();
             web = null;

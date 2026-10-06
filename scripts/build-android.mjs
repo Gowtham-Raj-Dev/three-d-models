@@ -7,8 +7,8 @@
  *   npm run android:build    # this script
  *
  * 1. Packs the game into app/src/main/assets/www: its play page from out/, every script, stylesheet
- *    and font that page loads (followed through the chunks), the library models it uses and its
- *    cover (the loading screen's background art).
+ *    and font that page loads (followed through the chunks), the library models it uses, its
+ *    cover (the loading screen's background art) and its soundtrack (public/games/<slug>/music/).
  * 2. Renders the launcher and splash icons from android/kingdom-clash/art/*.svg.
  * 3. Runs Gradle (assembleRelease, signed with android/kingdom-clash/keystore.properties) and copies
  *    the APK to public/downloads/kingdom-clash.apk (+ out/downloads/ when out/ exists), with
@@ -139,7 +139,14 @@ async function pack() {
   const cover = path.join(PUBLIC, game.cover);
   if (!fs.existsSync(cover)) fail(`cover not found at public${game.cover}`);
   webBytes += copy(cover, path.join(WWW, game.cover));
-  console.log(`Packed ${files.length + 1} page files (${mb(webBytes)}) + ${models.length} models (${mb(modelBytes)})${decoders.length ? ` + ${decoders.join(", ")} decoder` : ""} → ${path.relative(ROOT, WWW)}`);
+  // The soundtrack is fetched at run time, so the page's scripts don't lead to it.
+  const musicDir = path.join(PUBLIC, "games", SLUG, "music");
+  const tracks = fs.existsSync(musicDir) ? fs.readdirSync(musicDir).filter((f) => /\.(mp3|ogg|m4a)$/.test(f)) : [];
+  let musicBytes = 0;
+  for (const f of tracks) musicBytes += copy(path.join(musicDir, f), path.join(WWW, "games", SLUG, "music", f));
+  console.log(
+    `Packed ${files.length + 1} page files (${mb(webBytes)}) + ${models.length} models (${mb(modelBytes)}) + ${tracks.length} music tracks (${mb(musicBytes)})${decoders.length ? ` + ${decoders.join(", ")} decoder` : ""} → ${path.relative(ROOT, WWW)}`,
+  );
 }
 
 async function icons() {

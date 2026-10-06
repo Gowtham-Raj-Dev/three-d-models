@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The game is packed in the APK and plays offline; WebView still needs this to load any https URL. -->
+    <!-- The game is packed in the APK and plays offline; the internet is for WebView https URLs and the update check. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- In-app updates: the downloaded APK is handed to the package installer (Android asks the player once). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:glEsVersion="0x00030000" android:required="false" />
 

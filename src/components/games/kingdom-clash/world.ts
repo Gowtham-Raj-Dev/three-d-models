@@ -468,7 +468,7 @@ export function makeGround(battleSize: number) {
   grassTex.colorSpace = THREE.SRGBColorSpace;
   grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
   grassTex.repeat.set(10, 10);
-  grassTex.anisotropy = 4;
+  grassTex.anisotropy = 8;
   const grassMat = new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1, metalness: 0 });
   const grass = new THREE.Mesh(new THREE.PlaneGeometry(220, 220), grassMat);
   grass.rotation.x = -Math.PI / 2;
@@ -476,8 +476,9 @@ export function makeGround(battleSize: number) {
   group.add(grass);
   owned.push(grassTex, grassMat, grass.geometry);
 
-  // Village plateau: checker tiles inside the build area, a soft dirt rim around it.
-  const px = 16;
+  // Village plateau: checker tiles inside the build area, a soft dirt rim around it. 32 px a tile
+  // keeps the tile edges sharp up close on high-density phone screens.
+  const px = 32;
   const pc = document.createElement("canvas");
   const border = 2;
   const tiles = GRID + border * 2;
@@ -493,6 +494,7 @@ export function makeGround(battleSize: number) {
   const plateauTex = new THREE.CanvasTexture(pc);
   plateauTex.colorSpace = THREE.SRGBColorSpace;
   plateauTex.magFilter = THREE.LinearFilter;
+  plateauTex.anisotropy = 8;
   const plateauMat = new THREE.MeshStandardMaterial({ map: plateauTex, roughness: 1, metalness: 0, transparent: true, alphaMap: edgeFade(owned), polygonOffset: true, polygonOffsetFactor: -1 });
   const plateau = new THREE.Mesh(new THREE.PlaneGeometry(tiles, tiles), plateauMat);
   plateau.rotation.x = -Math.PI / 2;

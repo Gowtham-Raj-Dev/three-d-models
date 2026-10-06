@@ -765,11 +765,10 @@ export class BeatStreetGame {
 
   /** Sets the music's intensity for the bar the sequencer schedules next (arrangement, or 2 in fever). */
   private updateMusicIntensity(run: Run) {
-    const ctx = audio.ctx;
     const timing = run.timing;
-    if (!ctx || !timing) return;
+    if (!timing) return;
     const barDur = timing.stepDur * timing.steps;
-    const frontier = (ctx.currentTime + 0.14 - timing.start) / barDur;
+    const frontier = (music.scheduledUntil() - timing.start) / barDur;
     const inBar = frontier - Math.floor(frontier);
     if (inBar < 0.15 || inBar > 0.85) return;
     const next = Math.floor(frontier) + 1;

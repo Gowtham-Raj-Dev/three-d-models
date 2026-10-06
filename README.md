@@ -56,6 +56,7 @@ Shared building blocks live in `src/components/games/shared/`:
 - `assets.ts` — model loading with byte-accurate streaming progress (sizes come from the catalog), a few downloads at a time, cached for the session; `makeProto` / `Pool` for placing and recycling models.
 - `audio.ts` — one WebAudio graph: music and sound-effect buses (toggled with M / N, remembered), reverb, echo, limiter, synth helpers for effects.
 - `music.ts` + `songs.ts` — a step sequencer with synthesized instruments; each game has its own song with intensity layers (menu → play → intense).
+- Kingdom Clash instead plays recorded music (`kingdom-clash/soundtrack.ts`, MP3s in `public/games/kingdom-clash/music/`): "Thatched Villagers", "Master of the Feast", "Clash Defiant" and "Five Armies" by Kevin MacLeod (incompetech.com), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — credited in the game's Settings.
 - `ui.tsx` — loading screen, how-to-play sheet, shortcuts (Esc/P pause, M music, N sound, H help, F fullscreen), buttons, modals, stores.
 - `loaders.tsx` — each game's own loading screen look, drawn over its cover art: a progress bar from the game's world (Kingdom Clash's crown bar, Turbo Karts' start lights, Cannon Cove's map route…), status lines in its voice and an optional ambient effect.
 - Each game has its own look: a theme in `src/components/games/themes.ts` (panel material, buttons, HUD chips, titles — used through the `g-*` classes in `globals.css`) and its own font pair in `src/lib/game-fonts.ts`.

@@ -132,29 +132,37 @@ const midiToFreq = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
 // --- Instruments ----------------------------------------------------------------------------------
 
+/** Where a song's voices play: its fader (dry) and its reverb / echo sends. */
 interface Out {
-  ctx: AudioContext;
+  ctx: BaseAudioContext;
   dry: AudioNode;
   reverb: AudioNode;
   echo: AudioNode;
+  noise: AudioBuffer;
+  /** Send levels shared by every voice, one gain per bus and level (voices use a few fixed levels). */
+  sends: Map<string, GainNode>;
+}
+
+function send(out: Out, bus: "reverb" | "echo", level: number) {
+  const key = `${bus}:${level}`;
+  let g = out.sends.get(key);
+  if (!g) {
+    g = out.ctx.createGain();
+    g.gain.value = level;
+    g.connect(out[bus]);
+    out.sends.set(key, g);
+  }
+  return g;
 }
 
 /** Connects a voice's output to the dry bus and the reverb / echo sends. */
 function route(out: Out, node: AudioNode, reverb = 0, echo = 0) {
   node.connect(out.dry);
-  if (reverb > 0) {
-    const g = out.ctx.createGain();
-    g.gain.value = reverb;
-    node.connect(g).connect(out.reverb);
-  }
-  if (echo > 0) {
-    const g = out.ctx.createGain();
-    g.gain.value = echo;
-    node.connect(g).connect(out.echo);
-  }
+  if (reverb > 0) node.connect(send(out, "reverb", reverb));
+  if (echo > 0) node.connect(send(out, "echo", echo));
 }
 
-function osc(ctx: AudioContext, type: OscillatorType, freq: number, t: number, end: number, detune = 0) {
+function osc(ctx: BaseAudioContext, type: OscillatorType, freq: number, t: number, end: number, detune = 0) {
   const o = ctx.createOscillator();
   o.type = type;
   o.frequency.setValueAtTime(freq, t);
@@ -164,27 +172,34 @@ function osc(ctx: AudioContext, type: OscillatorType, freq: number, t: number, e
   return o;
 }
 
-function noiseSrc(ctx: AudioContext, t: number, end: number) {
-  const s = ctx.createBufferSource();
-  s.buffer = audio.noiseBuffer;
-  s.start(t, Math.random() * 1.5);
+function noiseSrc(out: Out, t: number, end: number) {
+  const s = out.ctx.createBufferSource();
+  s.buffer = out.noise;
+  // Looped, so a long note (a held flute's breath) never runs off the end of the buffer mid-note.
+  s.loop = true;
+  s.start(t, Math.random() * out.noise.duration);
   s.stop(end + 0.05);
   return s;
 }
 
-/** Gain with attack → sustain → release, ending at t + dur + release. */
-function adsr(ctx: AudioContext, t: number, dur: number, peak: number, attack: number, release: number, sustain = 1) {
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(peak, t + attack);
-  if (sustain !== 1) g.gain.setTargetAtTime(peak * sustain, t + attack, dur * 0.4 + 0.02);
-  g.gain.setValueAtTime(peak * sustain, Math.max(t + attack, t + dur));
-  g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(attack, dur) + release);
-  return g;
+/**
+ * Gain with attack → decay to the sustain level → hold for the note → release. Every segment is a
+ * ramp (a jump would click), and the voice stops its oscillators at `end`, once it is silent.
+ */
+function adsr(ctx: BaseAudioContext, t: number, dur: number, peak: number, attack: number, release: number, sustain = 1) {
+  const gain = ctx.createGain();
+  const g = gain.gain;
+  const hold = t + Math.max(dur, attack + 0.01);
+  g.setValueAtTime(0, t);
+  g.linearRampToValueAtTime(peak, t + attack);
+  if (sustain !== 1) g.linearRampToValueAtTime(peak * sustain, Math.min(hold, t + attack + 0.15));
+  g.setValueAtTime(peak * sustain, hold);
+  g.exponentialRampToValueAtTime(0.0001, hold + release);
+  return { gain, end: hold + release };
 }
 
 /** Gain that decays exponentially from `peak` over `decay` seconds. */
-function decayGain(ctx: AudioContext, t: number, peak: number, decay: number, attack = 0.003) {
+function decayGain(ctx: BaseAudioContext, t: number, peak: number, decay: number, attack = 0.003) {
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(peak, t + attack);
@@ -192,15 +207,38 @@ function decayGain(ctx: AudioContext, t: number, peak: number, decay: number, at
   return g;
 }
 
-function vibrato(ctx: AudioContext, target: AudioParam, t: number, end: number, depth: number, rate = 5.5, delay = 0.12) {
+/**
+ * One vibrato LFO shared by all of a note's oscillators. Skipped on notes too short for it to fade
+ * in: it could not be heard there, and an oscillator with a modulated pitch costs far more to run.
+ */
+function vibrato(ctx: BaseAudioContext, targets: AudioParam[], t: number, dur: number, end: number, depth: number, rate = 5.5, delay = 0.12) {
+  if (dur < delay) return;
   const lfo = ctx.createOscillator();
   lfo.frequency.value = rate;
   const amount = ctx.createGain();
   amount.gain.setValueAtTime(0, t);
   amount.gain.linearRampToValueAtTime(depth, t + delay + 0.1);
-  lfo.connect(amount).connect(target);
+  lfo.connect(amount);
+  for (const target of targets) amount.connect(target);
   lfo.start(t);
   lfo.stop(end + 0.05);
+}
+
+/**
+ * A gain stage wobbling around 1 (bellows, an electric piano). It multiplies the note, so a note
+ * that has faded out stays silent instead of fluttering on until the LFO stops.
+ */
+function tremolo(ctx: BaseAudioContext, t: number, end: number, rate: number, depth: number) {
+  const g = ctx.createGain();
+  g.gain.value = 1;
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = rate;
+  const amount = ctx.createGain();
+  amount.gain.value = depth;
+  lfo.connect(amount).connect(g.gain);
+  lfo.start(t);
+  lfo.stop(end + 0.05);
+  return g;
 }
 
 type Voice = (out: Out, t: number, midi: number, dur: number, vel: number) => void;
@@ -212,7 +250,7 @@ const VOICES: Record<Instrument, Voice> = {
     o.frequency.exponentialRampToValueAtTime(46, t + 0.12);
     const g = decayGain(ctx, t, 0.95 * vel, 0.4, 0.002);
     route(out, o.connect(g));
-    const click = noiseSrc(ctx, t, t + 0.02);
+    const click = noiseSrc(out, t, t + 0.02);
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
     hp.frequency.value = 3000;
@@ -220,7 +258,7 @@ const VOICES: Record<Instrument, Voice> = {
   },
   snare(out, t, _m, _d, vel) {
     const { ctx } = out;
-    const n = noiseSrc(ctx, t, t + 0.25);
+    const n = noiseSrc(out, t, t + 0.25);
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
     hp.frequency.value = 1100;
@@ -231,7 +269,7 @@ const VOICES: Record<Instrument, Voice> = {
   },
   clap(out, t, _m, _d, vel) {
     const { ctx } = out;
-    const n = noiseSrc(ctx, t, t + 0.3);
+    const n = noiseSrc(out, t, t + 0.3);
     const bp = ctx.createBiquadFilter();
     bp.type = "bandpass";
     bp.frequency.value = 1500;
@@ -248,7 +286,7 @@ const VOICES: Record<Instrument, Voice> = {
   },
   hat(out, t, _m, _d, vel) {
     const { ctx } = out;
-    const n = noiseSrc(ctx, t, t + 0.08);
+    const n = noiseSrc(out, t, t + 0.08);
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
     hp.frequency.value = 7600;
@@ -256,7 +294,7 @@ const VOICES: Record<Instrument, Voice> = {
   },
   openhat(out, t, _m, _d, vel) {
     const { ctx } = out;
-    const n = noiseSrc(ctx, t, t + 0.4);
+    const n = noiseSrc(out, t, t + 0.4);
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
     hp.frequency.value = 7000;
@@ -264,7 +302,7 @@ const VOICES: Record<Instrument, Voice> = {
   },
   shaker(out, t, _m, _d, vel) {
     const { ctx } = out;
-    const n = noiseSrc(ctx, t, t + 0.1);
+    const n = noiseSrc(out, t, t + 0.1);
     const bp = ctx.createBiquadFilter();
     bp.type = "bandpass";
     bp.frequency.value = 5200;
@@ -281,30 +319,29 @@ const VOICES: Record<Instrument, Voice> = {
   bass(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
-    const end = t + dur + 0.08;
+    const env = adsr(ctx, t, dur, 0.3 * vel, 0.006, 0.07, 0.85);
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.Q.value = 4;
     lp.frequency.setValueAtTime(260 + 1500 * vel, t);
     lp.frequency.exponentialRampToValueAtTime(320, t + Math.min(0.25, dur + 0.05));
-    const g = adsr(ctx, t, dur, 0.3 * vel, 0.006, 0.07, 0.85);
-    osc(ctx, "sawtooth", f, t, end).connect(lp);
-    const sub = osc(ctx, "square", f / 2, t, end);
+    osc(ctx, "sawtooth", f, t, env.end).connect(lp);
+    const sub = osc(ctx, "square", f / 2, t, env.end);
     const subGain = ctx.createGain();
     subGain.gain.value = 0.35;
     sub.connect(subGain).connect(lp);
-    route(out, lp.connect(g));
+    route(out, lp.connect(env.gain));
   },
   sub(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
-    const g = adsr(ctx, t, dur, 0.42 * vel, 0.01, 0.08);
-    osc(ctx, "sine", f, t, t + dur + 0.1).connect(g);
-    const tri = osc(ctx, "triangle", f, t, t + dur + 0.1);
+    const env = adsr(ctx, t, dur, 0.42 * vel, 0.01, 0.08);
+    osc(ctx, "sine", f, t, env.end).connect(env.gain);
+    const tri = osc(ctx, "triangle", f, t, env.end);
     const tg = ctx.createGain();
     tg.gain.value = 0.25;
-    tri.connect(tg).connect(g);
-    route(out, g);
+    tri.connect(tg).connect(env.gain);
+    route(out, env.gain);
   },
   pluck(out, t, m, _d, vel) {
     const { ctx } = out;
@@ -318,31 +355,30 @@ const VOICES: Record<Instrument, Voice> = {
   pad(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
+    const env = adsr(ctx, t, dur, 0.045 * vel, 0.35, 0.65);
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.frequency.value = 1300;
     lp.Q.value = 0.4;
-    const end = t + dur + 0.7;
-    for (const d of [-9, 9]) osc(ctx, "sawtooth", f, t, end, d).connect(lp);
-    osc(ctx, "triangle", f, t, end).connect(lp);
-    route(out, lp.connect(adsr(ctx, t, dur, 0.045 * vel, 0.35, 0.65)), 0.7);
+    for (const d of [-9, 9]) osc(ctx, "sawtooth", f, t, env.end, d).connect(lp);
+    osc(ctx, "triangle", f, t, env.end).connect(lp);
+    route(out, lp.connect(env.gain), 0.7);
   },
   lead(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
-    const end = t + dur + 0.12;
+    const env = adsr(ctx, t, dur, 0.075 * vel, 0.015, 0.1, 0.8);
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.frequency.value = 3000;
-    const a = osc(ctx, "square", f, t, end);
-    const b = osc(ctx, "sawtooth", f, t, end, 6);
+    const a = osc(ctx, "square", f, t, env.end);
+    const b = osc(ctx, "sawtooth", f, t, env.end, 6);
     const bg = ctx.createGain();
     bg.gain.value = 0.35;
     a.connect(lp);
     b.connect(bg).connect(lp);
-    vibrato(ctx, a.detune, t, end, 9);
-    vibrato(ctx, b.detune, t, end, 9);
-    route(out, lp.connect(adsr(ctx, t, dur, 0.075 * vel, 0.015, 0.1, 0.8)), 0.2, 0.3);
+    vibrato(ctx, [a.detune, b.detune], t, dur, env.end, 9);
+    route(out, lp.connect(env.gain), 0.2, 0.3);
   },
   bell(out, t, m, _d, vel) {
     const { ctx } = out;
@@ -355,14 +391,13 @@ const VOICES: Record<Instrument, Voice> = {
   organ(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
-    const end = t + dur + 0.15;
-    const g = adsr(ctx, t, dur, 0.05 * vel, 0.02, 0.12);
+    const env = adsr(ctx, t, dur, 0.05 * vel, 0.02, 0.12);
     [1, 2, 3, 4].forEach((h, i) => {
       const hg = ctx.createGain();
       hg.gain.value = [1, 0.6, 0.35, 0.25][i];
-      osc(ctx, "sine", f * h, t, end).connect(hg).connect(g);
+      osc(ctx, "sine", f * h, t, env.end).connect(hg).connect(env.gain);
     });
-    route(out, g, 0.3);
+    route(out, env.gain, 0.3);
   },
   marimba(out, t, m, _d, vel) {
     const { ctx } = out;
@@ -373,91 +408,91 @@ const VOICES: Record<Instrument, Voice> = {
   strings(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
-    const end = t + dur + 0.5;
+    const env = adsr(ctx, t, dur, 0.045 * vel, 0.14, 0.4);
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.frequency.value = 2200;
-    for (const d of [-7, 7]) {
-      const o = osc(ctx, "sawtooth", f, t, end, d);
-      vibrato(ctx, o.detune, t, end, 6, 5, 0.25);
-      o.connect(lp);
-    }
-    route(out, lp.connect(adsr(ctx, t, dur, 0.045 * vel, 0.14, 0.4)), 0.55);
+    const oscs = [-7, 7].map((d) => osc(ctx, "sawtooth", f, t, env.end, d));
+    for (const o of oscs) o.connect(lp);
+    vibrato(ctx, oscs.map((o) => o.detune), t, dur, env.end, 6, 5, 0.25);
+    route(out, lp.connect(env.gain), 0.55);
   },
   brass(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
-    const end = t + dur + 0.15;
+    const env = adsr(ctx, t, dur, 0.06 * vel, 0.035, 0.12);
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.Q.value = 1.5;
     lp.frequency.setValueAtTime(500, t);
     lp.frequency.linearRampToValueAtTime(2600, t + 0.06);
-    lp.frequency.setTargetAtTime(1500, t + 0.08, 0.15);
-    osc(ctx, "sawtooth", f, t, end).connect(lp);
-    osc(ctx, "sawtooth", f, t, end, 8).connect(lp);
-    route(out, lp.connect(adsr(ctx, t, dur, 0.06 * vel, 0.035, 0.12)), 0.3);
+    // A ramp that ends (setTargetAtTime never does: the filter would recompute every sample for the whole note).
+    lp.frequency.exponentialRampToValueAtTime(1500, t + 0.5);
+    osc(ctx, "sawtooth", f, t, env.end).connect(lp);
+    osc(ctx, "sawtooth", f, t, env.end, 8).connect(lp);
+    route(out, lp.connect(env.gain), 0.3);
   },
   piano(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
     const decay = Math.max(0.6, Math.min(1.8, dur + 0.6));
     const end = t + decay + 0.1;
-    const g = ctx.createGain();
-    const trem = ctx.createOscillator();
-    trem.frequency.value = 4.5;
-    const tg = ctx.createGain();
-    tg.gain.value = 0.18;
-    trem.connect(tg).connect(g.gain);
-    g.gain.value = 1;
-    trem.start(t);
-    trem.stop(end);
-    route(out, osc(ctx, "sine", f, t, end).connect(decayGain(ctx, t, 0.15 * vel, decay)).connect(g), 0.3);
+    const trem = tremolo(ctx, t, end, 4.5, 0.18);
+    route(out, osc(ctx, "sine", f, t, end).connect(decayGain(ctx, t, 0.15 * vel, decay)).connect(trem), 0.3);
     route(out, osc(ctx, "sine", f * 2, t, end).connect(decayGain(ctx, t, 0.04 * vel, decay * 0.5)), 0.3);
     route(out, osc(ctx, "triangle", f * 3, t, t + 0.2).connect(decayGain(ctx, t, 0.015 * vel, 0.08, 0.001)));
   },
   flute(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
-    const end = t + dur + 0.15;
-    const o = osc(ctx, "triangle", f, t, end);
-    vibrato(ctx, o.detune, t, end, 12, 5, 0.18);
-    const g = adsr(ctx, t, dur, 0.13 * vel, 0.06, 0.12, 0.9);
-    o.connect(g);
-    const breath = noiseSrc(ctx, t, end);
+    const env = adsr(ctx, t, dur, 0.13 * vel, 0.06, 0.12, 0.9);
+    const o = osc(ctx, "triangle", f, t, env.end);
+    vibrato(ctx, [o.detune], t, dur, env.end, 12, 5, 0.18);
+    o.connect(env.gain);
+    const breath = noiseSrc(out, t, env.end);
     const bp = ctx.createBiquadFilter();
     bp.type = "bandpass";
     bp.frequency.value = f * 2;
     bp.Q.value = 6;
     const bg = ctx.createGain();
     bg.gain.value = 0.08;
-    breath.connect(bp).connect(bg).connect(g);
-    route(out, g, 0.4, 0.2);
+    breath.connect(bp).connect(bg).connect(env.gain);
+    route(out, env.gain, 0.4, 0.2);
   },
   accordion(out, t, m, dur, vel) {
     const { ctx } = out;
     const f = midiToFreq(m);
-    const end = t + dur + 0.1;
+    const env = adsr(ctx, t, dur, 0.05 * vel, 0.03, 0.08);
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.frequency.value = 2400;
-    osc(ctx, "square", f, t, end, -11).connect(lp);
-    osc(ctx, "sawtooth", f, t, end, 11).connect(lp);
-    const g = adsr(ctx, t, dur, 0.05 * vel, 0.03, 0.08);
-    const trem = ctx.createOscillator();
-    trem.frequency.value = 6;
-    const tg = ctx.createGain();
-    tg.gain.value = 0.012 * vel;
-    trem.connect(tg).connect(g.gain);
-    trem.start(t);
-    trem.stop(end);
-    route(out, lp.connect(g), 0.25);
+    osc(ctx, "square", f, t, env.end, -11).connect(lp);
+    osc(ctx, "sawtooth", f, t, env.end, 11).connect(lp);
+    route(out, lp.connect(env.gain).connect(tremolo(ctx, t, env.end, 6, 0.24)), 0.25);
   },
 };
 
 const DRUMS = new Set<Instrument>(["kick", "snare", "clap", "hat", "openhat", "shaker"]);
 
 // --- Player ---------------------------------------------------------------------------------------
+
+/**
+ * How far ahead notes are scheduled (seconds). Games stall the main thread now and then (loading a
+ * model, compiling shaders, a slow frame), and a scheduler that runs dry during a stall leaves a
+ * gap in the music. But every queued note is live audio nodes, and the browser's audio thread
+ * slows down sharply as they pile up — so the queue follows the game: short while it runs
+ * smoothly, longer after stalls (a bit over the longest recent one).
+ */
+const AHEAD_MIN = 0.2;
+const AHEAD_MAX = 0.8;
+/** Assumed stall when a song starts: games load and compile shaders then. */
+const START_JANK = 0.3;
+/** Seconds for the remembered stall to halve once the game runs smoothly. */
+const JANK_HALF_LIFE = 8;
+/** Background tabs may run timers only once a second. */
+const AHEAD_HIDDEN = 1.6;
+/** Music level on pause screens. */
+const DUCKED = 0.3;
 
 /** When a song started and how long its steps are — rhythm games compute note times from this. */
 export interface SongTiming {
@@ -471,19 +506,44 @@ export interface SongTiming {
   swing: number;
 }
 
+/** A playing song's output: its voices, and the faders (dry, reverb, echo) that move together. */
+interface Channel {
+  out: Out;
+  faders: GainNode[];
+  /** Everything to disconnect once the song has faded out. */
+  nodes: AudioNode[];
+}
+
+/** Moves the faders to `level` in `seconds`, smoothly from wherever they are now. */
+function fade(ch: Channel, level: number, seconds: number) {
+  const t = ch.out.ctx.currentTime;
+  for (const { gain } of ch.faders) {
+    if (typeof gain.cancelAndHoldAtTime === "function") gain.cancelAndHoldAtTime(t);
+    else {
+      const now = gain.value;
+      gain.cancelScheduledValues(t);
+      gain.setValueAtTime(now, t);
+    }
+    gain.linearRampToValueAtTime(level, t + Math.max(0.02, seconds));
+  }
+}
+
 class MusicPlayer {
   private song: Song | null = null;
   private timingInfo: SongTiming | null = null;
   private readonly startListeners = new Set<(t: SongTiming) => void>();
   private layers: ParsedLayer[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
-  private out: { gain: GainNode; reverb: GainNode; echo: GainNode } | null = null;
+  private channel: Channel | null = null;
   private nextTime = 0;
   private step = 0;
   private bar = 0;
   private intensity = 1;
   private barIntensity = 1;
   private ducked = false;
+  /** Longest recent gap between scheduler ticks (seconds), fading over time. */
+  private jank = START_JANK;
+  private lastTick = 0;
 
   /**
    * Starts a song (cross-fading from the current one). Re-playing the same song only sets the
@@ -497,7 +557,7 @@ class MusicPlayer {
     const steps = song.steps ?? 16;
     this.layers = song.layers.map((layer) => ({ layer, bars: layer.bars.map((b) => parseBar(b, steps)) }));
     audio.onUnlock(() => {
-      if (this.song === song && !this.timer) this.begin();
+      if (this.song === song && !this.channel) this.begin();
     });
   }
 
@@ -508,14 +568,20 @@ class MusicPlayer {
 
   /** Softens the music (pause screens) without stopping it. */
   duck(on: boolean) {
+    // Games call this on every start / resume; re-applying it would restart a fade already running.
+    if (on === this.ducked) return;
     this.ducked = on;
-    const { ctx } = audio;
-    if (ctx && this.out) this.out.gain.gain.setTargetAtTime(on ? 0.3 : 1, ctx.currentTime, 0.15);
+    if (this.channel) fade(this.channel, on ? DUCKED : 1, 0.35);
   }
 
   /** Timing of the playing song (null before it has started — see onStart). */
   timing(): SongTiming | null {
     return this.timingInfo;
+  }
+
+  /** AudioContext time up to which notes are already scheduled: an intensity change lands on the first bar after it. */
+  scheduledUntil() {
+    return this.nextTime;
   }
 
   /** Called with the timing each time a song actually starts playing. Returns an unsubscribe function. */
@@ -524,24 +590,24 @@ class MusicPlayer {
     return () => void this.startListeners.delete(fn);
   }
 
-  stop(fade = 0.5) {
+  stop(fadeOut = 0.5) {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.song = null;
     this.timingInfo = null;
-    const { ctx } = audio;
-    const out = this.out;
-    this.out = null;
-    if (ctx && out) {
-      out.gain.gain.cancelScheduledValues(ctx.currentTime);
-      out.gain.gain.setValueAtTime(out.gain.gain.value, ctx.currentTime);
-      out.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + fade);
-      setTimeout(() => {
-        out.gain.disconnect();
-        out.reverb.disconnect();
-        out.echo.disconnect();
-      }, fade * 1000 + 3000);
-    }
+    const ch = this.channel;
+    this.channel = null;
+    if (!ch) return;
+    fade(ch, 0, fadeOut);
+    // Disconnect once it is silent (the fade, then the echo's tail), judged on the audio clock: it
+    // stands still while audio is held, and a fade cut off half-way would click.
+    const { ctx } = ch.out;
+    const silentAt = ctx.currentTime + fadeOut + 3;
+    const release = () => {
+      if (ctx.currentTime < silentAt) setTimeout(release, 1000);
+      else ch.nodes.forEach((n) => n.disconnect());
+    };
+    setTimeout(release, (fadeOut + 3) * 1000);
   }
 
   private stepDur(song: Song) {
@@ -552,65 +618,79 @@ class MusicPlayer {
     const { ctx } = audio;
     const song = this.song;
     if (!ctx || !song) return;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(this.ducked ? 0.3 : 1, ctx.currentTime + 0.8);
-    gain.connect(audio.musicBus);
+    const dry = ctx.createGain();
+    dry.connect(audio.musicBus);
     const reverb = ctx.createGain();
     reverb.connect(audio.reverb);
+    // Each song has its own echo timed to its tempo, so a cross-fade never retimes (and glitches)
+    // the tail of the song fading out.
     const echo = ctx.createGain();
-    echo.connect(audio.echo);
-    this.out = { gain, reverb, echo };
-    audio.echoDelay.delayTime.setValueAtTime(this.stepDur(song) * (song.echoSteps ?? 3), ctx.currentTime);
-    this.nextTime = ctx.currentTime + 0.12;
+    const echoIn = ctx.createGain();
+    echoIn.gain.value = 0.55;
+    const delay = ctx.createDelay(2);
+    delay.delayTime.value = Math.min(1.9, this.stepDur(song) * (song.echoSteps ?? 3));
+    const tone = ctx.createBiquadFilter();
+    tone.type = "lowpass";
+    tone.frequency.value = 2600;
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.32;
+    echo.connect(echoIn).connect(delay).connect(tone).connect(feedback).connect(delay);
+    tone.connect(audio.musicBus);
+    const faders = [dry, reverb, echo];
+    for (const { gain } of faders) {
+      gain.setValueAtTime(0, ctx.currentTime);
+      gain.linearRampToValueAtTime(this.ducked ? DUCKED : 1, ctx.currentTime + 0.8);
+    }
+    this.channel = {
+      out: { ctx, dry, reverb, echo, noise: audio.noiseBuffer, sends: new Map() },
+      faders,
+      nodes: [dry, reverb, echo, echoIn, delay, tone, feedback],
+    };
+    this.nextTime = ctx.currentTime + 0.1;
     this.step = 0;
     this.bar = 0;
     this.barIntensity = this.intensity;
+    this.jank = Math.max(this.jank, START_JANK);
+    this.lastTick = performance.now();
     this.timer = setInterval(() => this.tick(), 25);
     this.timingInfo = { song, start: this.nextTime, stepDur: this.stepDur(song), steps: song.steps ?? 16, swing: (song.swing ?? 0) * this.stepDur(song) };
     const timing = this.timingInfo;
     this.startListeners.forEach((fn) => fn(timing));
+    this.tick();
   }
 
   private tick() {
-    const { ctx } = audio;
+    const ch = this.channel;
     const song = this.song;
-    if (!ctx || !song || !this.out) return;
-    // After a throttled background tab, skip ahead instead of firing a burst of late notes
-    // (this breaks the song timing, so rhythm games should pause with audio.hold() instead).
-    if (this.nextTime < ctx.currentTime - 0.05) {
-      const dur = this.stepDur(song);
-      const skipped = Math.ceil((ctx.currentTime + 0.05 - this.nextTime) / dur);
-      for (let i = 0; i < skipped; i++) {
-        this.nextTime += dur;
-        if (++this.step >= (song.steps ?? 16)) {
-          this.step = 0;
-          this.bar++;
-        }
-      }
-    }
-    const steps = song.steps ?? 16;
+    if (!ch || !song) return;
+    const { ctx } = ch.out;
     const dur = this.stepDur(song);
-    while (this.nextTime < ctx.currentTime + 0.14) {
-      if (this.step === 0) this.barIntensity = this.intensity;
+    // A stall longer than the lookahead (a frozen tab, a long load) left steps behind: skip them
+    // whole, so the song stays on its beat grid instead of firing notes late with clipped attacks.
+    while (this.nextTime < ctx.currentTime + 0.005) this.advance(song, dur);
+    const now = performance.now();
+    const gap = (now - this.lastTick) / 1000;
+    this.lastTick = now;
+    this.jank = Math.max(gap, this.jank * Math.pow(0.5, gap / JANK_HALF_LIFE));
+    const hidden = typeof document !== "undefined" && document.hidden;
+    const ahead = hidden ? AHEAD_HIDDEN : Math.min(AHEAD_MAX, Math.max(AHEAD_MIN, this.jank * 1.4 + 0.08));
+    while (this.nextTime < ctx.currentTime + ahead) {
       const swing = this.step % 2 === 1 ? (song.swing ?? 0) * dur : 0;
-      this.scheduleStep(song, this.nextTime + swing, dur);
-      this.nextTime += dur;
-      this.step++;
-      if (this.step >= steps) {
-        this.step = 0;
-        this.bar++;
-      }
+      this.scheduleStep(ch.out, song, this.nextTime + swing, dur);
+      this.advance(song, dur);
     }
   }
 
-  private scheduleStep(song: Song, t: number, stepDur: number) {
-    const ctx = audio.ctx!;
-    const fader = this.out!;
-    const out: Out = { ctx, dry: fader.gain, reverb: fader.reverb, echo: fader.echo };
-    // The sends are fed through the song fader so fades and ducking apply to them.
-    fader.reverb.gain.value = fader.gain.gain.value;
-    fader.echo.gain.value = fader.gain.gain.value;
+  private advance(song: Song, dur: number) {
+    this.nextTime += dur;
+    if (++this.step >= (song.steps ?? 16)) {
+      this.step = 0;
+      this.bar++;
+      this.barIntensity = this.intensity;
+    }
+  }
+
+  private scheduleStep(out: Out, song: Song, t: number, stepDur: number) {
     const chordRoot = song.chords[this.bar % song.chords.length];
     for (const { layer, bars } of this.layers) {
       if (this.barIntensity < (layer.from ?? 0) || this.barIntensity > (layer.to ?? 9)) continue;

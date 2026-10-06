@@ -190,19 +190,32 @@ function goldstorage(level: number): Recipe {
 }
 
 function elixirstorage(level: number): Recipe {
+  // A storage tank: a big iron-banded vat of elixir that grows every level — on a timber deck at
+  // first, a round stone plinth from level 2 (granite from 4) — with small casks beside it, a stone
+  // frame from level 3, glowing crystals on the lid from 4 and gold trim at 5.
   const parts: Part[] = [];
-  if (level === 1) {
-    // A modest flask on a barrel stand.
-    parts.push({ m: "keg", x: 0, z: 0, s: 1.2 }, { m: "potion", y: 0.55, s: 2.4, look: "elixir" }, { m: "barrelSmall", x: 1.0, z: 0.9, s: 0.9 });
-    return { parts, height: 1.8 };
-  }
-  parts.push({ m: "potion", s: 3.0 + level * 0.45, look: "elixir" });
-  parts.push({ m: "potion", x: 1.0, z: 0.95, s: 1.4 + level * 0.1, look: "elixir" });
-  if (level === 2) parts.push({ m: "barrelSmall", x: -1.0, z: 1.0, s: 0.9 });
-  if (level >= 3) for (const [x, z] of [[-1.15, 1.15], [1.15, -1.15], [-1.15, -1.15]]) parts.push({ m: "pillarStone", x, z, s: 1.1 + level * 0.08, look: level >= 5 ? "gold" : undefined });
-  if (level >= 4) parts.push({ m: "crystal", x: 1.15, z: -0.1, s: 1.5, look: "glow" }, { m: "crystal", x: -0.1, z: 1.2, s: 1.3, look: "glow" }, { m: "lanternGlass", x: -1.2, z: 0.1, s: 1.3 });
-  if (level >= 5) parts.push({ m: "crystalLarge", x: 0.9, z: -0.95, s: 0.55, look: "glow" }, flagOn(1.2, 0, 1.2, 1, "gold"));
-  return { parts, height: 1.7 + level * 0.3 };
+  const plinth = level >= 2 ? 0.21 : 0.05;
+  const tank = 2.5 + level * 0.32;
+  const top = plinth + tank * 0.46;
+  if (level === 1) parts.push({ m: "planks", y: 0, sx: 2.3, sz: 2.3 });
+  else parts.push({ m: "tdRoundBase", sx: 2.3 + level * 0.06, sz: 2.3 + level * 0.06, look: level >= 4 ? "granite" : "stone" });
+  // The vat is plain timber and iron; the elixir shows as the glowing surface inside its rim.
+  parts.push({ m: "keg", y: plinth, s: tank });
+  const pool = tank * 0.21;
+  parts.push({ m: "fountain", y: top - 0.05, sx: pool, sy: pool * 0.55, sz: pool, look: "elixir" });
+  parts.push({ m: "potion", x: 1.08, z: 0.98, s: 1.3 + level * 0.06, look: "elixir" });
+  if (level >= 2) parts.push({ m: "keg", x: -1.05, z: 1.02, s: 0.9 + level * 0.05, r: -0.4, look: "elixir" });
+  if (level === 1) parts.push({ m: "barrelSmall", x: -1.0, z: 1.0, s: 0.9 });
+  if (level >= 3)
+    for (const [x, z] of [
+      [-1.15, -1.15],
+      [1.15, -1.15],
+      [-1.2, 0.05],
+    ])
+      parts.push({ m: "pillarStone", x, z, s: 1.0 + level * 0.1, look: level >= 5 ? "gold" : undefined });
+  if (level >= 4) parts.push({ m: "crystal", y: top, s: 1.0 + (level - 4) * 0.35, look: "glow" }, { m: "lanternGlass", x: 1.2, z: -0.1, s: 1.2 });
+  if (level >= 5) parts.push({ m: "crystalLarge", x: 0.95, z: -0.95, s: 0.5, look: "glow" }, flagOn(1.2, 0, 1.2, 1, "gold"));
+  return { parts, height: top + (level >= 4 ? 0.5 : 0.15) };
 }
 
 function builder(): Recipe {
@@ -608,7 +621,10 @@ export interface TroopLook {
   gear: Gear[];
   /** Clip played while attacking. */
   attack: string;
+  /** Attack clips taken in turn (a sword cut, another, a kick…) instead of `attack` every time. */
+  combo?: string[];
   run: string;
+  /** Pose between blows / shots (aiming a bow); idle when unset. */
   hold?: string;
   /** Clip names for characters whose rig names them differently ("idle" → "Idle"). */
   clips?: Record<string, string>;
@@ -637,26 +653,43 @@ export function troopLook(kind: TroopKind | RaiderKind | HeroKind | "bones" | "b
         // From level 4 the warrior swaps his sword for a chaos blade.
         gear: [level >= 4 ? { ...sword(gold, 0.75 + level * 0.05), m: "chaosBlade" as const } : sword(gold, 0.9 + level * 0.06), ...(level >= 2 ? [shield(level >= 3 ? "shieldRect" : "shieldRound", gold)] : [])],
         attack: "attack-melee-right",
+        combo: ["attack-melee-right", "attack-melee-right", "attack-kick-right"],
         run: "sprint",
       };
     case "archer":
-      return { m: "archer", height: 0.7 * grow, gear: [{ m: "bow", bone: "arm-left", x: 0.07, y: -0.13, z: 0.05, s: 0.9 + level * 0.05, look: level >= 4 ? (gold ?? "dark") : undefined }], attack: "holding-right-shoot", run: "sprint" };
+      return {
+        m: "archer",
+        height: 0.7 * grow,
+        gear: [{ m: "bow", bone: "arm-left", x: 0.07, y: -0.13, z: 0.05, s: 0.9 + level * 0.05, look: level >= 4 ? (gold ?? "dark") : undefined }],
+        attack: "holding-right-shoot",
+        run: "sprint",
+        hold: "holding-right",
+      };
     case "thief":
-      return { m: "thief", height: 0.66 * grow, gear: [{ m: "key", bone: "arm-right", x: -0.06, y: -0.15, z: 0.05, rz: R90, s: 0.45 + level * 0.04, look: gold }], attack: "attack-melee-right", run: "sprint" };
+      return {
+        m: "thief",
+        height: 0.66 * grow,
+        gear: [{ m: "key", bone: "arm-right", x: -0.06, y: -0.15, z: 0.05, rz: R90, s: 0.45 + level * 0.04, look: gold }],
+        attack: "attack-melee-right",
+        combo: ["attack-melee-right", "attack-kick-left"],
+        run: "sprint",
+      };
     case "giant":
       return {
         m: "giant",
         height: 1.25 * grow,
         gear: level >= 3 ? [{ m: "shieldRound", bone: "arm-left", x: 0.08, y: -0.08, z: 0.02, ry: -R90, s: 0.8, look: gold }] : [],
         attack: "attack-melee-right",
+        // Fists: left, right, then a stomp-kick.
+        combo: ["attack-melee-left", "attack-melee-right", "attack-melee-left", "attack-kick-right"],
         run: "walk",
       };
     case "breaker":
       return { m: "breaker", height: 0.64 * grow, gear: [{ m: "keg", bone: "torso", y: 0.3, z: 0, s: 0.4 + level * 0.03, look: level >= 4 ? "red" : undefined }], attack: "interact-right", run: "sprint", hold: "holding-both" };
     case "mage":
-      return { m: "mage", height: 0.7 * grow, gear: [{ m: "crystal", bone: "arm-right", x: -0.05, y: -0.17, z: 0.06, s: 0.45 + level * 0.06, look: gold ?? "glow" }], attack: "holding-right-shoot", run: "walk" };
+      return { m: "mage", height: 0.7 * grow, gear: [{ m: "crystal", bone: "arm-right", x: -0.05, y: -0.17, z: 0.06, s: 0.45 + level * 0.06, look: gold ?? "glow" }], attack: "holding-right-shoot", run: "walk", hold: "holding-right" };
     case "healer":
-      return { m: "healer", height: 0.74 * grow, gear: [{ m: "lanternGlass", bone: "arm-right", x: -0.05, y: -0.2, z: 0.06, s: 0.5 + level * 0.05, look: gold }], attack: "holding-right-shoot", run: "walk" };
+      return { m: "healer", height: 0.74 * grow, gear: [{ m: "lanternGlass", bone: "arm-right", x: -0.05, y: -0.2, z: 0.06, s: 0.5 + level * 0.05, look: gold }], attack: "holding-right-shoot", run: "walk", hold: "holding-right" };
     case "king":
       return {
         m: "king",
@@ -674,12 +707,12 @@ export function troopLook(kind: TroopKind | RaiderKind | HeroKind | "bones" | "b
     case "builder":
       return { m: "builder", height: 0.58, gear: [{ m: "hammer", bone: "arm-right", x: -0.05, y: -0.14, z: 0.07, rx: R90, s: 1.3 }], attack: "attack-melee-right", run: "walk" };
     case "skeleton":
-      return { m: "skeleton", height: 0.6 * grow, gear: [sword("dark", 0.9)], attack: "attack-melee-right", run: "sprint" };
+      return { m: "skeleton", height: 0.6 * grow, gear: [sword("dark", 0.9)], attack: "attack-melee-right", combo: ["attack-melee-right", "attack-kick-right"], run: "sprint" };
     case "zombie":
-      return { m: "zombie", height: 0.95 * grow, gear: [], attack: "attack-melee-right", run: "walk" };
+      return { m: "zombie", height: 0.95 * grow, gear: [], attack: "attack-melee-right", combo: ["attack-melee-left", "attack-melee-right"], run: "walk" };
     case "vampire":
-      return { m: "vampire", height: 0.62 * grow, gear: [], attack: "attack-melee-right", run: "sprint" };
+      return { m: "vampire", height: 0.62 * grow, gear: [], attack: "attack-melee-right", combo: ["attack-melee-right", "attack-melee-left", "attack-kick-right"], run: "sprint" };
     case "keeper":
-      return { m: "keeper", height: 0.62 * grow, gear: [{ m: "lanternGlass", bone: "arm-right", x: -0.05, y: -0.2, z: 0.06, s: 0.5 }], attack: "holding-right-shoot", run: "walk" };
+      return { m: "keeper", height: 0.62 * grow, gear: [{ m: "lanternGlass", bone: "arm-right", x: -0.05, y: -0.2, z: 0.06, s: 0.5 }], attack: "holding-right-shoot", run: "walk", hold: "holding-right" };
   }
 }

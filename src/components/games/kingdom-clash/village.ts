@@ -268,7 +268,8 @@ export function freeSpot(s: Save, size: number, cx: number, cz: number) {
 
 // --- Clock -----------------------------------------------------------------------------------------
 
-function trainSpeed(s: Save) {
+/** Every barracks trains at once: 2 barracks turn troops out twice as fast (a 10 s troop takes 5 s). */
+export function trainSpeed(s: Save) {
   return Math.max(1, builtOf(s, "barracks").length);
 }
 

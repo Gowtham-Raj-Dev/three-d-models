@@ -28,6 +28,8 @@ import {
 export const N = GRID + 2 * MARGIN;
 export const STEP = 1 / 30;
 const WALL_COST = 9;
+/** A unit that starts fighting winds up this long before its first blow (the view swings meanwhile). */
+const WINDUP = 0.3;
 const SQRT2 = Math.SQRT2;
 
 export interface SimBuildingInput {
@@ -116,6 +118,9 @@ export class SU {
   cooldown = 0.3;
   yaw = 0;
   moving = false;
+  /** Fighting this step (the view winds a swing up as `cooldown` runs out). */
+  attacking = false;
+  private wasAttacking = false;
   /** Seconds since its last attack swing / shot (animation). */
   swing = 9;
   rage = 0;
@@ -128,6 +133,17 @@ export class SU {
   /** Guards (defending heroes, trap skeletons) stay near this point. */
   guard: { x: number; z: number; r: number } | null = null;
   readonly hero: boolean;
+  beginStep() {
+    this.wasAttacking = this.attacking;
+    this.attacking = false;
+  }
+
+  /** Called while fighting: a fresh engagement winds up, so the first blow lands mid-swing. */
+  engage() {
+    if (!this.wasAttacking) this.cooldown = Math.max(this.cooldown, WINDUP);
+    this.attacking = true;
+  }
+
   /** Personal offset so a crowd doesn't walk in single file. */
   readonly ox: number;
   readonly oz: number;
@@ -492,6 +508,7 @@ export class Sim {
       }
       u.swing += dt;
       u.retarget -= dt;
+      u.beginStep();
       if (u.cloak > 0) u.cloak = Math.max(0, u.cloak - dt);
       if (u.side === 0) this.updateAttacker(u, dt);
       else this.updateDefender(u, dt);
@@ -816,6 +833,7 @@ export class Sim {
     const d = Math.hypot(t.x - u.x, t.z - u.z);
     if (d > u.def.range * 0.8) this.moveTowards(u, t.x, t.z, dt, u.side === 1);
     else this.face(u, t.x, t.z, dt);
+    if (d <= u.def.range) u.engage();
     u.cooldown -= dt;
     if (u.cooldown <= 0 && d <= u.def.range) {
       u.cooldown = u.def.interval;
@@ -851,6 +869,7 @@ export class Sim {
 
   private attackBuilding(u: SU, b: SB, dt: number) {
     this.face(u, b.cx, b.cz, dt);
+    u.engage();
     u.cooldown -= dt;
     if (u.cooldown > 0) return;
     u.cooldown = u.def.interval;
@@ -879,6 +898,7 @@ export class Sim {
 
   private attackUnit(u: SU, o: SU, dt: number) {
     this.face(u, o.x, o.z, dt);
+    u.engage();
     u.cooldown -= dt;
     if (u.cooldown > 0) return;
     u.cooldown = u.def.interval;

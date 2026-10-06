@@ -52,7 +52,7 @@ export interface Stage {
 }
 
 /** Loot on offer per resource at a stage. */
-export const stageLoot = (s: number) => Math.round((700 * Math.pow(1.042, s - 1)) / 10) * 10;
+export const stageLoot = (s: number) => Math.round((1400 * Math.pow(1.042, s - 1)) / 10) * 10;
 
 /** The last stages of every Town Hall band are "elite": up to +45% strength at stage 100. */
 export function elitePower(s: number) {

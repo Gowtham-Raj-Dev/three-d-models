@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUpCircle, Check, Clock, Crown, Dices, Hammer, Home, Lock, Moon, Pause, Play, Settings, Shield, ShoppingCart, Sparkles, Star, Swords, Trophy, Users, X, Zap } from "lucide-react";
-import { BigButton, IconButton, SoftButton, SystemButtons, useMediaQuery, usePhoneLandscape } from "../shared/ui";
+import { ArrowUpCircle, Check, CircleHelp, Clock, Crown, Dices, Hammer, Home, Lock, Moon, Music, Pause, Play, Settings, Shield, ShoppingCart, Sparkles, Star, Swords, Trophy, Users, Volume2, X, Zap } from "lucide-react";
+import { audio } from "../shared/audio";
+import { BigButton, IconButton, SoftButton, SystemButtons, useAudioSettings, useMediaQuery, usePhoneLandscape } from "../shared/ui";
 import {
   ACHIEVEMENTS,
   BUILDINGS,
@@ -25,14 +26,14 @@ import {
   type SpellKind,
   type TroopKind,
 } from "./data";
-import type { BattleHud, BattleResult, HeroHud, SelectedInfo, Slot, VillageHud } from "./engine";
+import type { BattleHud, BattleResult, HeroHud, Quality, SelectedInfo, Slot, VillageHud } from "./engine";
 import { stage as stageOf } from "./layouts";
 import * as V from "./village";
 
 // --- Little pieces ---------------------------------------------------------------------------------------
 
 /** A rendered portrait (data URL made in the browser, so next/image has nothing to optimize). */
-function Pic({ src, className }: { src: string; alt: ""; className?: string }) {
+export function Pic({ src, className }: { src: string; alt: ""; className?: string }) {
   // eslint-disable-next-line @next/next/no-img-element -- data URL rendered in the browser
   return <img src={src} alt="" className={className} />;
 }
@@ -52,7 +53,7 @@ export function ResIcon({ res, size = 16 }: { res: "gold" | "elixir" | "gems"; s
 }
 
 /** A price; when you can't pay it the number turns red on a white chip (readable on any button). */
-function Cost({ res, amount, have }: { res: "gold" | "elixir" | "gems"; amount: number; have?: number }) {
+export function Cost({ res, amount, have }: { res: "gold" | "elixir" | "gems"; amount: number; have?: number }) {
   const short = have !== undefined && have < amount;
   return (
     <span className={`inline-flex items-center gap-1.5 tabular-nums ${short ? "rounded-md bg-white px-1.5 font-black text-red-600 ring-2 ring-red-500 [text-shadow:none]" : ""}`}>
@@ -62,7 +63,7 @@ function Cost({ res, amount, have }: { res: "gold" | "elixir" | "gems"; amount: 
   );
 }
 
-function Bar({ value, color, className = "" }: { value: number; color: string; className?: string }) {
+export function Bar({ value, color, className = "" }: { value: number; color: string; className?: string }) {
   return (
     <div className={`h-2 overflow-hidden rounded-full bg-[color-mix(in_srgb,currentColor_18%,transparent)] ${className}`}>
       <div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${Math.max(0, Math.min(100, value * 100))}%`, background: color }} />
@@ -70,7 +71,7 @@ function Bar({ value, color, className = "" }: { value: number; color: string; c
   );
 }
 
-function Stars({ n, size = 16, total = 3 }: { n: number; size?: number; total?: number }) {
+export function Stars({ n, size = 16, total = 3 }: { n: number; size?: number; total?: number }) {
   return (
     <span className="inline-flex gap-0.5">
       {Array.from({ length: total }, (_, i) => (
@@ -83,19 +84,25 @@ function Stars({ n, size = 16, total = 3 }: { n: number; size?: number; total?: 
 /** Shared frame for the big panels (shop, army, campaign). */
 function Sheet({ title, onClose, children, tabs, wide = true }: { title: string; onClose: () => void; children: ReactNode; tabs?: ReactNode; wide?: boolean }) {
   return (
-    <div className="absolute inset-0 z-30 bg-black/45 backdrop-blur-[2px]" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="flex h-full items-end justify-center p-2 sm:items-center sm:p-4 land:p-2">
+    <div className="absolute inset-0 z-30 bg-black/45 backdrop-blur-[2px] land:bg-black/55 land:backdrop-blur-none" onPointerDown={(e) => e.stopPropagation()}>
+      {/* Phones in landscape: a full-screen sheet (beside the camera cutout), like a mobile game's menus. */}
+      <div className="safe-pad flex h-full items-end justify-center sm:items-center sm:p-4 land:safe-pad">
         <div
           role="dialog"
           aria-label={title}
-          className={`g-panel flex max-h-[min(88vh,760px)] w-full flex-col overflow-hidden land:max-h-full ${wide ? "max-w-3xl land:max-w-4xl" : "max-w-md"}`}
+          className={`g-panel flex max-h-[min(88vh,760px)] w-full flex-col overflow-hidden land:h-full land:max-h-full land:max-w-none ${wide ? "max-w-3xl" : "max-w-md"}`}
         >
           {/* Landscape phones: the tabs sit in the title row to leave the height for the content. */}
           <div className="flex items-center gap-3 px-4 pt-4 pb-2 sm:px-5 land:gap-2 land:pt-2.5 land:pb-1.5">
             <h2 className={`g-panel-title flex-1 truncate text-2xl sm:text-3xl land:text-2xl ${tabs ? "land:flex-none" : ""}`}>{title}</h2>
             {tabs && <div className="hidden min-w-0 flex-1 gap-1.5 overflow-x-auto land:flex">{tabs}</div>}
-            <button type="button" onClick={onClose} aria-label="Close" className="g-tint grid size-10 shrink-0 place-items-center rounded-full hover:brightness-110 focus-visible:outline-2 focus-visible:outline-[var(--accent)] land:size-9">
-              <X className="size-5" />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="g-tint grid size-10 shrink-0 place-items-center rounded-full hover:brightness-110 focus-visible:outline-2 focus-visible:outline-[var(--accent)] land:size-11 land:border-[3px] land:border-red-900 land:bg-gradient-to-b land:from-red-400 land:to-red-700 land:text-white land:shadow-[0_3px_0_#7f1d1d]"
+            >
+              <X className="size-5 land:size-6" strokeWidth={3} />
             </button>
           </div>
           {tabs && <div className="flex gap-2 overflow-x-auto px-4 pb-2 sm:px-5 land:hidden">{tabs}</div>}
@@ -123,7 +130,7 @@ export function TopBar(props: TopBarProps) {
   if (land) return <LandTopBar {...props} />;
   const { hud, onSettings, onHelp, onDefend } = props;
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 pt-[max(env(safe-area-inset-top),8px)] sm:p-3">
+    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-3">
       <div className="flex min-w-0 flex-col gap-1.5">
         <VillageChip hud={hud} />
         <BuildersChip hud={hud} />
@@ -250,7 +257,7 @@ function ResourceBar({ res, value, cap, small = false }: { res: "gold" | "elixir
 export function BottomBar({ hud, onRaid, onShop, onArmy, tutorial }: { hud: VillageHud; onRaid: () => void; onShop: () => void; onArmy: () => void; tutorial: number }) {
   const glow = "animate-pulse ring-4 ring-amber-300";
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2 pb-[max(env(safe-area-inset-bottom),10px)] sm:p-4 land:p-2.5">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2 pb-2.5 sm:p-4 land:p-2.5">
       <button type="button" onClick={onRaid} className={`g-btn pointer-events-auto flex flex-col items-center px-4 py-2 sm:px-6 sm:py-3 land:px-5 land:py-2 ${tutorial === 4 ? glow : ""}`} aria-label="Raid (R)">
         <span className="g-unskew flex-col gap-0">
           <Swords className="size-7 sm:size-8 land:size-6" />
@@ -290,6 +297,7 @@ export function BuildingPanel({
   onClose,
   onBuy,
   onHeal,
+  onDetails,
 }: {
   info: SelectedInfo;
   hud: VillageHud;
@@ -302,19 +310,25 @@ export function BuildingPanel({
   onClose: () => void;
   onBuy: (res: "gold" | "elixir", amount: number, gems: number) => void;
   onHeal: () => void;
+  /** Opens the full building popup (large portraits of this level and the next, every stat). */
+  onDetails?: () => void;
 }) {
   const up = info.upgrade;
   const have = up ? (up.res === "gold" ? hud.gold : up.res === "elixir" ? hud.elixir : hud.gems) : 0;
   const missing = up && up.res !== "gems" && have < up.cost ? up.cost - have : 0;
   const cap = up?.res === "gold" ? hud.goldCap : hud.elixirCap;
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),10px)+86px)] flex justify-center px-2 sm:bottom-[104px] land:right-[11.5rem] land:bottom-2.5 land:left-[6.75rem] land:px-0">
+    <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center px-2 sm:bottom-[104px] land:right-[11.5rem] land:bottom-2.5 land:left-[6.75rem] land:px-0">
       <div
         className="g-panel pointer-events-auto w-full max-w-xl animate-[game-fade_0.25s_ease] p-3 sm:p-4 land:max-h-[calc(100dvh-5.5rem)] land:overflow-y-auto land:p-2.5"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3 land:items-center land:gap-2">
-          {icon && <Pic src={icon} alt="" className="size-14 shrink-0 rounded-xl bg-[color-mix(in_srgb,currentColor_8%,transparent)] land:size-10" />}
+          {icon && (
+            <button type="button" onClick={onDetails} aria-label="Building details" title="Details" className="shrink-0">
+              <Pic src={icon} alt="" className="size-14 rounded-xl bg-[color-mix(in_srgb,currentColor_8%,transparent)] land:size-10" />
+            </button>
+          )}
           <div className="min-w-0 flex-1">
             <h3 className="g-panel-title text-xl leading-tight sm:text-2xl land:text-lg">
               {info.name}
@@ -421,7 +435,7 @@ export function PlacingBar({ hud, onConfirm, onCancel }: { hud: VillageHud; onCo
   const p = hud.placing!;
   const def = BUILDINGS[p.kind];
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),10px)+86px)] flex justify-center px-2 sm:bottom-[104px] land:right-[11.5rem] land:bottom-2.5 land:left-[6.75rem] land:px-0">
+    <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center px-2 sm:bottom-[104px] land:right-[11.5rem] land:bottom-2.5 land:left-[6.75rem] land:px-0">
       <div className="g-hud pointer-events-auto flex items-center gap-3 py-2 pr-2 pl-4" onPointerDown={(e) => e.stopPropagation()}>
         <div>
           <p className="g-display text-base leading-tight">{def.name}</p>
@@ -467,7 +481,7 @@ export function Shop({ save, icons, onBuy, onClose }: { save: V.Save; icons: Rec
         </Tab>
       ))}
     >
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 land:grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] land:gap-2">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 land:flex land:h-full land:snap-x land:gap-2.5 land:overflow-x-auto land:pb-1">
         {kinds
           .filter((k) => SHOP_ORDER.includes(k))
           .map((k) => {
@@ -485,9 +499,9 @@ export function Shop({ save, icons, onBuy, onClose }: { save: V.Save; icons: Rec
                 type="button"
                 disabled={locked || full}
                 onClick={() => onBuy(k)}
-                className={`g-tint relative flex flex-col items-center rounded-xl p-2 text-center transition hover:brightness-105 disabled:opacity-60 ${hint ? "ring-4 ring-amber-400" : ""}`}
+                className={`g-tint relative flex flex-col items-center rounded-xl p-2 text-center transition hover:brightness-105 disabled:opacity-60 land:w-[152px] land:shrink-0 land:snap-start land:justify-center land:px-2.5 ${hint ? "ring-4 ring-amber-400 ring-inset" : ""}`}
               >
-                {icons[`b:${k}`] ? <Pic src={icons[`b:${k}`]} alt="" className="size-20 land:size-14" /> : <div className="size-20 land:size-14" />}
+                {icons[`b:${k}`] ? <Pic src={icons[`b:${k}`]} alt="" className="size-20 land:size-24" /> : <div className="size-20 land:size-24" />}
                 <span className="g-display text-base leading-tight">{def.name}</span>
                 <span className="g-muted text-[11px] font-bold">
                   {locked ? `Town Hall ${unlockTh(k)}` : `Built ${have}/${max}`}
@@ -506,12 +520,12 @@ export function Shop({ save, icons, onBuy, onClose }: { save: V.Save; icons: Rec
                     {locked ? <Lock className="size-3.5" /> : <Check className="size-3.5" />}
                   </span>
                 )}
-                <span className="g-muted mt-1 line-clamp-2 text-[10px] leading-tight land:hidden">{def.desc}</span>
+                <span className="g-muted mt-1 line-clamp-2 text-[10px] leading-tight land:line-clamp-3 land:text-[11px]">{def.desc}</span>
               </button>
             );
           })}
       </div>
-      {th < 5 && <p className="g-muted mt-3 text-center text-xs font-semibold">Upgrade your Town Hall to unlock more buildings and higher levels.</p>}
+      {th < 5 && <p className="g-muted mt-3 text-center text-xs font-semibold land:hidden">Upgrade your Town Hall to unlock more buildings and higher levels.</p>}
     </Sheet>
   );
 }
@@ -547,6 +561,7 @@ export function ArmyPanel({
 }) {
   const [tab, setTab] = useState(initial);
   const barracks = V.barracksLevel(save);
+  const speed = V.trainSpeed(save);
   const factory = V.factoryLevel(save);
   const lab = V.labLevel(save);
   const queue = new Map<TroopKind, number>();
@@ -583,6 +598,9 @@ export function ArmyPanel({
                 </span>
               </div>
               <Bar value={hud.housing ? (hud.army + hud.queued) / hud.housing : 0} color="linear-gradient(90deg,#93c5fd,#2563eb)" className="mt-1.5" />
+              <p className={`mt-1.5 text-[11px] font-bold ${speed > 1 ? "text-green-700" : "g-muted"}`}>
+                {speed > 1 ? `${speed} barracks: training ${speed}× faster` : "Build another barracks to train twice as fast"}
+              </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {TROOP_ORDER.filter((k) => (save.army[k] ?? 0) > 0).map((k) => (
                   <span key={k} className="inline-flex items-center gap-1 rounded-lg bg-[color-mix(in_srgb,currentColor_10%,transparent)] py-0.5 pr-2 pl-0.5 text-xs font-bold">
@@ -621,7 +639,7 @@ export function ArmyPanel({
             )}
           </div>
           <div>
-            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4 land:mt-0 land:grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] land:gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4 land:mt-0 land:grid-cols-[repeat(auto-fill,minmax(7.25rem,1fr))] land:gap-2">
               {TROOP_ORDER.map((k) => {
                 const t = TROOPS[k];
                 const level = save.troopLv[k];
@@ -636,7 +654,7 @@ export function ArmyPanel({
                     onClick={() => onTrain(k)}
                     className={`g-tint relative flex flex-col items-center rounded-xl p-2 text-center transition hover:brightness-105 disabled:opacity-55 ${!room && !locked ? "opacity-75" : ""} ${save.tutorial === 3 && k === "warrior" ? "ring-4 ring-amber-400" : ""}`}
                   >
-                    {icons[`t:${k}`] ? <Pic src={icons[`t:${k}`]} alt="" className="size-16 land:size-12" /> : <div className="size-16 land:size-12" />}
+                    {icons[`t:${k}`] ? <Pic src={icons[`t:${k}`]} alt="" className="size-16" /> : <div className="size-16" />}
                     <span className="absolute top-1.5 left-1.5 rounded-md bg-gradient-to-b from-amber-300 to-amber-600 px-1.5 text-[11px] font-black text-amber-950 ring-1 ring-amber-900">{level}</span>
                     {(queue.get(k) ?? 0) > 0 && <span className="absolute top-1.5 right-1.5 rounded-md bg-sky-600 px-1.5 text-[11px] font-black text-white">+{queue.get(k)}</span>}
                     <span className="g-display text-sm leading-tight">{t.name}</span>
@@ -649,8 +667,8 @@ export function ArmyPanel({
                         <span className="text-xs font-bold">
                           <Cost res="elixir" amount={cost} have={save.elixir} />
                         </span>
-                        <span className="g-muted text-[10px] font-bold">
-                          Space {t.housing} · {formatTime(t.train)}
+                        <span className="g-muted text-[10px] font-bold land:text-[11px]">
+                          Space {t.housing} · {formatTime(Math.max(1, Math.round(t.train / speed)))}
                         </span>
                       </>
                     )}
@@ -787,7 +805,7 @@ function HeroCard({ h, icon }: { h: HeroHud; icon?: string }) {
   const status = h.level < 1 ? "Altar being built" : h.upgrading ? "Training (upgrade)" : h.ready ? "Ready to fight" : `Sleeping · ${formatTime(h.left)}`;
   return (
     <div className="g-tint flex items-center gap-2 rounded-xl p-2">
-      {icon ? <Pic src={icon} alt="" className="size-14 land:size-11" /> : <Crown className="size-10 text-amber-600" />}
+      {icon ? <Pic src={icon} alt="" className="size-14 land:size-12" /> : <Crown className="size-10 text-amber-600" />}
       <div className="min-w-0 flex-1">
         <p className="g-display truncate text-sm leading-tight">
           {def.name} <span className="g-muted">Lv {Math.max(1, h.level)}</span>
@@ -907,7 +925,7 @@ export function BattleBar({ b, icons, onSlot, onEnd, onPause, onSpeed }: { b: Ba
   const endLabel = b.percent > 0 || b.started ? "End battle" : raid ? "Retreat" : "Skip";
   return (
     <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 pt-[max(env(safe-area-inset-top),8px)] sm:p-3">
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-3">
         <div className="g-hud max-w-[46%] px-3 py-1.5 land:max-w-[34%]">
           <p className="g-display truncate text-base leading-tight sm:text-lg">{raid ? `${b.stage}. ${b.name}` : b.name}</p>
           {raid ? (
@@ -957,7 +975,7 @@ export function BattleBar({ b, icons, onSlot, onEnd, onPause, onSpeed }: { b: Ba
       <button type="button" onClick={onEnd} className="g-soft pointer-events-auto absolute bottom-2.5 left-2.5 hidden px-3 py-2 text-sm font-bold land:block">
         <span className="g-unskew">{endLabel}</span>
       </button>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2 pb-[max(env(safe-area-inset-bottom),10px)] land:px-[8.5rem] land:pb-2">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2 pb-2.5 land:px-[8.5rem] land:pb-2">
         <div className="g-hud pointer-events-auto flex max-w-full gap-1.5 overflow-x-auto p-1.5" onPointerDown={(e) => e.stopPropagation()}>
           {b.slots.length === 0 && <p className="px-3 py-3 text-sm font-bold">{raid ? "No troops" : "No troops to defend with — your defences are on their own!"}</p>}
           {b.slots.map((s, i) => (
@@ -1019,8 +1037,8 @@ export function ResultModal({ r, icons, onHome }: { r: BattleResult; icons: Reco
   const raid = r.mode === "raid";
   const title = raid ? (r.win ? (r.stars === 3 ? "Flawless victory!" : "Victory!") : "Defeat") : r.win ? "Village defended!" : "Your village was raided";
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-black/50 backdrop-blur-[2px]" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="grid min-h-full place-items-center p-4 land:p-2">
+    <div className="absolute inset-0 z-30 overflow-y-auto bg-black/50 backdrop-blur-[2px] land:backdrop-blur-none" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="grid min-h-full place-items-center p-4 land:safe-pad">
         <div
           role="dialog"
           aria-label={title}
@@ -1099,8 +1117,8 @@ export function NameDialog({ initial, suggest, onDone, title = "Name your villag
   // Phones: don't open the keyboard over the game before the player asks for it.
   const touch = useMediaQuery("(pointer: coarse)");
   return (
-    <div className="absolute inset-0 z-40 overflow-y-auto bg-black/55 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="grid min-h-full place-items-center p-4 land:p-2">
+    <div className="absolute inset-0 z-40 overflow-y-auto bg-black/55 backdrop-blur-sm land:backdrop-blur-none" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="grid min-h-full place-items-center p-4 land:safe-pad">
         <form
           role="dialog"
           aria-label={title}
@@ -1141,71 +1159,152 @@ export function NameDialog({ initial, suggest, onDone, title = "Name your villag
   );
 }
 
-export function SettingsPanel({ save, onRename, onReset, onClose }: { save: V.Save; onRename: () => void; onReset: () => void; onClose: () => void }) {
+const QUALITIES: { id: Quality; label: string; hint: string }[] = [
+  { id: "smooth", label: "Smooth", hint: "Best frame rate" },
+  { id: "auto", label: "Auto", hint: "Sharp, adapts to the phone" },
+  { id: "hd", label: "HD", hint: "Full screen sharpness" },
+];
+
+export function SettingsPanel({
+  save,
+  quality,
+  onQuality,
+  onHelp,
+  onRename,
+  onReset,
+  onClose,
+}: {
+  save: V.Save;
+  quality: Quality;
+  onQuality: (q: Quality) => void;
+  onHelp: () => void;
+  onRename: () => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
   const [confirm, setConfirm] = useState(false);
+  const sound = useAudioSettings();
   return (
     <Sheet title="Settings" onClose={onClose} wide={false}>
-      <div className="space-y-3">
-        <div className="g-tint flex items-center justify-between gap-2 rounded-xl p-3">
-          <div className="min-w-0">
-            <p className="g-muted text-[11px] font-bold uppercase">Village</p>
-            <p className="g-display truncate text-xl">{save.name}</p>
+      <div className="space-y-3 land:grid land:grid-cols-2 land:items-start land:gap-3 land:space-y-0">
+        <div className="space-y-3">
+          <div className="g-tint flex items-center justify-between gap-2 rounded-xl p-3">
+            <div className="min-w-0">
+              <p className="g-muted text-[11px] font-bold uppercase">Village</p>
+              <p className="g-display truncate text-xl">{save.name}</p>
+            </div>
+            <button type="button" onClick={onRename} className="g-soft px-3 py-2 text-sm font-bold">
+              <span className="g-unskew">Rename</span>
+            </button>
           </div>
-          <button type="button" onClick={onRename} className="g-soft px-3 py-2 text-sm font-bold">
-            <span className="g-unskew">Rename</span>
-          </button>
-        </div>
-        <div className="g-tint grid grid-cols-3 gap-2 rounded-xl p-3 text-center text-xs font-bold">
-          <div>
-            <p className="g-display text-xl">{save.stats.raids}</p>raids
-          </div>
-          <div>
-            <p className="g-display text-xl">{save.stats.wins}</p>wins
-          </div>
-          <div>
-            <p className="g-display text-xl">
-              {save.stats.held}/{save.stats.defences}
-            </p>
-            defences held
-          </div>
-        </div>
-        <div>
-          <p className="g-muted mb-1.5 text-[11px] font-bold uppercase">
-            Achievements {save.ach.length}/{ACHIEVEMENTS.length}
-          </p>
-          <ul className="space-y-1">
-            {ACHIEVEMENTS.map((a) => {
-              const done = save.ach.includes(a.id);
-              return (
-                <li key={a.id} className={`g-tint flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs ${done ? "" : "opacity-65"}`}>
-                  <span className={`grid size-5 shrink-0 place-items-center rounded-full ${done ? "bg-green-600 text-white" : "bg-[color-mix(in_srgb,currentColor_15%,transparent)]"}`}>{done && <Check className="size-3.5" />}</span>
-                  <span className="flex-1">
-                    <b>{a.name}</b> · {a.desc}
-                  </span>
-                  <span className="inline-flex items-center gap-1 font-bold">
-                    <ResIcon res="gems" size={11} />
-                    {a.gems}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-        {confirm ? (
-          <div className="rounded-xl border-2 border-red-700 p-3 text-center">
-            <p className="text-sm font-bold text-red-800">Start over? Your village, army and campaign stars will be lost.</p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <SoftButton onClick={() => setConfirm(false)}>Keep playing</SoftButton>
-              <button type="button" onClick={onReset} className="rounded-[14px] border-[3px] border-red-900 bg-red-600 px-3 py-2 text-sm font-bold text-white">
-                Reset village
+          <div className="g-tint space-y-2 rounded-xl p-3">
+            <p className="g-muted text-[11px] font-bold uppercase">Sound</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                data-active={sound.music}
+                onClick={() => {
+                  audio.unlock();
+                  audio.toggleMusic();
+                }}
+                className={`g-soft px-3 py-2.5 text-sm font-bold ${sound.music ? "" : "opacity-60"}`}
+              >
+                <span className="g-unskew gap-1.5">
+                  <Music className="size-4" /> Music {sound.music ? "on" : "off"}
+                </span>
+              </button>
+              <button
+                type="button"
+                data-active={sound.sfx}
+                onClick={() => {
+                  audio.unlock();
+                  audio.toggleSfx();
+                }}
+                className={`g-soft px-3 py-2.5 text-sm font-bold ${sound.sfx ? "" : "opacity-60"}`}
+              >
+                <span className="g-unskew gap-1.5">
+                  <Volume2 className="size-4" /> Effects {sound.sfx ? "on" : "off"}
+                </span>
               </button>
             </div>
+            <p className="g-muted pt-1 text-[11px] font-bold uppercase">Graphics</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {QUALITIES.map((q) => (
+                <button key={q.id} type="button" data-active={quality === q.id} onClick={() => onQuality(q.id)} className={`g-soft px-2 py-2 text-sm font-bold ${quality === q.id ? "" : "opacity-60"}`}>
+                  <span className="g-unskew flex-col gap-0 leading-tight">
+                    {q.label}
+                    <span className="text-[10px] font-semibold opacity-90">{q.hint}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
-        ) : (
-          <button type="button" onClick={() => setConfirm(true)} className="w-full text-center text-xs font-bold text-red-700 underline">
-            Reset progress…
+          <div className="g-tint grid grid-cols-3 gap-2 rounded-xl p-3 text-center text-xs font-bold">
+            <div>
+              <p className="g-display text-xl">{save.stats.raids}</p>raids
+            </div>
+            <div>
+              <p className="g-display text-xl">{save.stats.wins}</p>wins
+            </div>
+            <div>
+              <p className="g-display text-xl">
+                {save.stats.held}/{save.stats.defences}
+              </p>
+              defences held
+            </div>
+          </div>
+          <button type="button" onClick={onHelp} className="g-soft flex w-full items-center justify-center px-3 py-2 text-sm font-bold">
+            <span className="g-unskew gap-1.5">
+              <CircleHelp className="size-4" /> How to play
+            </span>
           </button>
-        )}
+          <p className="g-muted text-center text-[11px] leading-snug">
+            Music: “Thatched Villagers”, “Master of the Feast”, “Clash Defiant” and “Five Armies” by Kevin MacLeod (incompetech.com), licensed under{" "}
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className="underline">
+              CC BY 4.0
+            </a>
+            .
+          </p>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <p className="g-muted mb-1.5 text-[11px] font-bold uppercase">
+              Achievements {save.ach.length}/{ACHIEVEMENTS.length}
+            </p>
+            <ul className="space-y-1">
+              {ACHIEVEMENTS.map((a) => {
+                const done = save.ach.includes(a.id);
+                return (
+                  <li key={a.id} className={`g-tint flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs ${done ? "" : "opacity-65"}`}>
+                    <span className={`grid size-5 shrink-0 place-items-center rounded-full ${done ? "bg-green-600 text-white" : "bg-[color-mix(in_srgb,currentColor_15%,transparent)]"}`}>{done && <Check className="size-3.5" />}</span>
+                    <span className="flex-1">
+                      <b>{a.name}</b> · {a.desc}
+                    </span>
+                    <span className="inline-flex items-center gap-1 font-bold">
+                      <ResIcon res="gems" size={11} />
+                      {a.gems}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          {confirm ? (
+            <div className="rounded-xl border-2 border-red-700 p-3 text-center">
+              <p className="text-sm font-bold text-red-800">Start over? Your village, army and campaign stars will be lost.</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <SoftButton onClick={() => setConfirm(false)}>Keep playing</SoftButton>
+                <button type="button" onClick={onReset} className="rounded-[14px] border-[3px] border-red-900 bg-red-600 px-3 py-2 text-sm font-bold text-white">
+                  Reset village
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setConfirm(true)} className="w-full text-center text-xs font-bold text-red-700 underline">
+              Reset progress…
+            </button>
+          )}
+        </div>
       </div>
     </Sheet>
   );
@@ -1223,7 +1322,7 @@ export function TutorialHint({ step, onDismiss }: { step: number; onDismiss: () 
   const text = TUTORIAL[step];
   if (!text) return null;
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),10px)+92px)] flex justify-center px-3 sm:bottom-[112px] land:right-[11.5rem] land:bottom-2.5 land:left-[6.75rem] land:px-0">
+    <div className="pointer-events-none absolute inset-x-0 bottom-[102px] flex justify-center px-3 sm:bottom-[112px] land:right-[11.5rem] land:bottom-2.5 land:left-[6.75rem] land:px-0">
       <div className="g-panel pointer-events-auto flex max-w-md animate-[game-fade_0.4s_ease] items-center gap-3 px-4 py-3 land:py-2.5" onPointerDown={(e) => e.stopPropagation()}>
         <Sparkles className="size-6 shrink-0 text-amber-600" />
         <p className="text-sm leading-snug font-semibold">{text}</p>
@@ -1239,7 +1338,7 @@ export function TutorialHint({ step, onDismiss }: { step: number; onDismiss: () 
 
 export function PauseModal({ onResume, onEnd }: { onResume: () => void; onEnd: () => void }) {
   return (
-    <div className="absolute inset-0 z-30 grid place-items-center bg-black/45 p-4 backdrop-blur-[2px]" onPointerDown={(e) => e.stopPropagation()}>
+    <div className="absolute inset-0 z-30 grid place-items-center bg-black/45 p-4 backdrop-blur-[2px] land:safe-pad land:backdrop-blur-none" onPointerDown={(e) => e.stopPropagation()}>
       <div role="dialog" aria-label="Paused" className="g-panel w-full max-w-xs space-y-3 p-6 text-center">
         <h2 className="g-panel-title text-4xl">Paused</h2>
         <BigButton onClick={onResume} icon={<Play className="size-5 fill-current" />} autoFocus>
@@ -1253,9 +1352,9 @@ export function PauseModal({ onResume, onEnd }: { onResume: () => void; onEnd: (
 
 export function Toasts({ items }: { items: { id: number; text: string; tone: string }[] }) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[calc(max(env(safe-area-inset-top),8px)+128px)] z-20 flex flex-col items-center gap-1.5 px-4 sm:top-24 land:top-[5.5rem] land:px-[9rem]">
+    <div className="pointer-events-none absolute inset-x-0 top-[136px] z-20 flex flex-col items-center gap-1.5 px-4 sm:top-24 land:top-[5.75rem] land:px-[12rem]">
       {items.map((t) => (
-        <div key={t.id} className={`g-hud max-w-md animate-[game-fade_0.3s_ease] px-4 py-2 text-center text-sm font-bold ${t.tone === "bad" ? "text-red-300" : t.tone === "good" ? "text-green-300" : ""}`}>
+        <div key={t.id} className={`g-hud max-w-md animate-[game-fade_0.3s_ease] px-4 py-2 text-center text-sm font-bold land:text-[15px] ${t.tone === "bad" ? "text-red-300" : t.tone === "good" ? "text-green-300" : ""}`}>
           {t.text}
         </div>
       ))}

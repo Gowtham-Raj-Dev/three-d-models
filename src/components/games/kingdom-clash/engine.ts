@@ -2,9 +2,8 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { loadModels, type LoadProgress } from "../shared/assets";
 import { audio } from "../shared/audio";
-import { music } from "../shared/music";
-import { CLASH_BATTLE, CLASH_MARCH } from "../shared/songs";
 import { Sfx } from "./audio";
+import { soundtrack } from "./soundtrack";
 import {
   ACHIEVEMENTS,
   BUILDINGS,
@@ -40,6 +39,9 @@ import { Bank, buildingMesh, footprintCenter, makeForest, makeGround, obstacleMe
 // --- Public types ---------------------------------------------------------------------------------------
 
 export type Mode = "loading" | "error" | "village" | "raid" | "defence";
+
+/** Graphics setting: smooth (frame rate first), auto (sharpness adapts to the phone) or hd (full screen resolution). */
+export type Quality = "smooth" | "auto" | "hd";
 
 export interface Stat {
   label: string;
@@ -211,7 +213,27 @@ interface UnitView {
   /** Seconds an intro clip (skeletons climbing out) keeps playing. */
   hold: number;
   cloaked: boolean;
+  /** A swing is under way and its blow hasn't landed yet. */
+  wound: boolean;
+  /** Which attack of the look's combo comes next. */
+  combo: number;
 }
+
+/**
+ * Attack clips: started `lead` seconds before the blow (≈ the clip's impact frame at `speed`), back
+ * to the hold pose `recover` seconds after it. The Kenney melee clips last 0.42 s, kicks 0.53 s.
+ */
+const SWING: Record<string, { lead: number; speed: number; recover: number }> = {
+  default: { lead: 0.2, speed: 1, recover: 0.3 },
+  "attack-melee-right": { lead: 0.19, speed: 1, recover: 0.28 },
+  "attack-melee-left": { lead: 0.19, speed: 1, recover: 0.28 },
+  "attack-kick-right": { lead: 0.25, speed: 1, recover: 0.32 },
+  "attack-kick-left": { lead: 0.25, speed: 1, recover: 0.32 },
+  "holding-right-shoot": { lead: 0.04, speed: 0.9, recover: 0.25 },
+  "interact-right": { lead: 0.3, speed: 1, recover: 0.4 },
+  "1H_Melee_Attack_Chop": { lead: 0.3, speed: 1.4, recover: 0.45 },
+  atk01: { lead: 0.28, speed: 1.2, recover: 0.4 },
+};
 
 interface HeroFigure {
   kind: HeroKind;
@@ -228,6 +250,8 @@ const SKY_TOP = new THREE.Color("#5aa9e6");
 const SKY_HORIZON = new THREE.Color("#cfe8f3");
 const PITCH = 0.92;
 const YAW = Math.PI / 4;
+/** Raid time limit (seconds). */
+const RAID_TIME = 300;
 const clamp = THREE.MathUtils.clamp;
 const RES_COLOR = { gold: "#fde047", elixir: "#f0abfc", gems: "#6ee7b7" } as const;
 export const RES_ICON = {
@@ -238,6 +262,122 @@ export const RES_ICON = {
 
 const tileToWorld = (x: number, z: number, out = new THREE.Vector3()) => out.set(x - GRID / 2, 0, z - GRID / 2);
 const simToWorld = (x: number, z: number, out = new THREE.Vector3()) => out.set(x - N / 2, 0, z - N / 2);
+
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+/**
+ * A little photo studio for portraits: renders an object against a transparent background from the
+ * game's three-quarter view, `size` px with 4× MSAA, scaled down to `out` px (extra smoothing),
+ * returned as a PNG blob URL.
+ */
+class Studio {
+  readonly scene = new THREE.Scene();
+  private readonly rt: THREE.WebGLRenderTarget;
+  private readonly cam = new THREE.PerspectiveCamera(26, 1, 0.05, 60);
+  private readonly pixels: Uint8Array;
+  private readonly big = document.createElement("canvas");
+  private readonly small = document.createElement("canvas");
+  private readonly box = new THREE.Box3();
+  private readonly c = new THREE.Vector3();
+  private readonly v = new THREE.Vector3();
+  private readonly right = new THREE.Vector3();
+  private readonly up = new THREE.Vector3();
+  private readonly corners = Array.from({ length: 8 }, () => new THREE.Vector3());
+  /** The game's three-quarter view direction. */
+  private static readonly DIR = new THREE.Vector3(1.05, 0.85, 1.05).normalize();
+
+  constructor(
+    private readonly renderer: THREE.WebGLRenderer,
+    env: THREE.Texture | null,
+    private readonly size: number,
+    private readonly out: number,
+  ) {
+    this.rt = new THREE.WebGLRenderTarget(size, size, { samples: 4 });
+    this.rt.texture.colorSpace = THREE.SRGBColorSpace;
+    this.pixels = new Uint8Array(size * size * 4);
+    this.big.width = this.big.height = size;
+    this.small.width = this.small.height = out;
+    this.scene.environment = env;
+    this.scene.environmentIntensity = 0.45;
+    this.scene.add(new THREE.HemisphereLight("#ffffff", "#8a9f7a", 1.3));
+    const light = new THREE.DirectionalLight("#ffffff", 1.8);
+    light.position.set(-2, 4, 3);
+    this.scene.add(light);
+  }
+
+  /** `fill`: how much of the picture the object's outline may take (the rest is margin, nothing is cut). */
+  shoot(obj: THREE.Object3D, fill = 0.86): Promise<string> {
+    const { renderer, rt, scene, cam, size, out } = this;
+    scene.add(obj);
+    obj.updateMatrixWorld(true);
+    this.box.setFromObject(obj);
+    this.frame(fill);
+    const prevClear = renderer.getClearAlpha();
+    try {
+      renderer.setRenderTarget(rt);
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear();
+      renderer.render(scene, cam);
+      renderer.readRenderTargetPixels(rt, 0, 0, size, size, this.pixels);
+    } finally {
+      renderer.setRenderTarget(null);
+      renderer.setClearColor(0x000000, prevClear);
+      scene.remove(obj);
+    }
+    const ctx = this.big.getContext("2d");
+    const sctx = this.small.getContext("2d");
+    if (!ctx || !sctx) return Promise.resolve("");
+    const img = ctx.createImageData(size, size);
+    for (let y = 0; y < size; y++) img.data.set(this.pixels.subarray((size - 1 - y) * size * 4, (size - y) * size * 4), y * size * 4);
+    ctx.putImageData(img, 0, 0);
+    sctx.clearRect(0, 0, out, out);
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = "high";
+    sctx.drawImage(this.big, 0, 0, out, out);
+    return new Promise<string>((resolve) => this.small.toBlob((blob) => resolve(blob ? URL.createObjectURL(blob) : this.small.toDataURL("image/png")), "image/png"));
+  }
+
+  /**
+   * Points the camera so the object's bounding box, as seen from the game's angle, fills `fill` of
+   * the picture and sits in its middle: a few rounds of measuring the projected corners, re-centring
+   * and moving closer or further.
+   */
+  private frame(fill: number) {
+    const { cam, box, c, corners, right, up } = this;
+    const { min, max } = box;
+    for (let i = 0; i < 8; i++) corners[i].set(i & 1 ? max.x : min.x, i & 2 ? max.y : min.y, i & 4 ? max.z : min.z);
+    box.getCenter(c);
+    let dist = Math.max(0.1, box.getSize(this.v).length() * 2);
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+    for (let round = 0; round < 5; round++) {
+      cam.position.copy(c).addScaledVector(Studio.DIR, dist);
+      cam.lookAt(c);
+      cam.updateMatrixWorld();
+      let x0 = Infinity;
+      let x1 = -Infinity;
+      let y0 = Infinity;
+      let y1 = -Infinity;
+      for (const p of corners) {
+        this.v.copy(p).project(cam);
+        x0 = Math.min(x0, this.v.x);
+        x1 = Math.max(x1, this.v.x);
+        y0 = Math.min(y0, this.v.y);
+        y1 = Math.max(y1, this.v.y);
+      }
+      const half = tanHalf * dist;
+      right.set(1, 0, 0).applyQuaternion(cam.quaternion);
+      up.set(0, 1, 0).applyQuaternion(cam.quaternion);
+      c.addScaledVector(right, ((x0 + x1) / 2) * half).addScaledVector(up, ((y0 + y1) / 2) * half);
+      dist *= Math.max(x1 - x0, y1 - y0) / 2 / fill;
+    }
+    cam.position.copy(c).addScaledVector(Studio.DIR, dist);
+    cam.lookAt(c);
+  }
+
+  dispose() {
+    this.rt.dispose();
+  }
+}
 
 // --- Engine ----------------------------------------------------------------------------------------------
 
@@ -277,6 +417,8 @@ export class KingdomEngine {
   private workers: Worker[] = [];
   private heroes = new Map<HeroKind, HeroFigure>();
   private iconCache: Record<string, string> = {};
+  private iconJob: Promise<void> = Promise.resolve();
+  private readonly portraitCache = new Map<string, string>();
   private pendingWalkers = 0;
   private selectedId: number | null = null;
   private placing: { kind: BKind; x: number; z: number; view: BView; valid: boolean; last?: { x: number; z: number } } | null = null;
@@ -315,7 +457,6 @@ export class KingdomEngine {
   private lastBattleHud = "";
   private paused = false;
   private wallsDirty = false;
-  private musicHigh = false;
 
   // Camera
   private readonly target = new THREE.Vector3();
@@ -337,7 +478,16 @@ export class KingdomEngine {
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly v1 = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
-  private readonly perf = { t: 0, frames: 0, max: 2, ratio: 2 };
+  /**
+   * Resolution (pixel ratio) scaling: starts at `start`, climbs toward `ceiling` while frames are
+   * smooth and steps down as soon as they aren't. A sharpness that proved too slow is retried only
+   * after `patience` smooth windows (doubling every time it fails) — no endless up/down hitching.
+   */
+  private readonly perf = { t: 0, frames: 0, min: 1, max: 2, ratio: 2, ceiling: 2, good: 0, patience: 15, slowFps: 45 };
+  private quality: Quality = "auto";
+  private readonly coarse: boolean;
+  /** Last rendered frame (ms): 120 Hz screens render every other frame. */
+  private lastFrame = -1e9;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -346,9 +496,9 @@ export class KingdomEngine {
     private readonly store: SaveStore,
   ) {
     const coarse = window.matchMedia("(pointer: coarse)").matches;
+    this.coarse = coarse;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-    this.perf.max = this.perf.ratio = Math.min(window.devicePixelRatio, coarse ? 1.75 : 2);
-    this.renderer.setPixelRatio(this.perf.ratio);
+    this.applyQuality();
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -402,7 +552,7 @@ export class KingdomEngine {
     const { sun } = this;
     sun.position.set(-16, 30, 12);
     sun.castShadow = true;
-    const size = coarse ? 2048 : 4096;
+    const size = this.quality === "smooth" ? 1024 : coarse ? 2048 : 4096;
     sun.shadow.mapSize.set(size, size);
     sun.shadow.bias = -0.0015;
     sun.shadow.normalBias = 0.04;
@@ -458,10 +608,10 @@ export class KingdomEngine {
       this.offline();
       this.buildVillage();
       this.focusVillage(true);
-      music.play(CLASH_MARCH, 0);
+      soundtrack.play("village");
       this.setMode("village");
       this.emitHud();
-      setTimeout(() => !this.disposed && this.events.icons((this.iconCache = this.renderIcons())), 50);
+      setTimeout(() => !this.disposed && this.refreshIcons(), 50);
       // Raiders load in the background.
       void loadModels(
         LATE.map((n) => K[n]),
@@ -485,7 +635,7 @@ export class KingdomEngine {
         }
         // Heroes can now stand at their altars, and get portraits.
         this.syncHeroes();
-        this.events.icons((this.iconCache = this.renderIcons()));
+        this.refreshIcons();
       });
     } catch (err) {
       console.error(err);
@@ -1331,7 +1481,7 @@ export class KingdomEngine {
   trainLeft() {
     const s = this.save;
     if (!s.queue.length) return 0;
-    const speed = Math.max(1, V.builtOf(s, "barracks").length);
+    const speed = V.trainSpeed(s);
     let t = s.queue.reduce((a, k) => a + TROOPS[k].train / speed, 0);
     t -= (Date.now() - s.queueT) / 1000;
     return Math.max(0, t);
@@ -1551,7 +1701,8 @@ export class KingdomEngine {
     const guards = st.buildings.filter((b) => BUILDINGS[b.kind].hero).map((b) => ({ kind: BUILDINGS[b.kind].hero as UnitKind, level: b.level, x: b.x + 1.5, z: b.z + 1.5, r: 6 }));
     this.battleStage = stageNo;
     this.battleName = st.name;
-    this.beginBattle(new Sim({ mode: "raid", buildings, timeLimit: 180, troops, spells, guards }));
+    // Raids last up to 5 minutes (time to use every troop and spell); ending early is always allowed.
+    this.beginBattle(new Sim({ mode: "raid", buildings, timeLimit: RAID_TIME, troops, spells, guards }));
     this.sfx.horn();
     this.events.toast(`Attack ${st.name}! Tap outside the red zone to deploy.`, "info");
   }
@@ -1617,7 +1768,6 @@ export class KingdomEngine {
     this.ending = 0;
     this.battleSpeed = 1;
     this.paused = false;
-    this.musicHigh = false;
     this.villageGroup.visible = false;
     this.selectRing!.visible = false;
     this.overlay.clear();
@@ -1690,8 +1840,8 @@ export class KingdomEngine {
     const slots = this.slots();
     this.slot = slots[0]?.id ?? null;
     this.setMode(sim.mode === "raid" ? "raid" : "defence");
-    music.play(CLASH_BATTLE, 1);
-    music.duck(false);
+    soundtrack.play("battle");
+    soundtrack.duck(false);
     this.target.set(0, 0, 0);
     this.dist = this.fitDist() * 0.92;
     this.lastBattleHud = "";
@@ -1794,7 +1944,7 @@ export class KingdomEngine {
 
   pauseBattle(on: boolean) {
     this.paused = on;
-    music.duck(on);
+    soundtrack.duck(on);
   }
 
   /** Ends the battle now (surrender / finish early). */
@@ -1995,11 +2145,6 @@ export class KingdomEngine {
         this.wallsDirty = false;
         this.rebuildBattleWalls();
       }
-      const intense = sim.thDown || sim.timeLimit - sim.time < 30;
-      if (intense !== this.musicHigh) {
-        this.musicHigh = intense;
-        music.setIntensity(intense ? 2 : 1);
-      }
     }
     if (sim.ended) {
       this.ending += dt;
@@ -2060,7 +2205,7 @@ export class KingdomEngine {
         if (su.dead && su.deadT > 2) continue;
         const u = this.units!.get(su.kind as CharKind, su.level, this.unitGroup);
         if (!u) continue;
-        uv = { u, lastSwing: 99, gone: false, hold: 0, cloaked: false };
+        uv = { u, lastSwing: 99, gone: false, hold: 0, cloaked: false, wound: false, combo: su.id };
         if (su.kind === "bones" && !su.dead) {
           u.play("enter", { once: true, fade: 0 });
           uv.hold = 0.7;
@@ -2092,11 +2237,23 @@ export class KingdomEngine {
             this.units!.release(u);
           }
         }
-      } else if (su.swing < uv.lastSwing && su.swing < 0.05) {
-        u.play(u.look.attack, { once: true, restart: true, fade: 0.05, speed: 1.4 });
-      } else if (su.swing > 0.7 || (u.clip !== u.look.attack && u.clip !== "")) {
-        if (su.moving) u.play(u.look.run, { speed: su.def.speed > 2 ? 1.1 : 1 });
-        else if (su.swing > 0.7) u.play(u.look.hold ?? "idle");
+      } else {
+        // The swing starts as the attack cooldown runs out, so the blow (or the shot) lands at the
+        // clip's impact frame instead of before the arm even moves.
+        if (su.swing < uv.lastSwing) uv.wound = false;
+        const combo = u.look.combo;
+        const clip = combo ? combo[uv.combo % combo.length] : u.look.attack;
+        const timing = SWING[clip] ?? SWING.default;
+        if (su.moving) {
+          uv.wound = false;
+          u.play(u.look.run, { speed: su.def.speed > 2 ? 1.1 : 1 });
+        } else if (su.attacking && !uv.wound && su.cooldown <= timing.lead) {
+          uv.wound = true;
+          uv.combo++;
+          u.play(clip, { once: true, restart: true, fade: 0.06, speed: timing.speed });
+        } else if (!uv.wound && su.swing > timing.recover && u.clip !== (u.look.hold ?? "idle")) {
+          u.play(u.look.hold ?? "idle", { fade: 0.2 });
+        }
       }
       uv.lastSwing = su.swing;
       if (su.rage > 0 && Math.random() < vdt * 6) {
@@ -2211,6 +2368,8 @@ export class KingdomEngine {
     const troops = Object.entries(r.used).map(([kind, n]) => ({ kind: kind as UnitKind, n: n ?? 0 }));
     const spells = Object.entries(r.spellsUsed).map(([kind, n]) => ({ kind: kind as SpellKind, n: n ?? 0 }));
     let result: BattleResult;
+    // The battle music fades out so the victory / defeat fanfare plays on its own.
+    soundtrack.stop(1.2);
     if (sim.mode === "raid") {
       const st = stageOf(this.battleStage);
       const idx = this.battleStage - 1;
@@ -2302,8 +2461,8 @@ export class KingdomEngine {
     this.syncCamp(true);
     this.syncWorkers();
     this.syncHeroes();
-    music.play(CLASH_MARCH, 0);
-    music.setIntensity(0);
+    soundtrack.duck(false);
+    soundtrack.play("village");
     this.focusVillage(false);
     this.events.battle(null);
     this.emitHud();
@@ -2713,6 +2872,10 @@ export class KingdomEngine {
   private frame = (time: number) => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.frame);
+    // At most ~60 fps (a 120 Hz phone renders every other frame: steady, cooler, no throttling);
+    // ~30 fps behind an open panel, where the village is only a dimmed backdrop.
+    if (time - this.lastFrame < (this.busyUi ? 26 : 10)) return;
+    this.lastFrame = time;
     this.timer.update(time);
     const dt = Math.min(this.timer.getDelta(), 0.1);
     if (this.mode === "loading" || this.mode === "error") return;
@@ -2743,107 +2906,187 @@ export class KingdomEngine {
     this.adaptResolution(dt);
   };
 
+  /** Graphics setting: "smooth" favours frame rate, "hd" renders at the screen's full sharpness. */
+  setQuality(q: Quality) {
+    if (q === this.quality) return;
+    this.quality = q;
+    this.applyQuality();
+  }
+
+  private applyQuality() {
+    const dpr = window.devicePixelRatio || 1;
+    const p = this.perf;
+    const q = this.quality;
+    if (q === "hd") {
+      p.max = Math.min(dpr, 3);
+      p.min = Math.min(p.max, 1.5);
+      p.slowFps = 28;
+    } else if (q === "smooth") {
+      p.max = Math.min(dpr, 1.25);
+      p.min = Math.min(p.max, 0.75);
+      p.slowFps = 50;
+    } else {
+      // Phones climb all the way to the screen's own resolution (ultra sharp) while frames stay smooth.
+      p.max = Math.min(dpr, this.coarse ? 3 : 2);
+      // Never blurrier than 1.25 on a phone (only "Smooth" goes lower).
+      p.min = Math.min(p.max, this.coarse ? 1.25 : 1);
+      p.slowFps = 45;
+    }
+    // Auto starts a little below the top and climbs there once the frames prove smooth.
+    p.ratio = q === "auto" ? Math.min(p.max, 2) : p.max;
+    p.ceiling = p.max;
+    p.t = p.frames = p.good = 0;
+    p.patience = 15;
+    const shadow = q === "smooth" ? 1024 : this.coarse && q !== "hd" ? 2048 : 4096;
+    const { shadow: sh } = this.sun;
+    if (sh.mapSize.x !== shadow) {
+      sh.mapSize.set(shadow, shadow);
+      sh.map?.dispose();
+      sh.map = null;
+    }
+    this.renderer.setPixelRatio(p.ratio);
+    if (this.viewW > 1) this.resize();
+  }
+
   private adaptResolution(dt: number) {
     const p = this.perf;
     p.t += dt;
     p.frames++;
-    if (p.t < 2.5) return;
+    if (p.t < 2) return;
     const fps = p.frames / p.t;
     p.t = 0;
     p.frames = 0;
     let next = p.ratio;
-    if (fps < 42 && p.ratio > 1) next = Math.max(1, p.ratio - 0.25);
-    else if (fps > 58 && p.ratio < p.max) next = Math.min(p.max, p.ratio + 0.25);
+    if (fps < p.slowFps && p.ratio > p.min) {
+      next = Math.max(p.min, p.ratio - (fps < 30 ? 0.5 : 0.25));
+      if (p.ceiling >= p.ratio) p.patience = Math.min(120, p.patience * 2);
+      p.ceiling = Math.max(p.min, p.ratio - 0.25);
+      p.good = 0;
+    } else if (fps >= 55) {
+      p.good++;
+      if (p.ratio < p.ceiling && p.good >= 1) {
+        next = Math.min(p.ceiling, p.ratio + 0.25);
+        p.good = 0;
+      } else if (p.ratio >= p.ceiling && p.ceiling < p.max && p.good >= p.patience) {
+        p.ceiling = Math.min(p.max, p.ceiling + 0.25);
+        p.good = 0;
+      }
+    } else p.good = 0;
     if (next === p.ratio) return;
     p.ratio = next;
     this.renderer.setPixelRatio(next);
     this.resize();
   }
 
-  /** Little portraits of every building and troop for the shop and army cards. */
-  private renderIcons(): Record<string, string> {
-    const out: Record<string, string> = {};
+  /**
+   * Portraits of every building and troop for the shop, army and battle cards — rendered 2× larger
+   * and scaled down (sharp on high-density screens), a few per frame so the game never freezes.
+   * Portraits already made are kept: the second call (after the raiders and heroes load) only adds theirs.
+   */
+  private refreshIcons() {
+    this.iconJob = this.iconJob.then(() => this.renderIcons()).catch((err) => console.warn("[kingdom-clash] portraits", err));
+  }
+
+  private async renderIcons() {
     const bank = this.bank;
-    if (!bank) return out;
-    const size = 192;
-    const rt = new THREE.WebGLRenderTarget(size, size, { samples: 4 });
-    rt.texture.colorSpace = THREE.SRGBColorSpace;
-    const scene = new THREE.Scene();
-    scene.environment = this.envTexture;
-    scene.environmentIntensity = 0.45;
-    scene.add(new THREE.HemisphereLight("#ffffff", "#8a9f7a", 1.3));
-    const light = new THREE.DirectionalLight("#ffffff", 1.8);
-    light.position.set(-2, 4, 3);
-    scene.add(light);
-    const cam = new THREE.PerspectiveCamera(26, 1, 0.05, 60);
-    const pixels = new Uint8Array(size * size * 4);
-    const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = size;
-    const ctx = canvas.getContext("2d");
-    const small = document.createElement("canvas");
-    small.width = small.height = 112;
-    const sctx = small.getContext("2d");
-    const prevClear = this.renderer.getClearAlpha();
-    const shoot = (key: string, obj: THREE.Object3D, tall = 1) => {
-      scene.add(obj);
-      obj.updateMatrixWorld(true);
-      const box = new THREE.Box3().setFromObject(obj);
-      const c = box.getCenter(new THREE.Vector3());
-      const h = box.getSize(new THREE.Vector3()).length() * tall;
-      cam.position.set(c.x + h * 1.05, c.y + h * 0.85, c.z + h * 1.05);
-      cam.lookAt(c);
-      this.renderer.setRenderTarget(rt);
-      this.renderer.setClearColor(0x000000, 0);
-      this.renderer.clear();
-      this.renderer.render(scene, cam);
-      this.renderer.readRenderTargetPixels(rt, 0, 0, size, size, pixels);
-      scene.remove(obj);
-      if (!ctx || !sctx) return;
-      const img = ctx.createImageData(size, size);
-      for (let y = 0; y < size; y++) img.data.set(pixels.subarray((size - 1 - y) * size * 4, (size - y) * size * 4), y * size * 4);
-      ctx.putImageData(img, 0, 0);
-      sctx.clearRect(0, 0, 112, 112);
-      sctx.imageSmoothingQuality = "high";
-      sctx.drawImage(canvas, 0, 0, 112, 112);
-      out[key] = small.toDataURL("image/png");
-    };
+    if (!bank || this.disposed) return;
+    const out = this.iconCache;
+    const jobs: { key: string; fill: number; make: (studio: Studio) => { obj: THREE.Object3D; done: () => void } | null }[] = [];
+    for (const kind of Object.keys(BUILDINGS) as BKind[]) {
+      const key = `b:${kind}`;
+      if (out[key]) continue;
+      jobs.push({ key, fill: 0.96, make: () => this.buildingModel(bank, kind, kind === "townhall" ? 3 : kind === "wall" ? 2 : 1) });
+    }
+    for (const kind of [...TROOP_ORDER, ...HERO_ORDER, "bones"] as CharKind[]) {
+      const key = `t:${kind}`;
+      if (out[key] || !this.units?.has(kind)) continue;
+      jobs.push({
+        key,
+        fill: 0.97,
+        make: (studio) => {
+          const units = this.units;
+          const u = units?.get(kind, isHero(kind) ? 3 : 1, studio.scene);
+          if (!units || !u) return null;
+          u.root.removeFromParent();
+          u.play("idle");
+          u.update(0.1);
+          u.root.rotation.y = 0.35;
+          return { obj: u.root, done: () => units.release(u) };
+        },
+      });
+    }
+    if (!jobs.length) return;
+    const studio = new Studio(this.renderer, this.envTexture, 384, 192);
     try {
-      const kinds = Object.keys(BUILDINGS) as BKind[];
-      for (const kind of kinds) {
-        const level = kind === "townhall" ? 3 : 1;
-        if (kind === "wall") {
-          const walls = new WallLayer(bank);
-          walls.rebuild(
-            [
-              { id: 1, x: 0, z: 0, level: 2 },
-              { id: 2, x: 1, z: 0, level: 2 },
-              { id: 3, x: 1, z: 1, level: 2 },
-            ],
-            { x: -1, z: -1 },
-          );
-          shoot("b:wall", walls.group, 0.9);
-          walls.dispose();
-          continue;
+      for (let i = 0; i < jobs.length; i++) {
+        if (this.disposed) return;
+        const job = jobs[i];
+        const made = job.make(studio);
+        if (!made) continue;
+        let url: string;
+        try {
+          url = await studio.shoot(made.obj, job.fill);
+        } finally {
+          made.done();
         }
-        const m = buildingMesh(bank, kind, level);
-        shoot(`b:${kind}`, m.root);
-      }
-      const chars: CharKind[] = [...TROOP_ORDER, ...HERO_ORDER, "bones"];
-      for (const kind of chars) {
-        if (!this.units?.has(kind)) continue;
-        const u = this.units.get(kind, isHero(kind) ? 3 : 1, scene);
-        if (!u) continue;
-        u.root.removeFromParent();
-        u.play("idle");
-        u.update(0.1);
-        u.root.rotation.y = 0.35;
-        shoot(`t:${kind}`, u.root, 0.85);
-        this.units?.release(u);
+        if (this.disposed) return URL.revokeObjectURL(url);
+        out[job.key] = url;
+        // One portrait per frame, handed to the HUD in batches as they're ready.
+        await nextFrame();
+        if (i % 6 === 5) this.events.icons({ ...out });
       }
     } finally {
-      this.renderer.setRenderTarget(null);
-      this.renderer.setClearColor(0x000000, prevClear);
-      rt.dispose();
+      studio.dispose();
+    }
+    if (!this.disposed) this.events.icons({ ...out });
+  }
+
+  /** A building (or a short run of walls) at a level, for portraits. */
+  private buildingModel(bank: Bank, kind: BKind, level: number) {
+    if (kind === "wall") {
+      const walls = new WallLayer(bank);
+      walls.rebuild(
+        [
+          { id: 1, x: 0, z: 0, level },
+          { id: 2, x: 1, z: 0, level },
+          { id: 3, x: 1, z: 1, level },
+        ],
+        { x: -1, z: -1 },
+      );
+      return { obj: walls.group as THREE.Object3D, done: () => walls.dispose() };
+    }
+    return { obj: buildingMesh(bank, kind, level).root as THREE.Object3D, done: () => {} };
+  }
+
+  /**
+   * Large portraits of a building at the given levels (the building popup shows this level and the
+   * next one side by side). Rendered on demand at 512 px, kept for the session.
+   */
+  async portraits(kind: BKind, levels: number[]): Promise<Record<number, string>> {
+    const bank = this.bank;
+    const out: Record<number, string> = {};
+    if (!bank) return out;
+    const todo = levels.filter((l) => !this.portraitCache.has(`${kind}:${l}`));
+    if (todo.length) {
+      const studio = new Studio(this.renderer, this.envTexture, 640, 400);
+      try {
+        for (const level of todo) {
+          if (this.disposed) return out;
+          const made = this.buildingModel(bank, kind, level);
+          try {
+            this.portraitCache.set(`${kind}:${level}`, await studio.shoot(made.obj, 0.93));
+          } finally {
+            made.done();
+          }
+          await nextFrame();
+        }
+      } finally {
+        studio.dispose();
+      }
+    }
+    for (const l of levels) {
+      const url = this.portraitCache.get(`${kind}:${l}`);
+      if (url) out[l] = url;
     }
     return out;
   }
@@ -2876,7 +3119,8 @@ export class KingdomEngine {
     cancelAnimationFrame(this.raf);
     this.resizeObserver?.disconnect();
     this.timer.dispose();
-    music.stop();
+    soundtrack.stop(0);
+    for (const url of [...Object.values(this.iconCache), ...this.portraitCache.values()]) if (url.startsWith("blob:")) URL.revokeObjectURL(url);
     window.removeEventListener("pagehide", this.flushSave);
     const c = this.canvas;
     c.removeEventListener("pointerdown", this.onPointerDown);

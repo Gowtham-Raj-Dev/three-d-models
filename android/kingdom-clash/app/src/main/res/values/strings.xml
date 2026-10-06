@@ -5,4 +5,10 @@
     <string name="webview_title">Update Android System WebView</string>
     <string name="webview_message">Kingdom Clash needs a newer Android System WebView (this phone has version %1$d). Update it from the Play Store, then open the game again.</string>
     <string name="webview_update">Update</string>
+    <string name="update_title">Update available</string>
+    <string name="update_message">Kingdom Clash %1$s is ready (you have %2$s)%3$s. Your village stays safe on this phone.</string>
+    <string name="update_now">Update now</string>
+    <string name="update_later">Later</string>
+    <string name="update_downloading">Downloading the update…</string>
+    <string name="update_failed">Could not download the update. Try again later.</string>
 </resources>

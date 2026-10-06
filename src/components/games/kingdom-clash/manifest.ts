@@ -219,5 +219,6 @@ export const GAME: GameEntry = {
     "Raiders attack your village now and then: defences fight on their own, and you can drop your troops inside your walls to help.",
   ],
   features: ["Town Hall, buildings, defences & troops up to level 5", "Axe King & Elf Queen heroes with abilities", "100-stage raid campaign with stars", "Steal gold & elixir, farm any stage again", "Spells: lightning, heal, rage, freeze, jump", "Skeleton traps, bombs & walls to defend your village"],
-  music: "Banners Up",
+  // Recorded tracks (soundtrack.ts), CC BY 4.0 — the full credit is in the game's Settings.
+  music: "Thatched Villagers & Clash Defiant by Kevin MacLeod (CC BY 4.0)",
 };

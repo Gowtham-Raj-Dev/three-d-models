@@ -34,6 +34,9 @@ final class AssetServer {
         TYPES.put("woff", "font/woff");
         TYPES.put("glb", "model/gltf-binary");
         TYPES.put("wasm", "application/wasm");
+        TYPES.put("mp3", "audio/mpeg");
+        TYPES.put("ogg", "audio/ogg");
+        TYPES.put("m4a", "audio/mp4");
         TYPES.put("webmanifest", "application/manifest+json");
     }
 

@@ -120,6 +120,11 @@ body::before {
   }
 }
 
+/* Games: padding that keeps a full-screen dialog beside a notch / camera cutout (vars set on .g-root). */
+@utility safe-pad {
+  padding: max(8px, var(--safe-t)) max(8px, var(--safe-r)) max(8px, var(--safe-b)) max(8px, var(--safe-l));
+}
+
 /*
  * Games: every game sets its own theme variables on its root (src/components/games/themes.ts) and
  * fonts (--game-display / --game-body, src/lib/game-fonts.ts). These classes turn them into a
@@ -128,6 +133,18 @@ body::before {
 @layer components {
   .g-root {
     font-family: var(--game-body), ui-sans-serif, system-ui, sans-serif;
+    /* Safe area beside a notch / camera cutout: env() in browsers (with viewport-fit=cover), and
+       --app-safe-* from the Android app, which draws the game under the cutout. */
+    --safe-l: max(env(safe-area-inset-left, 0px), var(--app-safe-left, 0px));
+    --safe-r: max(env(safe-area-inset-right, 0px), var(--app-safe-right, 0px));
+    --safe-t: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px));
+    --safe-b: max(env(safe-area-inset-bottom, 0px), var(--app-safe-bottom, 0px));
+  }
+  /* The part of the screen HUD buttons may use: everything but the cutout. */
+  .g-safe {
+    position: absolute;
+    inset: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+    pointer-events: none;
   }
   .g-display {
     font-family: var(--g-ui-font, var(--game-display)), var(--game-body), ui-sans-serif, sans-serif;

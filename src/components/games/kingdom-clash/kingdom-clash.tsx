@@ -4,15 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoadProgress } from "../shared/assets";
 import { audio } from "../shared/audio";
 import { useNativeBack, useNativeLifecycle } from "../shared/native-app";
-import { createRecords, createStore, GameRoot, HowToPlay, LoadingScreen, useShortcuts, useStore } from "../shared/ui";
+import { createRecords, createStore, GameRoot, HowToPlay, LoadingScreen, usePhoneLandscape, useRecords, useShortcuts, useStore } from "../shared/ui";
 import type { BKind } from "./data";
-import { KingdomEngine, type BattleHud, type BattleResult, type Mode, type VillageHud } from "./engine";
+import { KingdomEngine, type BattleHud, type BattleResult, type Mode, type Quality, type VillageHud } from "./engine";
 import { ArmyPanel, BattleBar, BottomBar, BuildingPanel, Campaign, NameDialog, PauseModal, PlacingBar, ResultModal, SettingsPanel, Shop, Toasts, TopBar, TutorialHint } from "./hud";
 import { villageName } from "./layouts";
 import { GAME } from "./manifest";
+import { BuildingDetails } from "./details";
+import { MOBILE_CSS, MobileBattleHud, MobileBottomBar, MobileBuildingBar, MobilePlacingBar, MobileTopBar, MobileTutorialHint } from "./mobile-hud";
+import { soundtrack } from "./soundtrack";
 import * as V from "./village";
 
 const records = createRecords<{ save: V.Save | null }>("kingdom-clash:v1", { save: null });
+/** Device preferences (not part of the village save). */
+const prefs = createRecords<{ quality: Quality }>("kingdom-clash:prefs:v1", { quality: "auto" });
 
 type Panel = null | "shop" | "army" | "lab" | "spells" | "campaign" | "settings" | "rename";
 
@@ -47,10 +52,15 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
   const [result, setResult] = useState<BattleResult | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [help, setHelp] = useState(false);
+  /** The full building popup, for the building selected when it opened. */
+  const [details, setDetailsFor] = useState<{ id: number; mode: "info" | "upgrade" } | null>(null);
   const [paused, setPaused] = useState(false);
   const [icons, setIcons] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: string }[]>([]);
   const toastId = useRef(0);
+  // Phones held sideways and the Android app get their own layout (mobile-hud.tsx).
+  const phone = usePhoneLandscape();
+  const { quality } = useRecords(prefs);
 
   const toast = useCallback((text: string, tone = "info") => {
     const id = ++toastId.current;
@@ -78,6 +88,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
       { get: () => records.get().save, set: (save) => records.set({ save }) },
     );
     engineRef.current = engine;
+    engine.setQuality(prefs.get().quality);
     // Console access for testing in development only.
     if (process.env.NODE_ENV !== "production") (window as unknown as { __kc?: KingdomEngine }).__kc = engine;
     void engine.load(modelSizes);
@@ -88,11 +99,25 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
   }, [hudStore, battleStore, modelSizes, toast]);
 
   const e = () => engineRef.current;
-  const modalOpen = panel !== null || help || !!result || paused || (mode === "village" && !!hud && !hud.name);
+  const selectedId = hud?.selected?.id ?? null;
+  // Selecting another building (or none) closes the popup of the previous one.
+  const detailsOpen = !!details && details.id === selectedId && mode === "village";
+  const setDetails = (m: "info" | "upgrade" | null) => setDetailsFor(m && selectedId !== null ? { id: selectedId, mode: m } : null);
+  const modalOpen = panel !== null || help || detailsOpen || !!result || paused || (mode === "village" && !!hud && !hud.name);
 
   useEffect(() => {
     e()?.setUiBusy(modalOpen);
   }, [modalOpen]);
+
+  useEffect(() => {
+    e()?.setQuality(quality);
+  }, [quality]);
+
+  // Raiders on the way or the campaign open: have the battle music ready.
+  const raidSoon = !!hud && hud.raidIn >= 0 && hud.raidIn <= 45;
+  useEffect(() => {
+    if (panel === "campaign" || raidSoon) soundtrack.preload("battle");
+  }, [panel, raidSoon]);
 
   // Tutorial steps follow what you have done.
   useEffect(() => {
@@ -107,12 +132,14 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
   const closeAll = () => {
     setPanel(null);
     setHelp(false);
+    setDetails(null);
   };
 
   const onPause = () => {
     const engine = e();
     if (help) return setHelp(false);
     if (panel) return setPanel(null);
+    if (detailsOpen) return setDetails(null);
     if (mode === "village") {
       if (hud?.placing) engine?.cancelPlacing();
       else if (hud?.selected) engine?.select(null);
@@ -132,7 +159,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
   // left to close the app asks to press back again to exit.
   useNativeBack(() => {
     const engine = e();
-    if (help || panel) {
+    if (help || panel || detailsOpen) {
       closeAll();
       return true;
     }
@@ -159,6 +186,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
   // Android app in the background: silence it and pause a running battle.
   useNativeLifecycle((background) => {
     audio.hold(background);
+    soundtrack.hold(background);
     if (background && (mode === "raid" || mode === "defence") && !result) {
       setPaused(true);
       engineRef.current?.pauseBattle(true);
@@ -228,37 +256,104 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
   const save = hud?.save;
   const inBattle = (mode === "raid" || mode === "defence") && !!battle;
 
+  const startRaid = () => setPanel("campaign");
+  const onSlot = (id: string) => e()?.pickSlot(id);
+  const onEnd = () => e()?.endBattle();
+  const onBattlePause = () => {
+    setPaused(true);
+    e()?.pauseBattle(true);
+  };
+  const onSpeed = () => e()?.setSpeed(battle?.speed === 1 ? 2 : battle?.speed === 2 ? 3 : 1);
+  const building = hud?.selected;
+  const buildingIcon = building && building.kind !== "obstacle" ? icons[`b:${building.kind}`] : undefined;
+
   return (
     <GameRoot game={GAME} className="bg-[#8fc7e8]">
-      <style>{`@keyframes kc-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}} @media (pointer:coarse){.kc-hide-sm{display:none}}`}</style>
+      <style>{`@keyframes kc-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}} @media (pointer:coarse){.kc-hide-sm{display:none}} ${MOBILE_CSS}`}</style>
+      {/* The village fills the whole screen, under a notch too; the HUD stays in .g-safe beside it. */}
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Kingdom Clash village" />
       <div ref={overlayRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
 
       {(mode === "loading" || mode === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
 
+      <div className="g-safe">
+        {mode === "village" &&
+          hud &&
+          save &&
+          (phone ? (
+            <>
+              <MobileTopBar hud={hud} onSettings={() => setPanel("settings")} onDefend={() => e()?.defendNow()} />
+              {hud.placing ? (
+                <MobilePlacingBar hud={hud} onConfirm={() => e()?.confirmPlacing()} onCancel={() => e()?.cancelPlacing()} />
+              ) : building ? (
+                <MobileBuildingBar
+                  key={building.id}
+                  info={building}
+                  hud={hud}
+                  onDetails={setDetails}
+                  onUpgrade={() => e()?.upgradeSelected()}
+                  onFinish={() => e()?.finishSelected()}
+                  onCollect={() => e()?.collectAll()}
+                  onPanel={(p) => setPanel(p)}
+                  onWalls={() => e()?.upgradeWallRow()}
+                  onBuy={(res, amount, gems) => e()?.buyResource(res, amount, gems)}
+                  onHeal={() => e()?.healSelectedHero()}
+                />
+              ) : (
+                hud.name && <MobileTutorialHint step={hud.tutorial} onDismiss={() => e()?.setTutorial(7)} />
+              )}
+              <MobileBottomBar hud={hud} tutorial={hud.tutorial} onRaid={startRaid} onShop={() => setPanel("shop")} onArmy={() => setPanel("army")} />
+            </>
+          ) : (
+            <>
+              <TopBar hud={hud} onSettings={() => setPanel("settings")} onHelp={() => setHelp(true)} onDefend={() => e()?.defendNow()} />
+              {hud.placing ? (
+                <PlacingBar hud={hud} onConfirm={() => e()?.confirmPlacing()} onCancel={() => e()?.cancelPlacing()} />
+              ) : building ? (
+                <BuildingPanel
+                  info={building}
+                  hud={hud}
+                  icon={buildingIcon}
+                  onUpgrade={() => e()?.upgradeSelected()}
+                  onFinish={() => e()?.finishSelected()}
+                  onCollect={() => e()?.collectAll()}
+                  onPanel={(p) => setPanel(p)}
+                  onWalls={() => e()?.upgradeWallRow()}
+                  onClose={() => e()?.select(null)}
+                  onBuy={(res, amount, gems) => e()?.buyResource(res, amount, gems)}
+                  onHeal={() => e()?.healSelectedHero()}
+                  onDetails={() => setDetails("info")}
+                />
+              ) : (
+                hud.name && <TutorialHint step={hud.tutorial} onDismiss={() => e()?.setTutorial(7)} />
+              )}
+              <BottomBar hud={hud} tutorial={hud.tutorial} onRaid={startRaid} onShop={() => setPanel("shop")} onArmy={() => setPanel("army")} />
+            </>
+          ))}
+        {inBattle &&
+          battle &&
+          !result &&
+          (phone ? (
+            <MobileBattleHud b={battle} icons={icons} onSlot={onSlot} onEnd={onEnd} onPause={onBattlePause} onSpeed={onSpeed} />
+          ) : (
+            <BattleBar b={battle} icons={icons} onSlot={onSlot} onEnd={onEnd} onPause={onBattlePause} onSpeed={onSpeed} />
+          ))}
+        <Toasts items={toasts} />
+      </div>
+
       {mode === "village" && hud && save && (
         <>
-          <TopBar hud={hud} onSettings={() => setPanel("settings")} onHelp={() => setHelp(true)} onDefend={() => e()?.defendNow()} />
-          {hud.placing ? (
-            <PlacingBar hud={hud} onConfirm={() => e()?.confirmPlacing()} onCancel={() => e()?.cancelPlacing()} />
-          ) : hud.selected ? (
-            <BuildingPanel
-              info={hud.selected}
+          {detailsOpen && building && (
+            <BuildingDetails
+              info={building}
               hud={hud}
-              icon={hud.selected.kind !== "obstacle" ? icons[`b:${hud.selected.kind}`] : undefined}
+              mode={details.mode}
+              portraits={(kind, levels) => e()?.portraits(kind, levels) ?? Promise.resolve({})}
               onUpgrade={() => e()?.upgradeSelected()}
-              onFinish={() => e()?.finishSelected()}
-              onCollect={() => e()?.collectAll()}
-              onPanel={(p) => setPanel(p)}
-              onWalls={() => e()?.upgradeWallRow()}
-              onClose={() => e()?.select(null)}
               onBuy={(res, amount, gems) => e()?.buyResource(res, amount, gems)}
-              onHeal={() => e()?.healSelectedHero()}
+              onClose={() => setDetails(null)}
             />
-          ) : (
-            hud.name && <TutorialHint step={hud.tutorial} onDismiss={() => e()?.setTutorial(7)} />
           )}
-          <BottomBar hud={hud} tutorial={hud.tutorial} onRaid={() => setPanel("campaign")} onShop={() => setPanel("shop")} onArmy={() => setPanel("army")} />
           {panel === "shop" && (
             <Shop
               save={save}
@@ -272,7 +367,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
           )}
           {(panel === "army" || panel === "lab" || panel === "spells") && (
             <ArmyPanel
-              key={hud.rev >= 0 ? panel : panel}
+              key={panel}
               save={save}
               hud={hud}
               icons={icons}
@@ -298,25 +393,39 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
               onClose={closeAll}
             />
           )}
-          {panel === "settings" && <SettingsPanel save={save} onRename={() => setPanel("rename")} onReset={() => { e()?.resetVillage(); closeAll(); }} onClose={closeAll} />}
-          {panel === "rename" && <NameDialog title="Rename village" initial={hud.name} suggest={() => villageName()} onDone={(n) => { e()?.setName(n); closeAll(); }} onClose={closeAll} />}
+          {panel === "settings" && (
+            <SettingsPanel
+              save={save}
+              quality={quality}
+              onQuality={(q) => prefs.set({ quality: q })}
+              onHelp={() => {
+                setPanel(null);
+                setHelp(true);
+              }}
+              onRename={() => setPanel("rename")}
+              onReset={() => {
+                e()?.resetVillage();
+                closeAll();
+              }}
+              onClose={closeAll}
+            />
+          )}
+          {panel === "rename" && (
+            <NameDialog
+              title="Rename village"
+              initial={hud.name}
+              suggest={() => villageName()}
+              onDone={(n) => {
+                e()?.setName(n);
+                closeAll();
+              }}
+              onClose={closeAll}
+            />
+          )}
           {!hud.name && <NameDialog initial={villageName()} suggest={() => villageName()} onDone={(n) => e()?.setName(n)} />}
         </>
       )}
 
-      {inBattle && battle && !result && (
-        <BattleBar
-          b={battle}
-          icons={icons}
-          onSlot={(id) => e()?.pickSlot(id)}
-          onEnd={() => e()?.endBattle()}
-          onPause={() => {
-            setPaused(true);
-            e()?.pauseBattle(true);
-          }}
-          onSpeed={() => e()?.setSpeed(battle.speed === 1 ? 2 : battle.speed === 2 ? 3 : 1)}
-        />
-      )}
       {paused && inBattle && !result && (
         <PauseModal
           onResume={() => {
@@ -341,7 +450,6 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
           }}
         />
       )}
-      <Toasts items={toasts} />
       {help && <HowToPlay game={GAME} onClose={() => setHelp(false)} />}
     </GameRoot>
   );

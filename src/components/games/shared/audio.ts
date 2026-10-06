@@ -42,13 +42,17 @@ export interface NoiseOptions {
   delay?: number;
 }
 
+/**
+ * Output buffer length asked of the browser. The smallest ("interactive", ~10 ms) runs dry and
+ * crackles when a 3D game keeps the CPU busy; 40 ms is still too short to hear as lag.
+ */
+const LATENCY = 0.04;
+
 class AudioHub {
   ctx: AudioContext | null = null;
-  /** Music instruments connect here (dry); `reverb` and `echo` are optional sends. */
+  /** Music instruments connect here (dry); `reverb` is an optional send (each song makes its own echo). */
   musicBus!: GainNode;
   reverb!: GainNode;
-  echo!: GainNode;
-  echoDelay!: DelayNode;
   sfxBus!: GainNode;
   noiseBuffer!: AudioBuffer;
   private settings: AudioSettings | null = null;
@@ -100,7 +104,12 @@ class AudioHub {
     if (!this.ctx) {
       const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctx) return;
-      const ctx = new Ctx();
+      let ctx: AudioContext;
+      try {
+        ctx = new Ctx({ latencyHint: LATENCY });
+      } catch {
+        ctx = new Ctx();
+      }
       this.ctx = ctx;
 
       const limiter = ctx.createDynamicsCompressor();
@@ -123,34 +132,27 @@ class AudioHub {
       this.reverb.gain.value = 0.9;
       this.reverb.connect(convolver).connect(this.musicBus);
 
-      // Echo with a darkened feedback loop; songs set the delay time.
-      this.echoDelay = ctx.createDelay(2);
-      this.echoDelay.delayTime.value = 0.33;
-      const feedback = ctx.createGain();
-      feedback.gain.value = 0.32;
-      const tone = ctx.createBiquadFilter();
-      tone.type = "lowpass";
-      tone.frequency.value = 2600;
-      this.echo = ctx.createGain();
-      this.echo.gain.value = 0.55;
-      this.echo.connect(this.echoDelay).connect(tone).connect(feedback).connect(this.echoDelay);
-      tone.connect(this.musicBus);
-
       const length = ctx.sampleRate * 2;
       this.noiseBuffer = ctx.createBuffer(1, length, ctx.sampleRate);
       const data = this.noiseBuffer.getChannelData(0);
       for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
       this.applyLevels(true);
     }
-    const ctx = this.ctx;
-    if (this.held) return;
+    if (!this.held) this.resume();
+  }
+
+  /** Resumes the context (also from "interrupted", after a phone call on iOS), then starts what waited for it. */
+  private resume() {
+    const { ctx } = this;
+    if (!ctx) return;
     const ready = () => {
+      if (ctx.state !== "running") return;
       const fns = [...this.unlockListeners];
       this.unlockListeners.clear();
       fns.forEach((fn) => fn());
     };
-    if (ctx.state === "suspended") void ctx.resume().then(ready);
-    else ready();
+    if (ctx.state === "running") ready();
+    else ctx.resume().then(ready, () => {});
   }
 
   /**
@@ -162,7 +164,7 @@ class AudioHub {
     const { ctx } = this;
     if (!ctx) return;
     if (on) void ctx.suspend();
-    else void ctx.resume();
+    else this.resume();
   }
 
   private impulse(ctx: AudioContext, seconds: number, decay: number) {
@@ -221,6 +223,8 @@ class AudioHub {
     const t = ctx.currentTime + delay;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
+    // Looped: a long burst started late in the buffer would otherwise stop dead mid-sound.
+    src.loop = true;
     const filter = ctx.createBiquadFilter();
     filter.type = type;
     filter.frequency.setValueAtTime(freq, t);
@@ -273,15 +277,23 @@ export class NoiseLoop {
   }
 
   stop() {
-    try {
-      this.src?.stop();
-    } catch {
-      // Already stopped.
-    }
-    this.src?.disconnect();
-    this.gain?.disconnect();
+    const { ctx } = audio;
+    const { src, gain } = this;
     this.src = null;
     this.gain = null;
     this.filter = null;
+    if (!ctx || !src || !gain) return;
+    // A quick fade first: cutting a loud loop dead clicks.
+    const t = ctx.currentTime;
+    gain.gain.setTargetAtTime(0, t, 0.02);
+    try {
+      src.stop(t + 0.15);
+    } catch {
+      // Already stopped.
+    }
+    src.onended = () => {
+      src.disconnect();
+      gain.disconnect();
+    };
   }
 }
