@@ -7,7 +7,7 @@ import { useNativeBack, useNativeLifecycle } from "../shared/native-app";
 import { createRecords, createStore, GameRoot, HowToPlay, LoadingScreen, usePhoneLandscape, useRecords, useShortcuts, useStore } from "../shared/ui";
 import type { BKind } from "./data";
 import { KingdomEngine, type BattleHud, type BattleResult, type Mode, type Quality, type VillageHud } from "./engine";
-import { ArmyPanel, BattleBar, BottomBar, BuildingPanel, Campaign, NameDialog, PauseModal, PlacingBar, ResultModal, SettingsPanel, Shop, Toasts, TopBar, TutorialHint } from "./hud";
+import { ArmyPanel, BattleBar, BottomBar, BuildingPanel, Campaign, LayoutEditor, NameDialog, PauseModal, PlacingBar, ResultModal, SettingsPanel, Shop, Toasts, TopBar, TutorialHint } from "./hud";
 import { villageName } from "./layouts";
 import { GAME } from "./manifest";
 import { BuildingDetails } from "./details";
@@ -16,8 +16,8 @@ import { soundtrack } from "./soundtrack";
 import * as V from "./village";
 
 const records = createRecords<{ save: V.Save | null }>("kingdom-clash:v1", { save: null });
-/** Device preferences (not part of the village save). */
-const prefs = createRecords<{ quality: Quality }>("kingdom-clash:prefs:v1", { quality: "auto" });
+/** Device preferences (not part of the village save). v2: everyone starts in HD (full screen sharpness). */
+const prefs = createRecords<{ quality: Quality }>("kingdom-clash:prefs:v2", { quality: "hd" });
 
 type Panel = null | "shop" | "army" | "lab" | "spells" | "campaign" | "settings" | "rename";
 
@@ -143,6 +143,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
     if (mode === "village") {
       if (hud?.placing) engine?.cancelPlacing();
       else if (hud?.selected) engine?.select(null);
+      else if (hud?.editing) engine?.cancelLayout();
       return;
     }
     if (mode === "raid" || mode === "defence") {
@@ -166,6 +167,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
     if (mode === "village" && hud?.name) {
       if (hud.placing) engine?.cancelPlacing();
       else if (hud.selected) engine?.select(null);
+      else if (hud.editing) engine?.cancelLayout();
       else return false;
       return true;
     }
@@ -208,12 +210,19 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
         return;
       }
       if (ev.repeat) return;
-      if (mode === "village" && !panel && !result && hud?.name) {
+      if (mode === "village" && hud?.editing) {
+        // Layout editor: Enter places, everything else waits.
+        if (k === "enter" && hud.placing) {
+          ev.preventDefault();
+          engine.confirmPlacing();
+        }
+      } else if (mode === "village" && !panel && !result && hud?.name) {
         if (k === "b") setPanel("shop");
         else if (k === "t") setPanel("army");
         else if (k === "r") setPanel("campaign");
         else if (k === "u") engine.upgradeSelected();
         else if (k === "c") engine.collectAll();
+        else if (k === "e" && !hud.placing) engine.startEditing();
         else if (k === "enter" && hud?.placing) {
           ev.preventDefault();
           engine.confirmPlacing();
@@ -226,6 +235,9 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
         } else if (k === " ") {
           ev.preventDefault();
           engine.setSpeed(battle?.speed === 1 ? 2 : battle?.speed === 2 ? 3 : 1);
+        } else if (k === "enter" && battle?.online && !battle.started) {
+          ev.preventDefault();
+          engine.nextOnline();
         }
       }
     };
@@ -264,6 +276,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
     e()?.pauseBattle(true);
   };
   const onSpeed = () => e()?.setSpeed(battle?.speed === 1 ? 2 : battle?.speed === 2 ? 3 : 1);
+  const onNext = () => e()?.nextOnline();
   const building = hud?.selected;
   const buildingIcon = building && building.kind !== "obstacle" ? icons[`b:${building.kind}`] : undefined;
 
@@ -277,14 +290,29 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
       {(mode === "loading" || mode === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
 
       <div className="g-safe">
+        {mode === "village" && hud && save && hud.editing && (
+          <LayoutEditor
+            hud={hud}
+            icons={icons}
+            onSave={() => e()?.saveLayout()}
+            onCancel={() => e()?.cancelLayout()}
+            onStoreAll={() => e()?.storeAll()}
+            onStore={() => e()?.storeSelected()}
+            onPlace={(k) => e()?.placeFromTray(k)}
+            onConfirm={() => e()?.confirmPlacing()}
+            onCancelPlace={() => e()?.cancelPlacing()}
+            onRow={() => e()?.wallRow()}
+          />
+        )}
         {mode === "village" &&
           hud &&
           save &&
+          !hud.editing &&
           (phone ? (
             <>
-              <MobileTopBar hud={hud} onSettings={() => setPanel("settings")} onDefend={() => e()?.defendNow()} />
+              <MobileTopBar hud={hud} onSettings={() => setPanel("settings")} onDefend={() => e()?.defendNow()} onEdit={() => e()?.startEditing()} />
               {hud.placing ? (
-                <MobilePlacingBar hud={hud} onConfirm={() => e()?.confirmPlacing()} onCancel={() => e()?.cancelPlacing()} />
+                <MobilePlacingBar hud={hud} onConfirm={() => e()?.confirmPlacing()} onCancel={() => e()?.cancelPlacing()} onRow={() => e()?.wallRow()} />
               ) : building ? (
                 <MobileBuildingBar
                   key={building.id}
@@ -306,9 +334,9 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
             </>
           ) : (
             <>
-              <TopBar hud={hud} onSettings={() => setPanel("settings")} onHelp={() => setHelp(true)} onDefend={() => e()?.defendNow()} />
+              <TopBar hud={hud} onSettings={() => setPanel("settings")} onHelp={() => setHelp(true)} onDefend={() => e()?.defendNow()} onEdit={() => e()?.startEditing()} />
               {hud.placing ? (
-                <PlacingBar hud={hud} onConfirm={() => e()?.confirmPlacing()} onCancel={() => e()?.cancelPlacing()} />
+                <PlacingBar hud={hud} onConfirm={() => e()?.confirmPlacing()} onCancel={() => e()?.cancelPlacing()} onRow={() => e()?.wallRow()} />
               ) : building ? (
                 <BuildingPanel
                   info={building}
@@ -334,9 +362,9 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
           battle &&
           !result &&
           (phone ? (
-            <MobileBattleHud b={battle} icons={icons} onSlot={onSlot} onEnd={onEnd} onPause={onBattlePause} onSpeed={onSpeed} />
+            <MobileBattleHud b={battle} icons={icons} onSlot={onSlot} onEnd={onEnd} onPause={onBattlePause} onSpeed={onSpeed} onNext={onNext} />
           ) : (
-            <BattleBar b={battle} icons={icons} onSlot={onSlot} onEnd={onEnd} onPause={onBattlePause} onSpeed={onSpeed} />
+            <BattleBar b={battle} icons={icons} onSlot={onSlot} onEnd={onEnd} onPause={onBattlePause} onSpeed={onSpeed} onNext={onNext} />
           ))}
         <Toasts items={toasts} />
       </div>
@@ -378,6 +406,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
               onUnbrew={(k) => e()?.unbrew(k)}
               onResearch={(k) => e()?.research(k)}
               onFinishTraining={() => e()?.finishTraining()}
+              onFinishBrewing={() => e()?.finishBrewing()}
               onFinishResearch={() => e()?.finishResearch()}
               onClose={closeAll}
             />
@@ -389,6 +418,10 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
               onAttack={(n) => {
                 closeAll();
                 e()?.startRaid(n);
+              }}
+              onOnline={() => {
+                closeAll();
+                e()?.startOnline();
               }}
               onClose={closeAll}
             />

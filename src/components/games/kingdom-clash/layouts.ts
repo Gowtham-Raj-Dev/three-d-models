@@ -82,6 +82,34 @@ function makeStage(s: number): Stage {
   const band = ((s - 1) % 20) / 19;
   // Early stages are gentle; each band climbs from "Town Hall just reached" to "maxed for its TH".
   const fill = s <= 3 ? 0.3 : 0.45 + 0.55 * band;
+  const list = layout(rand, th, band, fill, { oneDefence: s <= 2, walls: s >= 5 });
+
+  // Loot: storages hold most of it, collectors and the Town Hall the rest.
+  const total = stageLoot(s);
+  shareLoot(list, total, total);
+
+  const nameRand = seeded(s * 104729 + 7);
+  const difficulty = s <= 3 ? "Very easy" : band < 0.3 ? "Easy" : band < 0.6 ? "Medium" : band < 0.85 ? "Hard" : "Very hard";
+  return {
+    stage: s,
+    name: villageName(nameRand),
+    th,
+    buildings: list,
+    gold: total,
+    elixir: total,
+    bonusGold: Math.round(total * 0.5),
+    bonusElixir: Math.round(total * 0.5),
+    bonusGems: s % 5 === 0 ? 5 + Math.floor(s / 10) : 1,
+    difficulty,
+    power: elitePower(s),
+  };
+}
+
+/**
+ * An enemy village of Town Hall `th`: `band` (0..1) is how far it has grown within its Town Hall
+ * level (building levels), `fill` how many of the allowed buildings it has.
+ */
+function layout(rand: () => number, th: number, band: number, fill: number, opts: { oneDefence?: boolean; walls: boolean }): EnemyBuilding[] {
   const lvl = (kind: BKind) => {
     const cap = Math.min(BUILDINGS[kind].maxLevel, th);
     const v = Math.round(th - 1.3 + band * 1.5 + (rand() - 0.5) * 0.9);
@@ -97,10 +125,11 @@ function makeStage(s: number): Stage {
   for (const k of ["kingaltar", "queenaltar"] as BKind[]) if (allowed(k, th) && (band > 0.25 || rand() < 0.5)) storages.splice(1, 0, k);
   const defences: BKind[] = [];
   for (let i = 0; i < count("magetower"); i++) defences.push("magetower");
+  for (let i = 0; i < count("tesla"); i++) defences.push("tesla");
   for (let i = 0; i < count("catapult"); i++) defences.push("catapult");
   for (let i = 0; i < count("cannon", 1); i++) defences.push("cannon");
   for (let i = 0; i < count("archertower"); i++) defences.push("archertower");
-  if (s <= 2) defences.length = 1;
+  if (opts.oneDefence) defences.length = 1;
   // Interleave storages and defences so defences cover the core.
   const core: BKind[] = [];
   while (storages.length || defences.length) {
@@ -161,9 +190,9 @@ function makeStage(s: number): Stage {
 
   // Walls: a closed ring around as much of the core as the walls allow (from stage 5 on); leftover
   // walls make a second, outer ring or split the inside into compartments.
-  let walls = s < 5 ? 0 : Math.round(allowed("wall", th) * Math.min(1, fill + 0.15));
+  let walls = !opts.walls ? 0 : Math.round(allowed("wall", th) * Math.min(1, fill + 0.15));
   const wallLvl = lvl("wall");
-  const box = (bs: EnemyBuilding[]) => {
+  const box = (bs: EnemyBuilding[], m = 1) => {
     let x0 = GRID;
     let z0 = GRID;
     let x1 = 0;
@@ -175,7 +204,7 @@ function makeStage(s: number): Stage {
       x1 = Math.max(x1, b.x + n - 1);
       z1 = Math.max(z1, b.z + n - 1);
     }
-    return { x0: Math.max(0, x0 - 1), z0: Math.max(0, z0 - 1), x1: Math.min(GRID - 1, x1 + 1), z1: Math.min(GRID - 1, z1 + 1) };
+    return { x0: Math.max(0, x0 - m), z0: Math.max(0, z0 - m), x1: Math.min(GRID - 1, x1 + m), z1: Math.min(GRID - 1, z1 + m) };
   };
   const ringTiles = (r: { x0: number; z0: number; x1: number; z1: number }) => {
     const out: { x: number; z: number }[] = [];
@@ -186,14 +215,18 @@ function makeStage(s: number): Stage {
   const byDist = [...corePlaced].sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
   let inner: ReturnType<typeof box> | null = null;
   if (walls > 0) {
-    for (let k = byDist.length; k >= 1; k--) {
-      const r = box(byDist.slice(0, k));
-      const tiles = ringTiles(r);
-      if (tiles.length <= walls) {
-        for (const p of tiles) put("wall", p.x, p.z, wallLvl);
-        walls -= tiles.length;
-        inner = r;
-        break;
+    // Enclose as many core buildings as the walls allow — with a tile of space between the walls and
+    // the buildings when there are walls enough, so nothing touches.
+    outer: for (let k = byDist.length; k >= 1; k--) {
+      for (const m of [2, 1]) {
+        const r = box(byDist.slice(0, k), m);
+        const tiles = ringTiles(r);
+        if (tiles.length <= walls) {
+          for (const p of tiles) put("wall", p.x, p.z, wallLvl);
+          walls -= tiles.length;
+          inner = r;
+          break outer;
+        }
       }
     }
   }
@@ -249,34 +282,80 @@ function makeStage(s: number): Stage {
       spots(n, reach + 0.5, 30, 2.5).find((p) => free(p.x, p.z, n, 1)) ?? spots(n, 0, 30, 0).find((p) => free(p.x, p.z, n, 1));
     if (spot) put(kind, spot.x, spot.z);
   }
+  return list;
+}
 
-  // Loot: storages hold most of it, collectors and the Town Hall the rest.
-  const total = stageLoot(s);
+/** Puts loot in a village: storages hold most of it, collectors and the Town Hall the rest. */
+function shareLoot(list: EnemyBuilding[], gold: number, elixir: number) {
   const share = (kinds: BKind[], res: "gold" | "elixir", amount: number) => {
     const holders = list.filter((b) => kinds.includes(b.kind));
     for (const b of holders) b[res] = (b[res] ?? 0) + Math.round(amount / holders.length);
   };
-  share(["goldstorage"], "gold", total * 0.6);
-  share(["elixirstorage"], "elixir", total * 0.6);
-  share(["goldmine"], "gold", total * 0.25);
-  share(["elixirpump"], "elixir", total * 0.25);
-  share(["townhall"], "gold", total * 0.15);
-  share(["townhall"], "elixir", total * 0.15);
+  share(["goldstorage"], "gold", gold * 0.6);
+  share(["elixirstorage"], "elixir", elixir * 0.6);
+  share(["goldmine"], "gold", gold * 0.25);
+  share(["elixirpump"], "elixir", elixir * 0.25);
+  share(["townhall"], "gold", gold * 0.15);
+  share(["townhall"], "elixir", elixir * 0.15);
+}
 
-  const nameRand = seeded(s * 104729 + 7);
-  const difficulty = s <= 3 ? "Very easy" : band < 0.3 ? "Easy" : band < 0.6 ? "Medium" : band < 0.85 ? "Hard" : "Very hard";
+// --- Online battles: random rival villages at your Town Hall level --------------------------------------
+
+/** Typical loot per resource in an online village, by its Town Hall level (each rival has 0.7–1.5× this). */
+export const ONLINE_LOOT = [4000, 9000, 22000, 45000, 90000];
+
+/** Gold it costs to look for a rival (and to skip to the next one). */
+export const searchCost = (th: number) => 25 + 25 * th * th;
+
+export interface OnlineBase extends Stage {
+  /** The rival chief's name. */
+  owner: string;
+  /** Trophies for a 3-star win, and lost on a defeat. */
+  trophies: { win: number; lose: number };
+}
+
+const CHIEF_A = ["Shadow", "Iron", "Storm", "Dragon", "Night", "Fire", "Frost", "Thunder", "Golden", "Royal", "Wild", "Silent", "Brave", "Lucky", "Mighty", "Swift", "Dark", "Crimson", "Steel", "Mystic", "Red", "Stone", "Silver", "Rune"];
+const CHIEF_B = ["Wolf", "King", "Hunter", "Slayer", "Knight", "Raider", "Warrior", "Lord", "Queen", "Blade", "Archer", "Titan", "Fox", "Hawk", "Rider", "Viking", "Chief", "Tiger", "Lion", "Bear", "Giant", "Mage"];
+const CHIEF_NAMES = ["Arun", "Karthik", "Priya", "Vijay", "Surya", "Deepa", "Rahul", "Meena", "Ravi", "Anjali", "Siva", "Kavya", "Ajith", "Nila", "Bala", "Divya", "Hari", "Lakshmi"];
+
+function chiefName(rand: () => number) {
+  const pick = <T,>(a: T[]) => a[Math.floor(rand() * a.length)];
+  const num = rand() < 0.55 ? String(1 + Math.floor(rand() * (rand() < 0.5 ? 99 : 999))) : "";
+  if (rand() < 0.3) return `${pick(CHIEF_NAMES)}${rand() < 0.5 ? "_" : ""}${num || pick(CHIEF_B)}`;
+  return `${pick(CHIEF_A)}${pick(CHIEF_B)}${num}`;
+}
+
+/**
+ * A random rival village for an online battle: mostly your own Town Hall level (sometimes one above
+ * or below), anywhere from freshly upgraded to maxed out, walled, with plenty of loot.
+ */
+export function onlineBase(playerTh: number, seed: number): OnlineBase {
+  const rand = seeded(seed);
+  const r = rand();
+  const th = Math.max(1, Math.min(5, playerTh + (r < 0.15 ? -1 : r > 0.85 ? 1 : 0)));
+  const band = 0.1 + rand() * 0.9;
+  const fill = 0.45 + 0.55 * band;
+  const list = layout(rand, th, band, fill, { walls: true });
+  const rich = 0.7 + rand() * 0.8;
+  const round = (n: number) => Math.round(n / 10) * 10;
+  const gold = round(ONLINE_LOOT[th - 1] * rich * (0.8 + rand() * 0.4));
+  const elixir = round(ONLINE_LOOT[th - 1] * rich * (0.8 + rand() * 0.4));
+  shareLoot(list, gold, elixir);
+  const diff = th - playerTh;
   return {
-    stage: s,
-    name: villageName(nameRand),
+    stage: 0,
+    name: villageName(rand),
+    owner: chiefName(rand),
     th,
     buildings: list,
-    gold: total,
-    elixir: total,
-    bonusGold: Math.round(total * 0.5),
-    bonusElixir: Math.round(total * 0.5),
-    bonusGems: s % 5 === 0 ? 5 + Math.floor(s / 10) : 1,
-    difficulty,
-    power: elitePower(s),
+    gold,
+    elixir,
+    bonusGold: 0,
+    bonusElixir: 0,
+    bonusGems: 0,
+    difficulty: diff > 0 ? "Stronger" : diff < 0 ? "Weaker" : band > 0.7 ? "Tough" : "Even",
+    power: 1,
+    trophies: { win: Math.max(8, Math.round(18 + diff * 6 + rand() * 10)), lose: Math.max(4, Math.round(11 - diff * 4 + rand() * 6)) },
   };
 }
 

@@ -141,6 +141,28 @@ export class Sfx {
     audio.tone(650, 0.22, { type: "sine", volume: 0.06, slide: 500 });
   }
 
+  /** Hidden Tesla: an electric crack and buzz. */
+  shock() {
+    if (!this.ok("shock", 0.1)) return;
+    audio.noise(0.05, { volume: 0.22, freq: 6500, type: "highpass" });
+    audio.noise(0.18, { volume: 0.12, freq: 3000, type: "bandpass", q: 6, slide: -1800, delay: 0.02 });
+    audio.tone(120, 0.16, { type: "sawtooth", volume: 0.05, slide: 40 });
+  }
+
+  /** A Hidden Tesla springs out of the ground. */
+  rise() {
+    audio.tone(180, 0.4, { type: "sawtooth", volume: 0.06, slide: 700 });
+    audio.noise(0.35, { volume: 0.14, freq: 700, slide: -400 });
+  }
+
+  /** The Wall Breaker's bomb: a deep blast with a crack on top. */
+  blast() {
+    if (!this.ok("blast", 0.08)) return;
+    audio.noise(0.06, { volume: 0.3, freq: 4200, type: "highpass" });
+    audio.noise(1.0, { volume: 0.55, freq: 1500, slide: -1400, delay: 0.02 });
+    audio.tone(55, 0.8, { type: "sine", volume: 0.5, slide: -30 });
+  }
+
   boom(big = false) {
     if (!this.ok(big ? "boomBig" : "boom", 0.07)) return;
     audio.noise(big ? 0.9 : 0.45, { volume: big ? 0.5 : 0.3, freq: big ? 1400 : 1000, slide: big ? -1300 : -900 });

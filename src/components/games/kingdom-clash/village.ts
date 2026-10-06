@@ -86,7 +86,7 @@ export interface Save {
   bonus: number[];
   tutorial: number;
   ach: string[];
-  stats: { trained: number; raids: number; wins: number; defences: number; held: number; cleared: number; spells: number };
+  stats: { trained: number; raids: number; wins: number; defences: number; held: number; cleared: number; spells: number; online: number; onlineWins: number };
   /** Seconds of village time until raiders come. */
   raidIn: number;
   lastObstacle: number;
@@ -126,7 +126,7 @@ function baseSave(now: number): Save {
     spells: {},
     brew: [],
     brewT: now,
-    troopLv: { warrior: 1, archer: 1, thief: 1, giant: 1, breaker: 1, mage: 1, healer: 1 },
+    troopLv: { warrior: 1, archer: 1, thief: 1, giant: 1, valkyrie: 1, breaker: 1, crossbow: 1, mage: 1, healer: 1, knight: 1 },
     spellLv: { lightning: 1, heal: 1, rage: 1, freeze: 1, jump: 1 },
     research: null,
     heroHp: { king: 1, queen: 1 },
@@ -134,7 +134,7 @@ function baseSave(now: number): Save {
     bonus: [],
     tutorial: 0,
     ach: [],
-    stats: { trained: 0, raids: 0, wins: 0, defences: 0, held: 0, cleared: 0, spells: 0 },
+    stats: { trained: 0, raids: 0, wins: 0, defences: 0, held: 0, cleared: 0, spells: 0, online: 0, onlineWins: 0 },
     raidIn: RAID_FIRST,
     lastObstacle: now,
     seen: now,

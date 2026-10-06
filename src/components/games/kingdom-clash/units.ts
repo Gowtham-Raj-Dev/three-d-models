@@ -21,6 +21,8 @@ export class Unit3D {
   private current: THREE.AnimationAction | null = null;
   clip = "";
   readonly look: TroopLook;
+  /** The gear it carries (sword, bomb…), in the look's order. */
+  readonly gear: THREE.Object3D[] = [];
   /** Free for the pool once its death animation and fade finish. */
   dead = false;
   fade = 1;
@@ -66,6 +68,7 @@ export class Unit3D {
         gear.rotation.set(g.rx ?? 0, g.ry ?? 0, g.rz ?? 0);
       }
       bone.add(gear);
+      this.gear.push(gear);
     }
     this.mixer = new THREE.AnimationMixer(model);
     for (const c of clips) this.actions.set(c.name, this.mixer.clipAction(c));
@@ -171,17 +174,46 @@ export class UnitFactory {
   }
 
   private readonly borrowed = new Map<string, THREE.AnimationClip[]>();
+  private readonly mixed = new Map<string, THREE.AnimationClip[]>();
 
   /** A look's animations; borrowed ones keep only bone rotations so the body keeps its own proportions. */
   private clips(look: TroopLook): THREE.AnimationClip[] {
-    if (!look.clipSource) return this.bank.model(look.m)?.animations ?? [];
-    let list = this.borrowed.get(look.clipSource);
-    if (!list) {
-      const src = this.bank.model(look.clipSource)?.animations ?? [];
-      list = src.map((c) => new THREE.AnimationClip(c.name, c.duration, c.tracks.filter((t) => t.name.endsWith(".quaternion")).map((t) => t.clone())));
-      this.borrowed.set(look.clipSource, list);
+    let list: THREE.AnimationClip[];
+    if (!look.clipSource) list = this.bank.model(look.m)?.animations ?? [];
+    else {
+      const cached = this.borrowed.get(look.clipSource);
+      if (cached) list = cached;
+      else {
+        const src = this.bank.model(look.clipSource)?.animations ?? [];
+        list = src.map((c) => new THREE.AnimationClip(c.name, c.duration, c.tracks.filter((t) => t.name.endsWith(".quaternion")).map((t) => t.clone())));
+        this.borrowed.set(look.clipSource, list);
+      }
     }
-    return list;
+    if (!look.mix?.length) return list;
+    // Made-up clips: one clip's legs and body with another's arms (the Wall Breaker runs holding its bomb out).
+    const key = `${look.m}|${look.mix.map((m) => m.name).join(",")}`;
+    const hit = this.mixed.get(key);
+    if (hit) return hit;
+    const byName = new Map(list.map((c) => [c.name, c]));
+    const arm = (t: THREE.KeyframeTrack) => /^arm-(left|right)\./.test(t.name);
+    const extra: THREE.AnimationClip[] = [];
+    // A pose frozen from one moment of a clip (arms raised, holding the weapon up).
+    const frozen = (t: THREE.KeyframeTrack, at: number) => {
+      const interp = (t as unknown as { createInterpolant(): THREE.Interpolant }).createInterpolant();
+      const v = Array.from(interp.evaluate(Math.min(at, t.times[t.times.length - 1])) as ArrayLike<number>);
+      const Track = t.constructor as new (name: string, times: number[], values: number[]) => THREE.KeyframeTrack;
+      return new Track(t.name, [0], v);
+    };
+    for (const mx of look.mix) {
+      const base = byName.get(mx.base);
+      const arms = byName.get(mx.arms);
+      if (!base || !arms) continue;
+      const armTracks = arms.tracks.filter(arm).map((t) => (mx.at === undefined ? t.clone() : frozen(t, mx.at)));
+      extra.push(new THREE.AnimationClip(mx.name, base.duration, [...base.tracks.filter((t) => !arm(t)).map((t) => t.clone()), ...armTracks]));
+    }
+    const out = [...list, ...extra];
+    this.mixed.set(key, out);
+    return out;
   }
 
   release(u: Unit3D) {

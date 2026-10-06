@@ -27,8 +27,8 @@ import {
   type TroopKind,
   type UnitKind,
 } from "./data";
-import { boltLine, groundRing, Overlay, Particles } from "./fx";
-import { raiderArmy, stage as stageOf, villageName } from "./layouts";
+import { arcLine, boltLine, groundRing, Overlay, Particles } from "./fx";
+import { onlineBase, raiderArmy, searchCost, stage as stageOf, villageName, type OnlineBase } from "./layouts";
 import { LATE, MODELS, K } from "./manifest";
 import { N, Sim, STEP, type Projectile, type SB, type SimBuildingInput, type SU, type Zone } from "./sim";
 import { altarSpot, FOUNDATION_H } from "./recipes";
@@ -95,12 +95,17 @@ export interface VillageHud {
   trainLeft: number;
   spells: number;
   spellSlots: number;
+  /** Seconds until every queued spell is brewed. */
+  brewLeft: number;
   raidIn: number;
-  placing: { kind: BKind; valid: boolean; cost: number; res: string } | null;
+  /** `tray`: a building from the layout editor's tray (already paid for). */
+  placing: { kind: BKind; valid: boolean; cost: number; res: string; tray: boolean } | null;
   selected: SelectedInfo | null;
   tutorial: number;
   research: { kind: string; left: number; total: number } | null;
   heroes: HeroHud[];
+  /** Layout editor open: the buildings waiting in the tray. */
+  editing: { tray: { kind: BKind; n: number }[] } | null;
 }
 
 export interface Slot {
@@ -130,6 +135,12 @@ export interface BattleHud {
   speed: number;
   raidersLeft: number;
   thDown: boolean;
+  /** Online battles: the rival, the trophies at stake and what "Next" costs (while scouting). */
+  online: { owner: string; th: number; win: number; lose: number; next: number } | null;
+  /** Online scouting: seconds until the battle starts by itself (-1: no countdown). */
+  scoutLeft: number;
+  /** Your own storages (shown top-right while you attack). */
+  own: { gold: number; goldCap: number; elixir: number; elixirCap: number };
 }
 
 export interface BattleResult {
@@ -148,6 +159,8 @@ export interface BattleResult {
   raiders: number;
   raidersKilled: number;
   newBest: boolean;
+  /** Online battles: whose village it was. */
+  online: { owner: string; th: number } | null;
 }
 
 export interface Events {
@@ -184,6 +197,8 @@ interface BView {
   flash: number;
   spinT: number;
   hidden: boolean;
+  /** Seconds since a hidden defence started springing up (-1: not rising). */
+  rise: number;
 }
 
 interface OView {
@@ -198,6 +213,8 @@ interface CampUnit {
   walk: boolean;
   wait: number;
   emote: number;
+  /** Animation time not yet applied (resting troops animate every other frame). */
+  acc: number;
 }
 
 interface Worker {
@@ -232,6 +249,8 @@ const SWING: Record<string, { lead: number; speed: number; recover: number }> = 
   "holding-right-shoot": { lead: 0.04, speed: 0.9, recover: 0.25 },
   "interact-right": { lead: 0.3, speed: 1, recover: 0.4 },
   "1H_Melee_Attack_Chop": { lead: 0.3, speed: 1.4, recover: 0.45 },
+  "2H_Melee_Attack_Chop": { lead: 0.45, speed: 1.3, recover: 0.75 },
+  "2H_Melee_Attack_Slice": { lead: 0.35, speed: 1.2, recover: 0.55 },
   atk01: { lead: 0.28, speed: 1.2, recover: 0.4 },
 };
 
@@ -252,6 +271,8 @@ const PITCH = 0.92;
 const YAW = Math.PI / 4;
 /** Raid time limit (seconds). */
 const RAID_TIME = 300;
+/** Online battles: seconds to look at the rival's village before the battle starts by itself. */
+const SCOUT_TIME = 30;
 const clamp = THREE.MathUtils.clamp;
 const RES_COLOR = { gold: "#fde047", elixir: "#f0abfc", gems: "#6ee7b7" } as const;
 export const RES_ICON = {
@@ -306,7 +327,7 @@ class Studio {
   }
 
   /** `fill`: how much of the picture the object's outline may take (the rest is margin, nothing is cut). */
-  shoot(obj: THREE.Object3D, fill = 0.86): Promise<string> {
+  async shoot(obj: THREE.Object3D, fill = 0.86): Promise<string> {
     const { renderer, rt, scene, cam, size, out } = this;
     scene.add(obj);
     obj.updateMatrixWorld(true);
@@ -318,15 +339,20 @@ class Studio {
       renderer.setClearColor(0x000000, 0);
       renderer.clear();
       renderer.render(scene, cam);
-      renderer.readRenderTargetPixels(rt, 0, 0, size, size, this.pixels);
     } finally {
       renderer.setRenderTarget(null);
       renderer.setClearColor(0x000000, prevClear);
       scene.remove(obj);
     }
+    // Read the picture back without making the GPU wait (a blocking read hitches the game on phones).
+    try {
+      await renderer.readRenderTargetPixelsAsync(rt, 0, 0, size, size, this.pixels);
+    } catch {
+      renderer.readRenderTargetPixels(rt, 0, 0, size, size, this.pixels);
+    }
     const ctx = this.big.getContext("2d");
     const sctx = this.small.getContext("2d");
-    if (!ctx || !sctx) return Promise.resolve("");
+    if (!ctx || !sctx) return "";
     const img = ctx.createImageData(size, size);
     for (let y = 0; y < size; y++) img.data.set(this.pixels.subarray((size - 1 - y) * size * 4, (size - y) * size * 4), y * size * 4);
     ctx.putImageData(img, 0, 0);
@@ -421,7 +447,11 @@ export class KingdomEngine {
   private readonly portraitCache = new Map<string, string>();
   private pendingWalkers = 0;
   private selectedId: number | null = null;
-  private placing: { kind: BKind; x: number; z: number; view: BView; valid: boolean; last?: { x: number; z: number } } | null = null;
+  private placing: { kind: BKind; x: number; z: number; view: BView; valid: boolean; last?: { x: number; z: number }; trayId?: number } | null = null;
+  /** Layout editor: where everything stood when it opened, and the buildings taken off the map. */
+  private editing: { orig: Map<number, { x: number; z: number }>; tray: number[] } | null = null;
+  /** The way the current run of walls is heading. */
+  private wallDir = { dx: 1, dz: 0 };
   private moving: { id: number; x: number; z: number; ox: number; oz: number; valid: boolean } | null = null;
   private footprint: THREE.Mesh | null = null;
   private selectRing: THREE.Group | null = null;
@@ -442,8 +472,12 @@ export class KingdomEngine {
   private projViews = new Map<number, { obj: THREE.Object3D; kind: string }>();
   private readonly projPool = new Map<string, THREE.Object3D[]>();
   private zoneViews = new Map<number, { ring: ReturnType<typeof groundRing>; zone: Zone }>();
-  private bolts: { line: THREE.Line; t: number }[] = [];
+  private bolts: { line: THREE.Line; t: number; short?: boolean }[] = [];
   private boltMat: THREE.LineBasicMaterial | null = null;
+  /** Hidden Tesla arcs: a white-hot core and a blue halo. */
+  private zapMats: [THREE.LineBasicMaterial, THREE.LineBasicMaterial] | null = null;
+  /** The rival village of an online battle (null in the campaign and on defence). */
+  private online: OnlineBase | null = null;
   private deployZone: THREE.Mesh | null = null;
   private deployFlash = 0;
   private battleStage = 0;
@@ -455,6 +489,9 @@ export class KingdomEngine {
   private lootAcc = new Map<number, { g: number; e: number; t: number }>();
   private defencePlan: { used: Partial<Record<TroopKind, number>> } | null = null;
   private lastBattleHud = "";
+  private battleHudT = 0;
+  private campTick = 0;
+  private shadowTick = 0;
   private paused = false;
   private wallsDirty = false;
 
@@ -497,7 +534,9 @@ export class KingdomEngine {
   ) {
     const coarse = window.matchMedia("(pointer: coarse)").matches;
     this.coarse = coarse;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    // Very dense phone screens render at their full resolution, where MSAA costs a lot and shows little.
+    const dense = coarse && (window.devicePixelRatio || 1) >= 2.6;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !dense, powerPreference: "high-performance" });
     this.applyQuality();
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.shadowMap.enabled = true;
@@ -562,6 +601,8 @@ export class KingdomEngine {
     scene.add(this.ground.group, this.villageGroup, this.battleGroup, this.unitGroup, this.fxGroup, this.sparks.points, this.dust.points);
     this.boltMat = new THREE.LineBasicMaterial({ color: "#e0f2fe", transparent: true, opacity: 1 });
     this.owned.push(this.boltMat);
+    this.zapMats = [new THREE.LineBasicMaterial({ color: "#f0f9ff", transparent: true, opacity: 1 }), new THREE.LineBasicMaterial({ color: "#60a5fa", transparent: true, opacity: 0.85 })];
+    this.owned.push(...this.zapMats);
 
     // Grid lines for moving / placing.
     const pts: number[] = [];
@@ -609,6 +650,8 @@ export class KingdomEngine {
       this.buildVillage();
       this.focusVillage(true);
       soundtrack.play("village");
+      // The battle song loads in the background, so an attack switches to it at once.
+      setTimeout(() => !this.disposed && soundtrack.preload("battle"), 8000);
       this.setMode("village");
       this.emitHud();
       setTimeout(() => !this.disposed && this.refreshIcons(), 50);
@@ -633,8 +676,9 @@ export class KingdomEngine {
             }
           });
         }
-        // Heroes can now stand at their altars, and get portraits.
+        // Heroes can now stand at their altars, Knights at the camps, and all of them get portraits.
         this.syncHeroes();
+        if (this.mode === "village") this.syncCamp(true);
         this.refreshIcons();
       });
     } catch (err) {
@@ -658,7 +702,7 @@ export class KingdomEngine {
   }
 
   private flushSave = () => {
-    if (!this.dirty) return;
+    if (!this.dirty || this.editing) return;
     this.dirty = false;
     this.store.set(this.save);
   };
@@ -702,7 +746,7 @@ export class KingdomEngine {
     const root = new THREE.Group();
     footprintCenter(x, z, size, root.position);
     parent.add(root);
-    const v: BView = { id, kind, level, x, z, size, root, mesh: null, scaffold: null, rubble: null, sb: null, collapse: -1, flash: 0, spinT: Math.random() * 10, hidden: false };
+    const v: BView = { id, kind, level, x, z, size, root, mesh: null, scaffold: null, rubble: null, sb: null, collapse: -1, flash: 0, spinT: Math.random() * 10, hidden: false, rise: -1 };
     this.setViewLevel(v, level, false);
     return v;
   }
@@ -750,12 +794,16 @@ export class KingdomEngine {
   }
 
   private rebuildWalls() {
-    const list: WallInfo[] = this.save.buildings.filter((b) => b.kind === "wall" && b.id !== this.moving?.id).map((b) => ({ id: b.id, x: b.x, z: b.z, level: b.level }));
+    const tray = this.editing?.tray ?? [];
+    const list: WallInfo[] = this.save.buildings.filter((b) => b.kind === "wall" && b.id !== this.moving?.id && !tray.includes(b.id)).map((b) => ({ id: b.id, x: b.x, z: b.z, level: b.level }));
     if (this.moving) {
       const b = this.save.buildings.find((x) => x.id === this.moving!.id);
       if (b?.kind === "wall") list.push({ id: b.id, x: this.moving.x, z: this.moving.z, level: b.level });
     }
-    if (this.placing?.kind === "wall") list.push({ id: -1, x: this.placing.x, z: this.placing.z, level: 1 });
+    if (this.placing?.kind === "wall") {
+      const b = this.placing.trayId !== undefined ? this.building(this.placing.trayId) : null;
+      list.push({ id: -1, x: this.placing.x, z: this.placing.z, level: b?.level ?? 1 });
+    }
     this.walls?.rebuild(list, { x: -GRID / 2, z: -GRID / 2 });
   }
 
@@ -798,7 +846,7 @@ export class KingdomEngine {
 
   /** Makes the figures at the camps match the army (new troops walk over from the barracks). */
   private syncCamp(instant = false) {
-    if (!this.units) return;
+    if (!this.units || this.editing) return;
     const camps = this.campLayout();
     const want: TroopKind[] = [];
     for (const k of TROOP_ORDER) for (let i = 0; i < (this.save.army[k] ?? 0); i++) want.push(k);
@@ -827,7 +875,7 @@ export class KingdomEngine {
           u.root.position.x += 1.6;
           u.root.position.z += 1.6;
         }
-        this.campUnits.push({ kind, u, slot: new THREE.Vector3(), walk, wait: Math.random() * 3, emote: 3 + Math.random() * 8 });
+        this.campUnits.push({ kind, u, slot: new THREE.Vector3(), walk, wait: Math.random() * 3, emote: 3 + Math.random() * 8, acc: 0 });
       }
     }
     this.pendingWalkers = 0;
@@ -855,6 +903,10 @@ export class KingdomEngine {
   }
 
   private updateCamp(dt: number) {
+    // A camp full of resting troops is a lot of skinned characters: those standing still animate
+    // every other frame (half of them each frame), walkers every frame.
+    this.campTick ^= 1;
+    let i = 0;
     for (const c of this.campUnits) {
       const u = c.u;
       if (c.walk) {
@@ -885,7 +937,11 @@ export class KingdomEngine {
           if (c.wait <= 0) u.play("idle");
         } else if (u.clip !== "idle") u.play("idle");
       }
-      u.update(dt);
+      c.acc += dt;
+      if (c.walk || (i++ & 1) === this.campTick) {
+        u.update(c.acc);
+        c.acc = 0;
+      }
     }
   }
 
@@ -913,7 +969,7 @@ export class KingdomEngine {
   }
 
   private syncWorkers() {
-    if (!this.units) return;
+    if (!this.units || this.editing) return;
     const sites: { id: number; pos: THREE.Vector3 }[] = [];
     for (const b of this.save.buildings) {
       if (!b.until) continue;
@@ -954,7 +1010,7 @@ export class KingdomEngine {
 
   /** One figure per built altar: awake (pacing on the altar) or asleep while hurt or training. */
   private syncHeroes() {
-    if (!this.units) return;
+    if (!this.units || this.editing) return;
     for (const k of HERO_ORDER) {
       const st = V.heroState(this.save, k);
       const fig = this.heroes.get(k);
@@ -1081,7 +1137,7 @@ export class KingdomEngine {
       if (ev.built.length || ev.trained.length || ev.brewed.length || ev.researched.length || ev.cleared.length) this.persist();
       this.drainAwards();
       // Raiders come every few minutes (after the first raid of your own).
-      if (this.save.stats.raids > 0 && !this.busyUi && !this.placing && !this.moving) {
+      if (this.save.stats.raids > 0 && !this.busyUi && !this.placing && !this.moving && !this.editing) {
         this.save.raidIn -= 0.25;
         if (this.save.raidIn <= 0) this.startDefence();
       }
@@ -1117,6 +1173,10 @@ export class KingdomEngine {
   private updateLabels() {
     const now = Date.now();
     this.overlay.mark("v:");
+    if (this.editing) {
+      this.overlay.sweep("v:");
+      return;
+    }
     for (const b of this.save.buildings) {
       const def = BUILDINGS[b.kind];
       const v = this.views.get(b.id);
@@ -1169,6 +1229,19 @@ export class KingdomEngine {
       const src = this.iconCache[`t:${kind}`] ?? "";
       if (img.getAttribute("src") !== src) img.setAttribute("src", src);
       (el.querySelector("[data-t]") as HTMLElement).textContent = `×${this.save.queue.length} · ${formatTime(this.trainLeft())}`;
+    }
+    // Spell Factory: the spell brewing and how long the queue takes.
+    const factory = V.builtOf(this.save, "spellfactory").find((b) => !b.until);
+    if (factory && this.save.brew.length) {
+      const pos = footprintCenter(factory.x, factory.z, 3).setY(Math.min((this.views.get(factory.id)?.mesh?.height ?? 2) + 0.6, 4.2));
+      const kind = this.save.brew[0];
+      const el = this.overlay.label(`v:s:${factory.id}`, pos, (e) => {
+        e.className = "pointer-events-none";
+        e.innerHTML = `<div class="g-hud" style="display:flex;align-items:center;gap:5px;padding:2px 8px 2px 3px"><span data-o style="width:22px;height:22px;border-radius:999px;box-shadow:0 0 0 2px #1f2937"></span><span class="g-display" style="font-size:13px" data-t></span></div>`;
+      });
+      const c = SPELLS[kind].color;
+      (el.querySelector("[data-o]") as HTMLElement).style.background = `radial-gradient(circle at 35% 30%,#fff,${c} 45%,#1e1b4b)`;
+      (el.querySelector("[data-t]") as HTMLElement).textContent = `×${this.save.brew.length} · ${formatTime(this.brewLeft())}`;
     }
     // Sleeping heroes: Zzz and the time until they're fit again.
     for (const fig of this.heroes.values()) {
@@ -1301,7 +1374,10 @@ export class KingdomEngine {
       st("Damage / s", Math.round((def.attack.damage[lvl - 1] / def.attack.interval) * 10) / 10, Math.round((def.attack.damage[nxt - 1] / def.attack.interval) * 10) / 10);
       st("Range", `${def.attack.minRange ? `${def.attack.minRange}–` : ""}${def.attack.range} tiles`);
       if (def.attack.splash) st("Splash", `${def.attack.splash} tiles`);
+      const chain = def.attack.chain;
+      if (chain) st("Shock jumps to", chain[lvl - 1] ? `${chain[lvl - 1]} more troop${chain[lvl - 1] > 1 ? "s" : ""}` : "—", chain[nxt - 1] ? `${chain[nxt - 1]} more troop${chain[nxt - 1] > 1 ? "s" : ""}` : "—");
     }
+    if (def.hidden) stats.push({ label: "Hidden", value: `Springs up when troops come within ${def.hidden} tiles` });
     if (def.trap) {
       st("Damage", def.trap.damage[lvl - 1], def.trap.damage[nxt - 1]);
       st("Blast radius", `${def.trap.radius} tiles`);
@@ -1473,9 +1549,30 @@ export class KingdomEngine {
     s.gems -= gems;
     // Pretend the queue started long ago; tick() finishes everything that fits.
     s.queueT = Date.now() - 1e9;
-    s.brewT = Math.min(s.brewT, Date.now() - 1e9);
     this.tickT = 0;
     this.persist(true);
+  }
+
+  /** Finishes every spell in the Spell Factory's queue now, for gems. */
+  finishBrewing() {
+    const s = this.save;
+    const left = this.brewLeft();
+    if (left <= 0) return;
+    const gems = gemsToFinish(left);
+    if (s.gems < gems) return this.fail({ ok: false, reason: "Not enough gems" });
+    s.gems -= gems;
+    s.brewT = Date.now() - 1e9;
+    this.tickT = 0;
+    this.sfx.gems();
+    this.persist(true);
+  }
+
+  /** Seconds until every queued spell is brewed. */
+  brewLeft() {
+    const s = this.save;
+    if (!s.brew.length) return 0;
+    const t = s.brew.reduce((a, k) => a + SPELLS[k].brew, 0) - (Date.now() - s.brewT) / 1000;
+    return Math.max(0, t);
   }
 
   trainLeft() {
@@ -1624,6 +1721,7 @@ export class KingdomEngine {
       this.events.toast("Can't build there", "bad");
       return;
     }
+    if (p.trayId !== undefined) return this.confirmTray();
     const r = V.place(this.save, p.kind, p.x, p.z, Date.now());
     if (!r.ok) {
       this.fail(r);
@@ -1643,31 +1741,71 @@ export class KingdomEngine {
     this.syncWorkers();
     if (kind === "camp") this.syncCamp(true);
     this.persist(true);
-    // Walls: keep placing along the line.
+    // Walls: the next one waits right after this one, carrying the line on.
     if (kind === "wall" && V.canBuild(this.save, "wall").ok && this.save.gold >= BUILDINGS.wall.cost[0]) {
-      const prev = this.lastWall;
-      const dx = prev ? Math.sign(last.x - prev.x) : 1;
-      const dz = prev && dx === 0 ? Math.sign(last.z - prev.z) : 0;
-      this.lastWall = last;
       this.startPlacing("wall");
-      if (this.placing) {
-        const pl = this.placing as { x: number; z: number };
-        const nx = last.x + (dx || (dz ? 0 : 1));
-        const nz = last.z + dz;
-        if (V.fits(this.save, 1, nx, nz)) {
-          pl.x = nx;
-          pl.z = nz;
-        }
-        this.updatePlacing();
-      }
+      this.nextWallSpot(last);
     } else this.lastWall = null;
     this.emitHud();
+  }
+
+  /**
+   * Puts the wall being placed next to the one just placed: straight on along the line (the way the
+   * last two walls run), turning a corner when that tile is taken, never jumping across the map.
+   */
+  private nextWallSpot(last: { x: number; z: number }) {
+    const prev = this.lastWall;
+    if (prev && Math.abs(last.x - prev.x) + Math.abs(last.z - prev.z) === 1) this.wallDir = { dx: last.x - prev.x, dz: last.z - prev.z };
+    this.lastWall = last;
+    const p = this.placing;
+    if (!p) return;
+    const { dx, dz } = this.wallDir;
+    for (const [ax, az] of [[dx, dz], [-dz, dx], [dz, -dx], [-dx, -dz]]) {
+      if (V.fits(this.save, 1, last.x + ax, last.z + az)) {
+        p.x = last.x + ax;
+        p.z = last.z + az;
+        break;
+      }
+    }
+    this.updatePlacing();
+  }
+
+  /** The wall being placed and the run after it: as many walls as fit straight on (up to 10). */
+  wallRow() {
+    const p = this.placing;
+    if (!p || p.kind !== "wall") return;
+    const { dx, dz } = this.wallDir;
+    let n = 0;
+    let x = p.x;
+    let z = p.z;
+    while (n < 10 && this.placing?.valid) {
+      const before = this.placing;
+      this.confirmPlacing();
+      n++;
+      const next = this.placing;
+      if (!next || next === before) break;
+      // Stop at a corner: the row only goes straight.
+      if (next.x !== x + dx || next.z !== z + dz) break;
+      x = next.x;
+      z = next.z;
+    }
+    if (n > 1) this.events.toast(`${n} walls placed`, "good");
   }
 
   private lastWall: { x: number; z: number } | null = null;
 
   cancelPlacing() {
     if (!this.placing) return;
+    if (this.placing.trayId !== undefined) {
+      // Back into the tray.
+      this.placing.view.root.visible = false;
+      this.placing = null;
+      this.lastWall = null;
+      this.hideFootprint();
+      this.rebuildWalls();
+      this.emitHud();
+      return;
+    }
     this.placing.view.root.removeFromParent();
     const wasWall = this.placing.kind === "wall";
     this.placing = null;
@@ -1677,18 +1815,189 @@ export class KingdomEngine {
     this.emitHud();
   }
 
+  // --- Layout editor ---------------------------------------------------------------------------------------------
+
+  /** Opens the layout editor: drag any building, store buildings in the tray and place them back. */
+  startEditing() {
+    if (this.mode !== "village" || this.editing) return;
+    this.cancelPlacing();
+    this.select(null);
+    this.flushSave();
+    this.editing = { orig: new Map(this.save.buildings.map((b) => [b.id, { x: b.x, z: b.z }])), tray: [] };
+    // Troops, builders and heroes step aside while buildings move around.
+    for (const c of this.campUnits) this.units?.release(c.u);
+    this.campUnits = [];
+    for (const w of this.workers) this.units?.release(w.u);
+    this.workers = [];
+    for (const h of this.heroes.values()) this.units?.release(h.u);
+    this.heroes.clear();
+    if (this.gridLines) this.gridLines.visible = true;
+    this.sfx.pickUp();
+    this.emitHud();
+  }
+
+  private trayCounts() {
+    const counts = new Map<BKind, number>();
+    for (const id of this.editing?.tray ?? []) {
+      const b = this.building(id);
+      if (b) counts.set(b.kind, (counts.get(b.kind) ?? 0) + 1);
+    }
+    return [...counts].map(([kind, n]) => ({ kind, n }));
+  }
+
+  /** Takes a building off the map into the tray. */
+  private toTray(b: V.SBuilding) {
+    const ed = this.editing;
+    if (!ed || ed.tray.includes(b.id)) return;
+    ed.tray.push(b.id);
+    // Off the map: nothing else sees it until it's placed again.
+    b.x = -1000;
+    b.z = -1000;
+    const v = this.views.get(b.id);
+    if (v) v.root.visible = false;
+  }
+
+  storeSelected() {
+    const b = this.selectedId !== null ? this.building(this.selectedId) : null;
+    if (!b || !this.editing) return;
+    this.select(null);
+    this.toTray(b);
+    if (b.kind === "wall") this.rebuildWalls();
+    this.sfx.pickUp();
+    this.emitHud();
+  }
+
+  /** Clears the whole map into the tray (to build a new layout from scratch). */
+  storeAll() {
+    if (!this.editing) return;
+    this.cancelPlacing();
+    this.select(null);
+    for (const b of this.save.buildings) this.toTray(b);
+    this.rebuildWalls();
+    this.sfx.place();
+    this.emitHud();
+  }
+
+  /** Picks a building of a kind out of the tray to place (walls carry on in a line). */
+  placeFromTray(kind: BKind) {
+    const ed = this.editing;
+    if (!ed) return;
+    const id = ed.tray.find((i) => this.building(i)?.kind === kind);
+    const b = id !== undefined ? this.building(id) : undefined;
+    if (!b) return;
+    const last = this.placing?.kind === "wall" && kind === "wall" ? this.lastWall : null;
+    this.cancelPlacing();
+    this.select(null);
+    const size = BUILDINGS[kind].size;
+    const spot = V.freeSpot(this.save, size, this.target.x + GRID / 2, this.target.z + GRID / 2) ?? { x: 0, z: 0 };
+    const view = this.views.get(b.id)!;
+    view.root.visible = true;
+    this.placing = { kind, x: spot.x, z: spot.z, view, valid: true, trayId: b.id };
+    if (last) this.nextWallSpot(last);
+    else this.updatePlacing();
+    this.sfx.pickUp();
+    this.emitHud();
+  }
+
+  private confirmTray() {
+    const p = this.placing!;
+    const ed = this.editing;
+    const b = this.building(p.trayId!);
+    if (!ed || !b) return;
+    b.x = p.x;
+    b.z = p.z;
+    ed.tray = ed.tray.filter((i) => i !== b.id);
+    footprintCenter(b.x, b.z, BUILDINGS[b.kind].size, p.view.root.position);
+    p.view.x = b.x;
+    p.view.z = b.z;
+    this.placing = null;
+    this.hideFootprint();
+    if (this.gridLines) this.gridLines.visible = true;
+    this.sfx.place();
+    const c = footprintCenter(b.x, b.z, BUILDINGS[b.kind].size);
+    this.dust.burst(10, c.x, 0.2, c.z, { color: 0xc8b48a, size: 0.3, life: 0.6, speed: 1.2, up: 0.5, gravity: 0.5, grow: 2 });
+    // Walls: the next one from the tray waits right after this one.
+    if (b.kind === "wall" && ed.tray.some((i) => this.building(i)?.kind === "wall")) {
+      this.lastWall = this.lastWall && Math.abs(this.lastWall.x - b.x) + Math.abs(this.lastWall.z - b.z) <= 1 ? this.lastWall : null;
+      const last = { x: b.x, z: b.z };
+      this.placeFromTray("wall");
+      this.nextWallSpot(last);
+    } else this.lastWall = null;
+    this.rebuildWalls();
+    this.emitHud();
+  }
+
+  /** Keeps the new layout (every building must be back on the map). */
+  saveLayout() {
+    const ed = this.editing;
+    if (!ed) return;
+    if (this.placing) this.cancelPlacing();
+    if (ed.tray.length) return this.fail({ ok: false, reason: `Place the ${ed.tray.length} building${ed.tray.length > 1 ? "s" : ""} in the tray first` });
+    this.closeEditor();
+    this.persist(true);
+    this.sfx.fanfare();
+    this.events.toast("Layout saved", "good");
+  }
+
+  /** Puts every building back where it stood. */
+  cancelLayout() {
+    const ed = this.editing;
+    if (!ed) return;
+    if (this.placing) this.cancelPlacing();
+    for (const b of this.save.buildings) {
+      const o = ed.orig.get(b.id);
+      if (o) {
+        b.x = o.x;
+        b.z = o.z;
+      }
+    }
+    this.closeEditor();
+  }
+
+  private closeEditor() {
+    this.editing = null;
+    this.select(null);
+    this.hideFootprint();
+    for (const b of this.save.buildings) {
+      const v = this.views.get(b.id);
+      if (!v) continue;
+      v.root.visible = true;
+      v.x = b.x;
+      v.z = b.z;
+      footprintCenter(b.x, b.z, BUILDINGS[b.kind].size, v.root.position);
+    }
+    this.rebuildWalls();
+    this.syncCamp(true);
+    this.syncWorkers();
+    this.syncHeroes();
+    this.emitHud();
+  }
+
   // --- Raids ----------------------------------------------------------------------------------------------------
 
-  /** Starts an attack on a campaign stage. */
-  startRaid(stageNo: number) {
-    if (this.mode !== "village" || !this.bank) return;
-    const st = stageOf(stageNo);
+  /** Your army, spells and ready heroes, as a raid takes them. */
+  private raidArmy() {
     const troops = TROOP_ORDER.filter((k) => (this.save.army[k] ?? 0) > 0).map((k) => ({ kind: k as UnitKind, level: this.save.troopLv[k], count: this.save.army[k] ?? 0 }));
     const spells = SPELL_ORDER.filter((k) => (this.save.spells[k] ?? 0) > 0).map((k) => ({ kind: k, level: this.save.spellLv[k], count: this.save.spells[k] ?? 0 }));
     for (const k of [...HERO_ORDER].reverse()) {
       const hs = V.heroState(this.save, k);
       if (hs.ready) troops.unshift({ kind: k, level: hs.level, count: 1 });
     }
+    return { troops, spells };
+  }
+
+  /** An enemy village (campaign stage or online rival) as battle input, with its heroes guarding their altars. */
+  private enemyInput(st: { buildings: { kind: BKind; level: number; x: number; z: number; gold?: number; elixir?: number }[]; power: number }) {
+    const buildings: SimBuildingInput[] = st.buildings.map((b, i) => ({ id: i + 1, kind: b.kind, level: b.level, x: b.x, z: b.z, gold: b.gold, elixir: b.elixir, power: st.power }));
+    const guards = st.buildings.filter((b) => BUILDINGS[b.kind].hero).map((b) => ({ kind: BUILDINGS[b.kind].hero as UnitKind, level: b.level, x: b.x + 1.5, z: b.z + 1.5, r: 6 }));
+    return { buildings, guards };
+  }
+
+  /** Starts an attack on a campaign stage. */
+  startRaid(stageNo: number) {
+    if (this.mode !== "village" || !this.bank) return;
+    const st = stageOf(stageNo);
+    const { troops, spells } = this.raidArmy();
     if (!troops.length) {
       this.events.toast("Train some troops in the Barracks first", "bad");
       this.sfx.denied();
@@ -1696,15 +2005,60 @@ export class KingdomEngine {
     }
     this.cancelPlacing();
     this.select(null);
-    const buildings: SimBuildingInput[] = st.buildings.map((b, i) => ({ id: i + 1, kind: b.kind, level: b.level, x: b.x, z: b.z, gold: b.gold, elixir: b.elixir, power: st.power }));
-    // Enemy heroes guard their altars.
-    const guards = st.buildings.filter((b) => BUILDINGS[b.kind].hero).map((b) => ({ kind: BUILDINGS[b.kind].hero as UnitKind, level: b.level, x: b.x + 1.5, z: b.z + 1.5, r: 6 }));
+    const { buildings, guards } = this.enemyInput(st);
+    this.online = null;
     this.battleStage = stageNo;
     this.battleName = st.name;
     // Raids last up to 5 minutes (time to use every troop and spell); ending early is always allowed.
     this.beginBattle(new Sim({ mode: "raid", buildings, timeLimit: RAID_TIME, troops, spells, guards }));
     this.sfx.horn();
     this.events.toast(`Attack ${st.name}! Tap outside the red zone to deploy.`, "info");
+  }
+
+  /** Online battle: pays for the search and takes you to a random rival village of your Town Hall level. */
+  startOnline() {
+    if (this.mode !== "village" || !this.bank) return;
+    if (!this.raidArmy().troops.length) {
+      this.events.toast("Train some troops in the Barracks first", "bad");
+      this.sfx.denied();
+      return;
+    }
+    const cost = searchCost(V.thLevel(this.save));
+    if (this.save.gold < cost) return this.fail({ ok: false, reason: `Finding a match costs ${shortNumber(cost)} gold` });
+    this.save.gold -= cost;
+    this.cancelPlacing();
+    this.select(null);
+    this.persist();
+    this.scoutOnline();
+    this.sfx.horn();
+  }
+
+  /** While scouting (no troop dropped yet): skip to another rival for the search cost. */
+  nextOnline() {
+    const sim = this.sim;
+    if (!sim || !this.online || sim.started || sim.ended) return;
+    const cost = searchCost(V.thLevel(this.save));
+    if (this.save.gold < cost) return this.fail({ ok: false, reason: `Next costs ${shortNumber(cost)} gold` });
+    this.save.gold -= cost;
+    this.persist();
+    this.clearBattle();
+    this.scoutOnline();
+    this.sfx.pickUp();
+  }
+
+  /** Online battles: seconds spent looking at the rival before the battle starts by itself. */
+  private scoutT = 0;
+
+  private scoutOnline() {
+    this.scoutT = 0;
+    const { troops, spells } = this.raidArmy();
+    const base = onlineBase(V.thLevel(this.save), Math.floor(Math.random() * 2 ** 31));
+    const { buildings, guards } = this.enemyInput(base);
+    this.online = base;
+    this.battleStage = 0;
+    this.battleName = base.name;
+    this.beginBattle(new Sim({ mode: "raid", buildings, timeLimit: RAID_TIME, troops, spells, guards }));
+    this.events.toast(`${base.owner} · Town Hall ${base.th} — attack, or tap Next for another village`, "info");
   }
 
   /** Raiders attack your village. */
@@ -1776,7 +2130,8 @@ export class KingdomEngine {
     this.battleViews = sim.buildings.map((sb) => {
       const v = this.makeView(sb.id, sb.kind, sb.level, sb.x - MARGIN, sb.z - MARGIN, this.battleGroup);
       v.sb = sb;
-      if (sb.isTrap && sim.mode === "raid") {
+      // Traps are hidden from raiders; hidden defences (Hidden Tesla) from everyone until they spring up.
+      if ((sb.isTrap && sim.mode === "raid") || sb.hidden) {
         v.root.visible = false;
         v.hidden = true;
       }
@@ -1834,6 +2189,8 @@ export class KingdomEngine {
         this.dust.burst(10, p.x, 0.2, p.z, { color: 0x78716c, size: 0.4, life: 0.9, speed: 1.2, up: 1.2, grow: 2 });
         void b;
       },
+      reveal: (b) => this.onReveal(b),
+      zap: (b, hits) => this.onZap(b, hits),
     };
     // Deploy-zone overlay.
     this.makeDeployZone(sim);
@@ -1854,23 +2211,45 @@ export class KingdomEngine {
     this.battleWalls.rebuild(list, { x: -N / 2, z: -N / 2 });
   }
 
+  /**
+   * Where troops can't be dropped, drawn like in Clash of Clans: one clean border line round the
+   * whole area (no tinted box round every building) with a faint red wash that lights up when you
+   * tap inside it.
+   */
   private makeDeployZone(sim: Sim) {
     this.deployZone?.removeFromParent();
-    const px = 8;
+    const px = 16;
     const c = document.createElement("canvas");
     c.width = c.height = N * px;
     const ctx = c.getContext("2d")!;
     const side = sim.mode === "raid" ? 0 : 1;
+    const blocked = (x: number, z: number) => {
+      if (x < 0 || z < 0 || x >= N || z >= N) return false;
+      return side === 0 ? sim.noDeploy[z * N + x] === 1 : !(x >= MARGIN && z >= MARGIN && x < N - MARGIN && z < N - MARGIN);
+    };
+    ctx.fillStyle = side === 0 ? "rgba(239,68,68,0.16)" : "rgba(15,23,42,0.3)";
+    for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) if (blocked(x, z)) ctx.fillRect(x * px, z * px, px, px);
+    // The border: every edge between a blocked tile and a free one.
+    ctx.strokeStyle = side === 0 ? "rgba(255,240,240,0.95)" : "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    const edge = (x0: number, z0: number, x1: number, z1: number) => {
+      ctx.moveTo(x0 * px, z0 * px);
+      ctx.lineTo(x1 * px, z1 * px);
+    };
+    ctx.beginPath();
     for (let z = 0; z < N; z++)
       for (let x = 0; x < N; x++) {
-        const blocked = side === 0 ? sim.noDeploy[z * N + x] === 1 : !(x >= MARGIN && z >= MARGIN && x < N - MARGIN && z < N - MARGIN);
-        if (!blocked) continue;
-        ctx.fillStyle = side === 0 ? "rgba(239,68,68,0.32)" : "rgba(15,23,42,0.35)";
-        ctx.fillRect(x * px, z * px, px, px);
+        if (!blocked(x, z)) continue;
+        if (!blocked(x - 1, z)) edge(x, z, x, z + 1);
+        if (!blocked(x + 1, z)) edge(x + 1, z, x + 1, z + 1);
+        if (!blocked(x, z - 1)) edge(x, z, x + 1, z);
+        if (!blocked(x, z + 1)) edge(x, z + 1, x + 1, z + 1);
       }
+    ctx.stroke();
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.magFilter = THREE.NearestFilter;
+    tex.anisotropy = 8;
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 1 });
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(N, N), mat);
     mesh.rotation.x = -Math.PI / 2;
@@ -2062,12 +2441,52 @@ export class KingdomEngine {
     this.dust.burst(6, p.x, 0.3, p.z, { color: 0xe7e5e4, size: 0.25, life: 0.7, speed: 0.6, up: 0.8, grow: 2 });
   }
 
+  /** The Wall Breaker's bomb: fireball, smoke and flying bones. */
   private onExplode(u: SU) {
     const p = simToWorld(u.x, u.z);
-    this.sparks.burst(30, p.x, 0.5, p.z, { color: 0xfdba74, size: 0.22, life: 0.6, speed: 3.2, up: 2, gravity: 3 });
-    this.dust.burst(18, p.x, 0.4, p.z, { color: 0x57534e, size: 0.45, life: 1, speed: 1.4, up: 1, grow: 2.4 });
-    this.sfx.boom(true);
-    this.shake = Math.max(this.shake, 0.22);
+    this.sparks.burst(60, p.x, 0.5, p.z, { color: 0xfdba74, size: 0.28, life: 0.7, speed: 4.2, up: 2.5, gravity: 3 });
+    this.sparks.burst(24, p.x, 0.6, p.z, { color: 0xfef08a, size: 0.42, life: 0.35, speed: 2, up: 1.5, gravity: 1 });
+    this.dust.burst(30, p.x, 0.4, p.z, { color: 0x44403c, size: 0.6, life: 1.3, speed: 1.8, up: 1.4, grow: 2.8, spread: 0.6 });
+    this.dust.burst(10, p.x, 0.4, p.z, { color: 0xe7e5e4, size: 0.16, life: 0.9, speed: 2.6, up: 2.8, gravity: 6 });
+    this.sfx.blast();
+    this.shake = Math.max(this.shake, 0.32);
+  }
+
+  /** A Hidden Tesla springs out of the ground. */
+  private onReveal(b: SB) {
+    const v = this.battleViews[b.index];
+    if (v) {
+      v.root.visible = true;
+      v.hidden = false;
+      v.rise = 0;
+      v.root.position.y = -((v.mesh?.height ?? 3) + 0.3);
+    }
+    const w = simToWorld(b.cx, b.cz);
+    this.dust.burst(26, w.x, 0.2, w.z, { color: 0x9a8a6a, size: 0.45, life: 0.9, speed: 1.8, up: 1.4, gravity: 1, grow: 2.2, spread: 0.8 });
+    this.sparks.burst(30, w.x, 1, w.z, { color: 0x93c5fd, size: 0.16, life: 0.6, speed: 3, up: 3, gravity: 4 });
+    this.sfx.rise();
+    this.shake = Math.max(this.shake, 0.15);
+    this.overlay.float(`${BUILDINGS[b.kind].name}!`, w.clone().setY(3.2), "#bae6fd", { size: 18, life: 1.4 });
+  }
+
+  /** A Hidden Tesla's shock: arcs from its tip to the troop it hit, then on to each troop it jumped to. */
+  private onZap(b: SB, hits: SU[]) {
+    const v = this.battleViews[b.index];
+    const mats = this.zapMats!;
+    const top = simToWorld(b.cx, b.cz).setY(Math.max(1.2, (v?.mesh?.height ?? 3) - 0.3 + (v?.root.position.y ?? 0)));
+    let from = top;
+    for (const u of hits) {
+      const to = simToWorld(u.x, u.z).setY(u.radius > 0.3 ? 0.8 : 0.45);
+      for (let k = 0; k < 2; k++) {
+        const line = arcLine(from, to, mats[k], k ? 0.42 : 0.24);
+        this.fxGroup.add(line);
+        this.bolts.push({ line, t: 0, short: true });
+      }
+      this.sparks.burst(10, to.x, to.y, to.z, { color: 0xbfdbfe, size: 0.14, life: 0.35, speed: 2.2, up: 1, gravity: 3 });
+      from = to;
+    }
+    this.sparks.burst(6, top.x, top.y, top.z, { color: 0xe0f2fe, size: 0.2, life: 0.3, speed: 1.4, up: 0.5 });
+    this.sfx.shock();
   }
 
   private onSpell(z: Zone) {
@@ -2133,6 +2552,13 @@ export class KingdomEngine {
 
   private updateBattle(dt: number) {
     const sim = this.sim!;
+    if (this.online && !sim.started && !sim.ended && !this.paused) {
+      this.scoutT += dt;
+      if (this.scoutT >= SCOUT_TIME) {
+        sim.started = true;
+        this.events.toast("The battle has started!", "info");
+      }
+    }
     if (!this.paused && !sim.ended) {
       this.simAcc += dt * this.battleSpeed;
       let steps = 0;
@@ -2154,6 +2580,21 @@ export class KingdomEngine {
     // Buildings.
     for (const v of this.battleViews) {
       const sb = v.sb!;
+      if (v.rise >= 0) {
+        // Springing up out of the ground (eases out with a little overshoot).
+        v.rise += vdt;
+        const k = Math.min(1, v.rise / 0.5);
+        const e = 1 - Math.pow(1 - k, 3);
+        v.root.position.y = -(1 - e) * ((v.mesh?.height ?? 3) + 0.3) + Math.sin(k * Math.PI) * 0.12;
+        if (k < 1 && Math.random() < vdt * 30) {
+          const w = simToWorld(sb.cx, sb.cz);
+          this.dust.emit({ x: w.x + (Math.random() - 0.5) * 1.6, y: 0.15, z: w.z + (Math.random() - 0.5) * 1.6, vy: 0.6, color: 0x9a8a6a, size: 0.35, life: 0.7, grow: 2 });
+        }
+        if (k >= 1) {
+          v.rise = -1;
+          v.root.position.y = 0;
+        }
+      }
       if (v.mesh?.turret && sb.atk) {
         const target = sb.yaw + (v.kind === "catapult" ? 0 : 0);
         v.mesh.turret.rotation.y = target;
@@ -2225,6 +2666,17 @@ export class KingdomEngine {
         uv.hold -= vdt;
         u.update(vdt);
         continue;
+      }
+      if (su.dead && su.def.suicide) {
+        // Blown up with its bomb: nothing left to fall over.
+        uv.gone = true;
+        this.units!.release(u);
+        continue;
+      }
+      if (su.kind === "breaker" && !su.dead && u.gear[0] && Math.random() < vdt * 26) {
+        // The bomb's lit fuse.
+        const g = u.gear[0].getWorldPosition(this.v1);
+        this.sparks.emit({ x: g.x + (Math.random() - 0.5) * 0.06, y: g.y + 0.14, z: g.z + (Math.random() - 0.5) * 0.06, vy: 0.9, color: Math.random() < 0.5 ? 0xfde047 : 0xfb923c, size: 0.09, life: 0.35 });
       }
       if (su.dead) {
         if (u.clip !== "die") u.play("die", { once: true, fade: 0.08 });
@@ -2313,8 +2765,8 @@ export class KingdomEngine {
     for (let i = this.bolts.length - 1; i >= 0; i--) {
       const b = this.bolts[i];
       b.t += dt;
-      b.line.visible = b.t < 0.08 || (b.t > 0.12 && b.t < 0.22);
-      if (b.t > 0.25) {
+      b.line.visible = b.short ? b.t < 0.06 || (b.t > 0.09 && b.t < 0.15) : b.t < 0.08 || (b.t > 0.12 && b.t < 0.22);
+      if (b.t > (b.short ? 0.16 : 0.25)) {
         b.line.removeFromParent();
         b.line.geometry.dispose();
         this.bolts.splice(i, 1);
@@ -2333,7 +2785,7 @@ export class KingdomEngine {
     // Health bars.
     this.overlay.mark("hp:");
     for (const sb of sim.buildings) {
-      if (sb.dead || sb.isTrap || sb.hp >= sb.maxHp || sb.hitT > 3) continue;
+      if (sb.dead || sb.isTrap || sb.hidden || sb.hp >= sb.maxHp || sb.hitT > 3) continue;
       const v = this.battleViews[sb.index];
       const h = sb.isWall ? 1.2 : Math.min(3.6, (v?.mesh?.height ?? 2) + 0.2);
       this.hpBar(`hp:b:${sb.index}`, simToWorld(sb.cx, sb.cz).setY(h), sb.hp / sb.maxHp, sb.isWall ? 30 : 46, sim.mode === "raid" ? "#f87171" : "#4ade80");
@@ -2346,7 +2798,7 @@ export class KingdomEngine {
     this.overlay.sweep("hp:");
     if (this.deployZone) {
       this.deployFlash = Math.max(0, this.deployFlash - dt);
-      const want = sim.ended ? 0 : this.deployFlash > 0 ? 1 : this.slot?.startsWith("t:") ? 0.45 : 0.15;
+      const want = sim.ended ? 0 : this.deployFlash > 0 ? 1 : this.slot?.startsWith("t:") ? 0.7 : 0.35;
       const m = this.deployZone.material as THREE.MeshBasicMaterial;
       m.opacity += (want - m.opacity) * Math.min(1, dt * 6);
     }
@@ -2370,7 +2822,31 @@ export class KingdomEngine {
     let result: BattleResult;
     // The battle music fades out so the victory / defeat fanfare plays on its own.
     soundtrack.stop(1.2);
-    if (sim.mode === "raid") {
+    if (sim.mode === "raid" && this.online) {
+      // Online battle: the loot you took, and trophies by stars (a retreat before the first troop costs nothing).
+      const base = this.online;
+      V.gain(s, r.gold, r.elixir);
+      V.spendArmy(s, r.used as Partial<Record<TroopKind, number>>, r.spellsUsed);
+      for (const k of HERO_ORDER) if (r.heroHp[k] !== undefined) s.heroHp[k] = r.heroHp[k]!;
+      const trophies = !sim.started ? 0 : r.stars > 0 ? Math.max(1, Math.round((base.trophies.win * r.stars) / 3)) : -base.trophies.lose;
+      s.trophies = Math.max(0, s.trophies + trophies);
+      if (sim.started) {
+        s.stats.raids++;
+        s.stats.online++;
+      }
+      if (r.stars > 0) {
+        s.stats.wins++;
+        s.stats.onlineWins++;
+        V.award(s, "win1");
+        V.award(s, "online1");
+        if (s.stats.onlineWins >= 25) V.award(s, "online25");
+      }
+      if (r.stars === 3) V.award(s, "three");
+      if (s.tutorial < 6 && sim.started) s.tutorial = 6;
+      result = { mode: "raid", stage: 0, name: base.name, stars: r.stars, percent: r.percent, gold: r.gold, elixir: r.elixir, bonus: null, troops, spells, win: r.stars > 0, trophies, raiders: 0, raidersKilled: 0, newBest: false, online: { owner: base.owner, th: base.th } };
+      if (r.stars > 0) this.sfx.victory();
+      else this.sfx.defeat();
+    } else if (sim.mode === "raid") {
       const st = stageOf(this.battleStage);
       const idx = this.battleStage - 1;
       const before = s.stars[idx] ?? 0;
@@ -2388,7 +2864,7 @@ export class KingdomEngine {
       s.stars[idx] = Math.max(before, r.stars);
       for (let i = 0; i < idx; i++) s.stars[i] ??= 0;
       s.stats.raids++;
-      const trophies = r.stars > 0 ? r.stars * 2 + Math.floor(this.battleStage / 10) : -2;
+      const trophies = !sim.started ? 0 : r.stars > 0 ? r.stars * 2 + Math.floor(this.battleStage / 10) : -2;
       s.trophies = Math.max(0, s.trophies + trophies);
       if (r.stars > 0) {
         s.stats.wins++;
@@ -2397,7 +2873,7 @@ export class KingdomEngine {
       if (r.stars === 3) V.award(s, "three");
       for (const n of [10, 25, 50, 75, 100]) if (this.battleStage >= n && r.stars > 0) V.award(s, `stage${n}`);
       if (s.tutorial < 6) s.tutorial = 6;
-      result = { mode: "raid", stage: this.battleStage, name: this.battleName, stars: r.stars, percent: r.percent, gold, elixir, bonus, troops, spells, win: r.stars > 0, trophies, raiders: 0, raidersKilled: 0, newBest: r.stars > before };
+      result = { mode: "raid", stage: this.battleStage, name: this.battleName, stars: r.stars, percent: r.percent, gold, elixir, bonus, troops, spells, win: r.stars > 0, trophies, raiders: 0, raidersKilled: 0, newBest: r.stars > before, online: null };
       if (r.stars > 0) this.sfx.victory();
       else this.sfx.defeat();
     } else {
@@ -2419,7 +2895,7 @@ export class KingdomEngine {
       }
       const trophies = win ? 6 : -4 * r.stars;
       s.trophies = Math.max(0, s.trophies + trophies);
-      result = { mode: "defence", stage: 0, name: this.battleName, stars: r.stars, percent: r.percent, gold: r.gold, elixir: r.elixir, bonus: null, troops, spells, win, trophies, raiders: r.raiders, raidersKilled: r.raidersKilled, newBest: false };
+      result = { mode: "defence", stage: 0, name: this.battleName, stars: r.stars, percent: r.percent, gold: r.gold, elixir: r.elixir, bonus: null, troops, spells, win, trophies, raiders: r.raiders, raidersKilled: r.raidersKilled, newBest: false, online: null };
       if (win) this.sfx.victory();
       else this.sfx.defeat();
     }
@@ -2431,6 +2907,22 @@ export class KingdomEngine {
   /** Back to the village after the results screen. */
   returnHome() {
     if (!this.sim) return;
+    this.clearBattle();
+    this.online = null;
+    this.villageGroup.visible = true;
+    this.setMode("village");
+    this.syncCamp(true);
+    this.syncWorkers();
+    this.syncHeroes();
+    soundtrack.duck(false);
+    soundtrack.play("village");
+    this.focusVillage(false);
+    this.events.battle(null);
+    this.emitHud();
+  }
+
+  /** Removes the battlefield: enemy buildings, troops, shots, spells and labels. */
+  private clearBattle() {
     this.sim = null;
     for (const v of this.battleViews) v.root.removeFromParent();
     this.battleViews = [];
@@ -2456,16 +2948,6 @@ export class KingdomEngine {
     this.sparks.clear();
     this.dust.clear();
     this.defencePlan = null;
-    this.villageGroup.visible = true;
-    this.setMode("village");
-    this.syncCamp(true);
-    this.syncWorkers();
-    this.syncHeroes();
-    soundtrack.duck(false);
-    soundtrack.play("village");
-    this.focusVillage(false);
-    this.events.battle(null);
-    this.emitHud();
   }
 
   // --- HUD ------------------------------------------------------------------------------------------------------
@@ -2495,14 +2977,16 @@ export class KingdomEngine {
       trainLeft: this.trainLeft(),
       spells: V.spellCount(s),
       spellSlots: V.spellSlots(s),
+      brewLeft: this.brewLeft(),
       raidIn: s.stats.raids > 0 ? Math.max(0, Math.ceil(s.raidIn)) : -1,
-      placing: p ? { kind: p.kind, valid: p.valid, cost: V.buildCost(s, p.kind), res: BUILDINGS[p.kind].res } : null,
+      placing: p ? { kind: p.kind, valid: p.valid, cost: V.buildCost(s, p.kind), res: BUILDINGS[p.kind].res, tray: p.trayId !== undefined } : null,
       selected: this.selectedInfo(),
       tutorial: s.tutorial,
       research: r ? { kind: r.kind, left: Math.max(0, (r.until - Date.now()) / 1000), total: r.dur } : null,
       heroes: HERO_ORDER.map((k) => ({ k, h: V.heroState(s, k) }))
         .filter(({ h }) => h.altar)
         .map(({ k, h }) => ({ kind: k, level: h.level, hp: h.hp, left: h.left, upgrading: h.upgrading, ready: h.ready })),
+      editing: this.editing ? { tray: this.trayCounts() } : null,
     });
   }
 
@@ -2527,9 +3011,15 @@ export class KingdomEngine {
       speed: this.battleSpeed,
       raidersLeft,
       thDown: sim.thDown,
+      online: this.online ? { owner: this.online.owner, th: this.online.th, win: this.online.trophies.win, lose: this.online.trophies.lose, next: searchCost(V.thLevel(this.save)) } : null,
+      scoutLeft: this.online && !sim.started ? Math.max(0, Math.ceil(SCOUT_TIME - this.scoutT)) : -1,
+      own: { gold: Math.floor(this.save.gold), goldCap: V.capacity(this.save, "gold"), elixir: Math.floor(this.save.elixir), elixirCap: V.capacity(this.save, "elixir") },
     };
+    const now = performance.now();
+    if (!force && now - this.battleHudT < 100) return;
     const key = JSON.stringify(h);
     if (!force && key === this.lastBattleHud) return;
+    this.battleHudT = now;
     this.lastBattleHud = key;
     this.events.battle(h);
   }
@@ -2670,7 +3160,7 @@ export class KingdomEngine {
     const roots: THREE.Object3D[] = [];
     const ids = new Map<THREE.Object3D, number>();
     for (const v of this.views.values()) {
-      if (!v.mesh || v.id === this.moving?.id) continue;
+      if (!v.mesh || v.id === this.moving?.id || !v.root.visible) continue;
       roots.push(v.mesh.root);
       ids.set(v.mesh.root, v.id);
     }
@@ -2711,6 +3201,10 @@ export class KingdomEngine {
         const size = BUILDINGS[p.kind].size;
         if (hit.tx >= p.x - 1 && hit.tx <= p.x + size && hit.tz >= p.z - 1 && hit.tz <= p.z + size) this.drag = "place";
       } else if (this.selectedId !== null && hit.id === this.selectedId && this.building(this.selectedId)) {
+        this.drag = "move";
+      } else if (this.editing && hit.id !== null && this.building(hit.id)) {
+        // Layout editor: grab any building and drag it.
+        this.selectedId = hit.id;
         this.drag = "move";
       }
     } else if (this.mode === "raid" || this.mode === "defence") {
@@ -2813,8 +3307,11 @@ export class KingdomEngine {
             b.z = m.z;
             this.sfx.place();
             this.persist(true);
-            this.syncWorkers();
-            if (b.kind === "camp") this.syncCamp(true);
+            if (!this.editing) {
+              this.syncWorkers();
+              if (b.kind === "camp") this.syncCamp(true);
+              if (BUILDINGS[b.kind].hero) this.syncHeroes();
+            }
           } else if (!m.valid) this.sfx.denied();
           const v = this.views.get(b.id);
           if (v) {
@@ -2902,6 +3399,14 @@ export class KingdomEngine {
       this.saveT = 3;
       this.flushSave();
     }
+    // In the village almost nothing that casts a shadow moves: the shadow map is redrawn every other
+    // frame (every frame while a building is being placed or moved, and in battle).
+    const sm = this.renderer.shadowMap;
+    if (this.mode === "village" && !this.placing && !this.moving) {
+      sm.autoUpdate = false;
+      this.shadowTick ^= 1;
+      sm.needsUpdate = this.shadowTick === 0;
+    } else sm.autoUpdate = true;
     this.renderer.render(this.scene, this.camera);
     this.adaptResolution(dt);
   };
@@ -2918,9 +3423,10 @@ export class KingdomEngine {
     const p = this.perf;
     const q = this.quality;
     if (q === "hd") {
+      // Ultra HD: the screen's full resolution; only a struggling phone steps down, never below 2×.
       p.max = Math.min(dpr, 3);
-      p.min = Math.min(p.max, 1.5);
-      p.slowFps = 28;
+      p.min = Math.min(p.max, this.coarse ? 2 : 1.5);
+      p.slowFps = 26;
     } else if (q === "smooth") {
       p.max = Math.min(dpr, 1.25);
       p.min = Math.min(p.max, 0.75);
@@ -2928,16 +3434,17 @@ export class KingdomEngine {
     } else {
       // Phones climb all the way to the screen's own resolution (ultra sharp) while frames stay smooth.
       p.max = Math.min(dpr, this.coarse ? 3 : 2);
-      // Never blurrier than 1.25 on a phone (only "Smooth" goes lower).
-      p.min = Math.min(p.max, this.coarse ? 1.25 : 1);
+      // Never blurrier than 1.5 on a phone (only "Smooth" goes lower).
+      p.min = Math.min(p.max, this.coarse ? 1.5 : 1);
       p.slowFps = 45;
     }
     // Auto starts a little below the top and climbs there once the frames prove smooth.
-    p.ratio = q === "auto" ? Math.min(p.max, 2) : p.max;
+    p.ratio = q === "auto" ? Math.min(p.max, 2.25) : p.max;
     p.ceiling = p.max;
     p.t = p.frames = p.good = 0;
     p.patience = 15;
-    const shadow = q === "smooth" ? 1024 : this.coarse && q !== "hd" ? 2048 : 4096;
+    // Phones: 2048 shadows even in HD (sharp enough at phone size, and half the GPU work of 4096).
+    const shadow = q === "smooth" ? 1024 : this.coarse ? 2048 : 4096;
     const { shadow: sh } = this.sun;
     if (sh.mapSize.x !== shadow) {
       sh.mapSize.set(shadow, shadow);
@@ -3016,7 +3523,8 @@ export class KingdomEngine {
       });
     }
     if (!jobs.length) return;
-    const studio = new Studio(this.renderer, this.envTexture, 384, 192);
+    // Rendered at 2× and scaled down: sharp on 3× phone screens too.
+    const studio = new Studio(this.renderer, this.envTexture, 512, 256);
     try {
       for (let i = 0; i < jobs.length; i++) {
         if (this.disposed) return;
@@ -3068,7 +3576,7 @@ export class KingdomEngine {
     if (!bank) return out;
     const todo = levels.filter((l) => !this.portraitCache.has(`${kind}:${l}`));
     if (todo.length) {
-      const studio = new Studio(this.renderer, this.envTexture, 640, 400);
+      const studio = new Studio(this.renderer, this.envTexture, 800, 560);
       try {
         for (const level of todo) {
           if (this.disposed) return out;
@@ -3110,6 +3618,7 @@ export class KingdomEngine {
       deploy: (kind: string, x: number, z: number) => this.sim?.deploy(kind as UnitKind, x, z, this.sim.mode === "raid" ? 0 : 1),
       cast: (kind: string, x: number, z: number) => this.sim?.cast(kind as SpellKind, x, z),
       speed: (s: number) => (this.battleSpeed = s),
+      online: () => this.startOnline(),
     };
   }
 

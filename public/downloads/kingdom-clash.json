@@ -1,8 +1,8 @@
 {
-  "version": "1.1.0",
-  "versionCode": 3,
-  "bytes": 30596662,
-  "sha256": "58f6d67379c0077d1568eac3eeb59dc304aeb9c524c352171e59ffaa6b0f9364",
+  "version": "1.2.0",
+  "versionCode": 4,
+  "bytes": 31843543,
+  "sha256": "e71fe9f7804d58a54ff1591936e084b662e92716bd19f32a8519f87e4de67d7f",
   "minAndroid": "7.0",
   "built": "2026-10-06"
 }

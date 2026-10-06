@@ -382,3 +382,25 @@ export function boltLine(x: number, z: number, material: THREE.LineBasicMaterial
   line.frustumCulled = false;
   return line;
 }
+
+/** A jagged electric arc between two points (Hidden Tesla shocks), with a little sag. */
+export function arcLine(a: THREE.Vector3, b: THREE.Vector3, material: THREE.LineBasicMaterial, jitter = 0.28) {
+  const pts: THREE.Vector3[] = [];
+  const n = Math.max(6, Math.round(a.distanceTo(b) * 2.2));
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const p = new THREE.Vector3().lerpVectors(a, b, t);
+    if (i > 0 && i < n) {
+      const k = Math.sin(t * Math.PI);
+      p.x += (Math.random() - 0.5) * jitter * 2 * k;
+      p.y += (Math.random() - 0.5) * jitter * 2 * k - k * 0.25;
+      p.z += (Math.random() - 0.5) * jitter * 2 * k;
+    }
+    pts.push(p);
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const line = new THREE.Line(geo, material);
+  line.renderOrder = 7;
+  line.frustumCulled = false;
+  return line;
+}

@@ -175,12 +175,19 @@ export class Bank {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
         const src = mesh.material as THREE.MeshStandardMaterial;
+        // Crisp textures at the game's slanted view (three.js caps this at what the GPU allows).
+        if (src.map && src.map.anisotropy < 8) {
+          src.map.anisotropy = 8;
+          src.map.needsUpdate = true;
+        }
         if (character) {
           src.metalness = 0;
           src.roughness = 0.85;
           return;
         }
-        const id = src.map ? `${kit}` : `${kit}:${src.name}:${src.color.getHexString()}`;
+        // Textured pieces of a kit share its palette ("colormap"); kits with several atlases
+        // (Crystal Crossroads: body + glass) get one material per atlas.
+        const id = src.map ? `${kit}:${src.map.name}` : `${kit}:${src.name}:${src.color.getHexString()}`;
         let mat = this.shared.get(id);
         if (!mat) {
           mat = src;
@@ -188,6 +195,11 @@ export class Bank {
           mat.roughness = 0.88;
           mat.side = THREE.FrontSide;
           mat.shadowSide = THREE.BackSide;
+          // Exported as "blend" but solid: draw it opaque (only the glass atlas stays see-through).
+          if (mat.transparent && kit === "crystal-crossroads" && !/trans/i.test(src.name)) {
+            mat.transparent = false;
+            mat.depthWrite = true;
+          }
           this.shared.set(id, mat);
         }
         mesh.material = mat;

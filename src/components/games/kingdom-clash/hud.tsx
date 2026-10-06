@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUpCircle, Check, CircleHelp, Clock, Crown, Dices, Hammer, Home, Lock, Moon, Music, Pause, Play, Settings, Shield, ShoppingCart, Sparkles, Star, Swords, Trophy, Users, Volume2, X, Zap } from "lucide-react";
+import { ArrowRightToLine, ArrowUpCircle, Check, ChevronsRight, CircleHelp, Clock, Crown, Dices, Globe, Hammer, Home, LayoutGrid, Lock, Map as MapIcon, Moon, Music, PackageOpen, Pause, Play, Search, Settings, Shield, ShoppingCart, Sparkles, Star, Swords, Trophy, Users, Volume2, X, Zap } from "lucide-react";
 import { audio } from "../shared/audio";
 import { BigButton, IconButton, SoftButton, SystemButtons, useAudioSettings, useMediaQuery, usePhoneLandscape } from "../shared/ui";
 import {
@@ -27,7 +27,7 @@ import {
   type TroopKind,
 } from "./data";
 import type { BattleHud, BattleResult, HeroHud, Quality, SelectedInfo, Slot, VillageHud } from "./engine";
-import { stage as stageOf } from "./layouts";
+import { ONLINE_LOOT, searchCost, stage as stageOf } from "./layouts";
 import * as V from "./village";
 
 // --- Little pieces ---------------------------------------------------------------------------------------
@@ -63,9 +63,9 @@ export function Cost({ res, amount, have }: { res: "gold" | "elixir" | "gems"; a
   );
 }
 
-export function Bar({ value, color, className = "" }: { value: number; color: string; className?: string }) {
+export function Bar({ value, color, className = "", rtl = false }: { value: number; color: string; className?: string; rtl?: boolean }) {
   return (
-    <div className={`h-2 overflow-hidden rounded-full bg-[color-mix(in_srgb,currentColor_18%,transparent)] ${className}`}>
+    <div className={`flex h-2 overflow-hidden rounded-full bg-[color-mix(in_srgb,currentColor_18%,transparent)] ${rtl ? "justify-end" : ""} ${className}`}>
       <div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${Math.max(0, Math.min(100, value * 100))}%`, background: color }} />
     </div>
   );
@@ -123,12 +123,12 @@ function Tab({ active, onClick, children }: { active: boolean; onClick: () => vo
 
 // --- Top bar ------------------------------------------------------------------------------------------------
 
-type TopBarProps = { hud: VillageHud; onSettings: () => void; onHelp: () => void; onDefend: () => void };
+type TopBarProps = { hud: VillageHud; onSettings: () => void; onHelp: () => void; onDefend: () => void; onEdit: () => void };
 
 export function TopBar(props: TopBarProps) {
   const land = usePhoneLandscape();
   if (land) return <LandTopBar {...props} />;
-  const { hud, onSettings, onHelp, onDefend } = props;
+  const { hud, onSettings, onHelp, onDefend, onEdit } = props;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-3">
       <div className="flex min-w-0 flex-col gap-1.5">
@@ -142,6 +142,9 @@ export function TopBar(props: TopBarProps) {
         <GemsChip gems={hud.gems} />
         <div className="pointer-events-auto mt-1 flex gap-1.5">
           <SystemButtons onHelp={onHelp}>
+            <IconButton label="Edit layout" onClick={onEdit}>
+              <LayoutGrid className="size-5" />
+            </IconButton>
             <IconButton label="Settings" onClick={onSettings}>
               <Settings className="size-5" />
             </IconButton>
@@ -156,12 +159,15 @@ export function TopBar(props: TopBarProps) {
  * Landscape phones (and the Android app): one slim band — village and settings top-left, builders and
  * raid warning top-centre, resources stacked top-right — so the village keeps the middle of the screen.
  */
-function LandTopBar({ hud, onSettings, onHelp, onDefend }: TopBarProps) {
+function LandTopBar({ hud, onSettings, onHelp, onDefend, onEdit }: TopBarProps) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 px-2.5 pt-2">
       <div className="flex min-w-0 flex-col items-start gap-1.5">
         <VillageChip hud={hud} small />
         <SystemButtons onHelp={onHelp} small>
+          <IconButton label="Edit layout" onClick={onEdit} small>
+            <LayoutGrid className="size-[18px]" />
+          </IconButton>
           <IconButton label="Settings" onClick={onSettings} small>
             <Settings className="size-[18px]" />
           </IconButton>
@@ -246,7 +252,7 @@ function ResourceBar({ res, value, cap, small = false }: { res: "gold" | "elixir
           {small && <span className="ml-0.5 text-[9px] opacity-60">/{shortNumber(cap)}</span>}
         </span>
       </div>
-      <Bar value={cap ? value / cap : 0} color={res === "gold" ? "linear-gradient(90deg,#fde68a,#f59e0b)" : "linear-gradient(90deg,#f5d0fe,#c026d3)"} className="mt-1 h-1.5" />
+      <Bar rtl value={cap ? value / cap : 0} color={res === "gold" ? "linear-gradient(270deg,#fde68a,#f59e0b)" : "linear-gradient(270deg,#f5d0fe,#c026d3)"} className="mt-1 h-1.5" />
       {!small && <p className="mt-0.5 text-right text-[9px] font-bold opacity-60">max {shortNumber(cap)}</p>}
     </div>
   );
@@ -431,19 +437,28 @@ function SoftButtonInline({ onClick, children }: { onClick: () => void; children
   );
 }
 
-export function PlacingBar({ hud, onConfirm, onCancel }: { hud: VillageHud; onConfirm: () => void; onCancel: () => void }) {
+export function PlacingBar({ hud, onConfirm, onCancel, onRow, className = "" }: { hud: VillageHud; onConfirm: () => void; onCancel: () => void; onRow: () => void; className?: string }) {
   const p = hud.placing!;
   const def = BUILDINGS[p.kind];
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center px-2 sm:bottom-[104px] land:right-[11.5rem] land:bottom-2.5 land:left-[6.75rem] land:px-0">
-      <div className="g-hud pointer-events-auto flex items-center gap-3 py-2 pr-2 pl-4" onPointerDown={(e) => e.stopPropagation()}>
+    <div className={`pointer-events-none absolute inset-x-0 flex justify-center px-2 ${className || "bottom-[96px] sm:bottom-[104px] land:right-[11.5rem] land:bottom-2.5 land:left-[6.75rem] land:px-0"}`}>
+      <div className="g-hud pointer-events-auto flex items-center gap-3 py-2 pr-2 pl-4 land:gap-2 land:py-1.5" onPointerDown={(e) => e.stopPropagation()}>
         <div>
           <p className="g-display text-base leading-tight">{def.name}</p>
-          <p className="text-xs opacity-80">{p.valid ? "Drag it into place" : "Not enough room here"}</p>
+          <p className="text-xs opacity-80">{p.valid ? (p.kind === "wall" ? "Walls follow on in a line" : "Drag it into place") : "Not enough room here"}</p>
         </div>
-        <span className="text-sm font-bold">
-          <Cost res={p.res as "gold" | "elixir"} amount={p.cost} have={p.res === "gold" ? hud.gold : hud.elixir} />
-        </span>
+        {!p.tray && (
+          <span className="text-sm font-bold">
+            <Cost res={p.res as "gold" | "elixir"} amount={p.cost} have={p.res === "gold" ? hud.gold : hud.elixir} />
+          </span>
+        )}
+        {p.kind === "wall" && (
+          <button type="button" onClick={onRow} disabled={!p.valid} aria-label="Place a row of walls" title="Place a straight row (up to 10)" className="g-soft flex h-12 items-center px-3 text-sm font-bold disabled:opacity-50">
+            <span className="g-unskew gap-1">
+              <ArrowRightToLine className="size-5" /> Row
+            </span>
+          </button>
+        )}
         <button type="button" onClick={onConfirm} disabled={!p.valid} aria-label="Place (Enter)" className="g-btn grid size-12 place-items-center disabled:opacity-50">
           <span className="g-unskew">
             <Check className="size-6" />
@@ -464,7 +479,7 @@ export function PlacingBar({ hud, onConfirm, onCancel }: { hud: VillageHud; onCo
 const SHOP_TABS: { id: string; label: string; kinds: BKind[] }[] = [
   { id: "res", label: "Resources", kinds: ["goldmine", "elixirpump", "goldstorage", "elixirstorage", "builder"] },
   { id: "army", label: "Army & Heroes", kinds: ["barracks", "camp", "lab", "spellfactory", "kingaltar", "queenaltar"] },
-  { id: "def", label: "Defences", kinds: ["cannon", "archertower", "catapult", "magetower", "bomb", "skeltrap", "wall"] },
+  { id: "def", label: "Defences", kinds: ["cannon", "archertower", "catapult", "magetower", "tesla", "bomb", "skeltrap", "wall"] },
 ];
 
 export function Shop({ save, icons, onBuy, onClose }: { save: V.Save; icons: Record<string, string>; onBuy: (k: BKind) => void; onClose: () => void }) {
@@ -543,6 +558,7 @@ export function ArmyPanel({
   onUnbrew,
   onResearch,
   onFinishTraining,
+  onFinishBrewing,
   onFinishResearch,
   onClose,
 }: {
@@ -556,6 +572,7 @@ export function ArmyPanel({
   onUnbrew: (k: SpellKind) => void;
   onResearch: (k: TroopKind | SpellKind) => void;
   onFinishTraining: () => void;
+  onFinishBrewing: () => void;
   onFinishResearch: () => void;
   onClose: () => void;
 }) {
@@ -685,7 +702,13 @@ export function ArmyPanel({
       {tab === "spells" && (
         <>
           {factory === 0 ? (
-            <p className="g-tint rounded-xl p-4 text-center text-sm font-semibold">Build a Spell Factory (Town Hall 3) to brew spells.</p>
+            <p className="g-tint rounded-xl p-4 text-center text-sm font-semibold">
+              {save.buildings.some((b) => b.kind === "spellfactory")
+                ? "Your Spell Factory is being built: you can brew spells as soon as it's finished."
+                : V.thLevel(save) >= 3
+                  ? "Build a Spell Factory (Shop → Army & Heroes) to brew spells."
+                  : "The Spell Factory unlocks at Town Hall 3. Upgrade your Town Hall to brew spells."}
+            </p>
           ) : (
             <>
               <div className="g-tint rounded-xl p-3">
@@ -708,7 +731,20 @@ export function ArmyPanel({
                       <SpellOrb kind={k} size={18} /> brewing ×{n} <X className="size-3 text-red-600" />
                     </button>
                   ))}
+                  {!SPELL_ORDER.some((k) => (save.spells[k] ?? 0) > 0) && !save.brew.length && <span className="g-muted text-xs">No spells yet: tap one below to brew it.</span>}
                 </div>
+                {save.brew.length > 0 && (
+                  <div className="mt-2 flex items-center justify-between gap-2 border-t border-[color-mix(in_srgb,currentColor_15%,transparent)] pt-2 text-xs font-bold">
+                    <span>
+                      Brewing {save.brew.length} spell{save.brew.length > 1 ? "s" : ""} · {formatTime(hud.brewLeft)}
+                    </span>
+                    <button type="button" onClick={onFinishBrewing} className="g-btn px-2.5 py-1 text-sm">
+                      <span className="g-unskew gap-1">
+                        Finish <ResIcon res="gems" size={12} /> {gemsToFinish(hud.brewLeft)}
+                      </span>
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 land:mt-2 land:grid-cols-5 land:gap-2">
                 {SPELL_ORDER.map((k) => {
@@ -837,7 +873,72 @@ export function SpellOrb({ kind, size = 32 }: { kind: SpellKind; size?: number }
 
 // --- Campaign -------------------------------------------------------------------------------------------------
 
-export function Campaign({ save, hud, onAttack, onClose }: { save: V.Save; hud: VillageHud; onAttack: (stage: number) => void; onClose: () => void }) {
+/** The Raid panel: online battles against random rival villages, and the 100-stage campaign. */
+export function Campaign({ save, hud, onAttack, onOnline, onClose }: { save: V.Save; hud: VillageHud; onAttack: (stage: number) => void; onOnline: () => void; onClose: () => void }) {
+  // Your first raid is campaign stage 1 (the tutorial points there); after that online battles come first.
+  const [tab, setTab] = useState<"online" | "campaign">(save.stats.raids > 0 ? "online" : "campaign");
+  const tabs = (
+    <>
+      <Tab active={tab === "online"} onClick={() => setTab("online")}>
+        <Globe className="size-4" /> Online
+      </Tab>
+      <Tab active={tab === "campaign"} onClick={() => setTab("campaign")}>
+        <MapIcon className="size-4" /> Campaign
+      </Tab>
+    </>
+  );
+  return (
+    <Sheet title={tab === "online" ? "Online battle" : `Campaign · ${hud.stars}/300 ★`} onClose={onClose} tabs={tabs}>
+      {tab === "online" ? <OnlineTab save={save} hud={hud} onFind={onOnline} /> : <CampaignStages save={save} hud={hud} onAttack={onAttack} />}
+    </Sheet>
+  );
+}
+
+function OnlineTab({ save, hud, onFind }: { save: V.Save; hud: VillageHud; onFind: () => void }) {
+  const cost = searchCost(hud.th);
+  const hasTroops = TROOP_ORDER.some((k) => (save.army[k] ?? 0) > 0) || hud.heroes.some((h) => h.ready);
+  const loot = ONLINE_LOOT[hud.th - 1];
+  const low = Math.round((loot * 0.6) / 100) * 100;
+  const high = Math.round((loot * 1.6) / 100) * 100;
+  return (
+    <div className="grid gap-3 land:grid-cols-[minmax(0,1fr)_16.5rem] land:items-start">
+      <div className="g-tint rounded-xl p-3 sm:p-4">
+        <p className="g-muted text-[11px] font-bold tracking-wide uppercase">Town Hall {hud.th} · random rivals</p>
+        <h3 className="g-panel-title text-2xl land:text-xl">Raid a rival village</h3>
+        <p className="mt-1 text-sm leading-snug font-semibold">
+          Every search finds a different village at your Town Hall level (sometimes one above or below), packed with gold and elixir. Look it over first: tap <b>Next</b> for another village, or drop a troop to start the attack.
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-bold">
+          <span className="g-muted text-xs">Loot in each village:</span>
+          <Cost res="gold" amount={low} />–<Cost res="gold" amount={high} />
+          <Cost res="elixir" amount={low} />–<Cost res="elixir" amount={high} />
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+          <span className="inline-flex items-center gap-1 rounded-lg bg-[color-mix(in_srgb,currentColor_10%,transparent)] px-2 py-1">
+            <Trophy className="size-3.5 text-amber-600" /> {hud.trophies} trophies
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-lg bg-[color-mix(in_srgb,currentColor_10%,transparent)] px-2 py-1">
+            <Swords className="size-3.5" /> {save.stats.onlineWins ?? 0} online wins
+          </span>
+        </div>
+      </div>
+      <div className="g-tint rounded-xl p-3 land:[&_.g-btn]:py-2.5 land:[&_.g-btn]:text-xl">
+        <BigButton onClick={onFind} disabled={!hasTroops || save.gold < cost} icon={<Search className="size-6" />}>
+          {hasTroops ? "Find a match" : "Train troops first"}
+        </BigButton>
+        <p className="mt-1.5 flex items-center justify-center gap-1.5 text-xs font-bold">
+          Each search costs <Cost res="gold" amount={cost} have={save.gold} />
+        </p>
+        <p className="g-muted mt-1 text-center text-[11px] font-semibold">
+          Army: {hud.army} troop space{hud.spells ? ` · ${hud.spells} spells` : ""}
+          {hud.heroes.map((h) => ` · ${HEROES[h.kind].name} ${h.ready ? "ready" : h.upgrading ? "training" : "sleeping"}`).join("")}. Stars win trophies; a defeat loses some.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function CampaignStages({ save, hud, onAttack }: { save: V.Save; hud: VillageHud; onAttack: (stage: number) => void }) {
   const unlocked = V.unlockedStage(save);
   const [sel, setSel] = useState(unlocked);
   const listRef = useRef<HTMLDivElement>(null);
@@ -851,7 +952,7 @@ export function Campaign({ save, hud, onAttack, onClose }: { save: V.Save; hud: 
   const bonusClaimed = save.bonus.includes(sel);
   const bands = ["#65a30d", "#0891b2", "#7c3aed", "#c2410c", "#b91c1c"];
   return (
-    <Sheet title={`Campaign · ${hud.stars}/300 ★`} onClose={onClose}>
+    <>
       <div className="land:grid land:grid-cols-[minmax(0,1fr)_16.5rem] land:items-start land:gap-3">
         <div ref={listRef} className="grid grid-cols-5 gap-2 sm:grid-cols-10 land:grid-cols-[repeat(auto-fill,minmax(2.75rem,1fr))] land:gap-1.5">
           {Array.from({ length: 100 }, (_, i) => {
@@ -914,20 +1015,25 @@ export function Campaign({ save, hud, onAttack, onClose }: { save: V.Save; hud: 
           </p>
         </div>
       </div>
-    </Sheet>
+    </>
   );
 }
 
 // --- Battle HUD -----------------------------------------------------------------------------------------------
 
-export function BattleBar({ b, icons, onSlot, onEnd, onPause, onSpeed }: { b: BattleHud; icons: Record<string, string>; onSlot: (id: string) => void; onEnd: () => void; onPause: () => void; onSpeed: () => void }) {
+export function BattleBar({ b, icons, onSlot, onEnd, onPause, onSpeed, onNext }: { b: BattleHud; icons: Record<string, string>; onSlot: (id: string) => void; onEnd: () => void; onPause: () => void; onSpeed: () => void; onNext: () => void }) {
   const raid = b.mode === "raid";
   const endLabel = b.percent > 0 || b.started ? "End battle" : raid ? "Retreat" : "Skip";
   return (
     <>
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-3">
         <div className="g-hud max-w-[46%] px-3 py-1.5 land:max-w-[34%]">
-          <p className="g-display truncate text-base leading-tight sm:text-lg">{raid ? `${b.stage}. ${b.name}` : b.name}</p>
+          <p className="g-display truncate text-base leading-tight sm:text-lg">{raid && !b.online ? `${b.stage}. ${b.name}` : b.name}</p>
+          {b.online && (
+            <p className="flex items-center gap-1.5 truncate text-[11px] font-bold opacity-90">
+              {b.online.owner} · TH {b.online.th} · <Trophy className="size-3 text-amber-300" /> +{b.online.win} / −{b.online.lose}
+            </p>
+          )}
           {raid ? (
             <div className="mt-0.5 space-y-0.5 text-xs font-bold">
               <p className="flex items-center gap-1.5">
@@ -952,7 +1058,7 @@ export function BattleBar({ b, icons, onSlot, onEnd, onPause, onSpeed }: { b: Ba
             </span>
             <span className="g-display text-xl tabular-nums">{b.percent}%</span>
           </div>
-          {!b.started && raid && <p className="g-hud px-2 py-0.5 text-[11px] font-bold">Timer starts on your first troop</p>}
+          {!b.started && raid && <p className="g-hud px-2 py-0.5 text-[11px] font-bold">{b.scoutLeft >= 0 ? `Battle starts in ${b.scoutLeft}s` : "Timer starts on your first troop"}</p>}
         </div>
         <div className="pointer-events-auto flex flex-col items-end gap-1.5 land:flex-row-reverse land:items-center">
           <div className="g-hud flex items-center gap-1.5 px-3 py-1">
@@ -975,6 +1081,19 @@ export function BattleBar({ b, icons, onSlot, onEnd, onPause, onSpeed }: { b: Ba
       <button type="button" onClick={onEnd} className="g-soft pointer-events-auto absolute bottom-2.5 left-2.5 hidden px-3 py-2 text-sm font-bold land:block">
         <span className="g-unskew">{endLabel}</span>
       </button>
+      {raid && !b.started && <p className="g-display pointer-events-none absolute inset-x-0 bottom-[104px] text-center text-xl text-white [text-shadow:0_2px_0_#1f2937,1px_0_0_#1f2937,-1px_0_0_#1f2937,0_-1px_0_#1f2937] sm:bottom-[112px] land:hidden">Tap or press and hold to deploy troops</p>}
+      {b.online && !b.started && (
+        <button type="button" onClick={onNext} onPointerDown={(e) => e.stopPropagation()} aria-label="Next village (Enter)" className="g-btn pointer-events-auto absolute right-3 bottom-[104px] flex flex-col items-center px-5 py-2 sm:bottom-[112px]">
+          <span className="g-unskew flex-col gap-0 leading-tight">
+            <span className="inline-flex items-center gap-1 text-xl">
+              Next <ChevronsRight className="size-6" />
+            </span>
+            <span className="text-sm">
+              <Cost res="gold" amount={b.online.next} />
+            </span>
+          </span>
+        </button>
+      )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2 pb-2.5 land:px-[8.5rem] land:pb-2">
         <div className="g-hud pointer-events-auto flex max-w-full gap-1.5 overflow-x-auto p-1.5" onPointerDown={(e) => e.stopPropagation()}>
           {b.slots.length === 0 && <p className="px-3 py-3 text-sm font-bold">{raid ? "No troops" : "No troops to defend with — your defences are on their own!"}</p>}
@@ -1045,7 +1164,7 @@ export function ResultModal({ r, icons, onHome }: { r: BattleResult; icons: Reco
           className="g-panel w-full max-w-md animate-[game-fade_0.35s_ease] p-5 text-center sm:p-6 land:grid land:max-w-3xl land:grid-cols-2 land:items-center land:gap-6 land:p-5"
         >
           <div>
-            <p className="g-muted text-xs font-bold tracking-widest uppercase">{raid ? `Stage ${r.stage} · ${r.name}` : r.name}</p>
+            <p className="g-muted text-xs font-bold tracking-widest uppercase">{raid ? (r.online ? `Online · ${r.online.owner} · ${r.name}` : `Stage ${r.stage} · ${r.name}`) : r.name}</p>
             <h2 className="g-panel-title mt-1 text-3xl sm:text-4xl">{title}</h2>
             <div className="mt-3 flex justify-center">
               <Stars n={r.stars} size={46} />
@@ -1359,5 +1478,126 @@ export function Toasts({ items }: { items: { id: number; text: string; tone: str
         </div>
       ))}
     </div>
+  );
+}
+
+// --- Layout editor ---------------------------------------------------------------------------------------------
+
+/** Small pill buttons for the editor: the village keeps the screen. */
+const EDIT_BTN = "pointer-events-auto inline-flex h-8 shrink-0 items-center gap-1 rounded-full border-2 px-2.5 text-[12px] font-extrabold shadow-[0_2px_0_#0005] disabled:opacity-45";
+const EDIT_DARK = `${EDIT_BTN} border-[#fbbf24] bg-[#111827e6] text-[#fef3c7]`;
+const EDIT_RED = `${EDIT_BTN} border-red-900 bg-red-600 text-white`;
+const EDIT_GREEN = `${EDIT_BTN} border-green-900 bg-green-600 text-white`;
+
+/**
+ * The layout editor: drag any building to move it, store buildings in the tray (or all at once) and
+ * place them back from it; Save keeps the new layout, Cancel puts everything back. Compact on purpose:
+ * small pills at the top and a slim tray at the bottom.
+ */
+export function LayoutEditor({
+  hud,
+  icons,
+  onSave,
+  onCancel,
+  onStoreAll,
+  onStore,
+  onPlace,
+  onConfirm,
+  onCancelPlace,
+  onRow,
+}: {
+  hud: VillageHud;
+  icons: Record<string, string>;
+  onSave: () => void;
+  onCancel: () => void;
+  onStoreAll: () => void;
+  onStore: () => void;
+  onPlace: (kind: BKind) => void;
+  onConfirm: () => void;
+  onCancelPlace: () => void;
+  onRow: () => void;
+}) {
+  const tray = hud.editing?.tray ?? [];
+  const left = tray.reduce((n, t) => n + t.n, 0);
+  const sel = hud.selected && hud.selected.kind !== "obstacle" ? hud.selected : null;
+  const p = hud.placing;
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+  return (
+    <>
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 px-2 pt-2" onPointerDown={stop}>
+        <button type="button" onClick={onStoreAll} className={EDIT_DARK}>
+          <PackageOpen className="size-3.5" /> Store all
+        </button>
+        <p className="kc-ink truncate pt-1 text-center text-[12px] font-extrabold">
+          <span className="g-display text-[14px]">Layout editor</span>
+          <span className="ml-1.5 opacity-90">· {left ? `${left} in tray` : "drag to move"}</span>
+        </p>
+        <div className="flex shrink-0 gap-1.5">
+          <button type="button" onClick={onCancel} className={EDIT_RED}>
+            <X className="size-3.5" strokeWidth={3} /> Cancel
+          </button>
+          <button type="button" onClick={onSave} disabled={left > 0} className={EDIT_GREEN}>
+            <Check className="size-3.5" strokeWidth={3} /> Save
+          </button>
+        </div>
+      </div>
+      {(p || sel) && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[60px] flex justify-center px-2">
+          <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border-2 border-[#fbbf24] bg-[#111827e6] py-1 pr-1 pl-3 text-[#fef3c7]" onPointerDown={stop}>
+            {p ? (
+              <>
+                <span className="text-[12px] font-extrabold">
+                  {BUILDINGS[p.kind].name}
+                  {!p.valid && <span className="ml-1 text-red-300">· no room</span>}
+                </span>
+                {p.kind === "wall" && (
+                  <button type="button" onClick={onRow} disabled={!p.valid} aria-label="Place a row of walls" className={EDIT_DARK}>
+                    <ArrowRightToLine className="size-3.5" /> Row
+                  </button>
+                )}
+                <button type="button" onClick={onConfirm} disabled={!p.valid} aria-label="Place" className={`${EDIT_GREEN} px-2`}>
+                  <Check className="size-4" strokeWidth={3} />
+                </button>
+                <button type="button" onClick={onCancelPlace} aria-label="Put back" className={`${EDIT_RED} px-2`}>
+                  <X className="size-4" strokeWidth={3} />
+                </button>
+              </>
+            ) : (
+              sel && (
+                <>
+                  <span className="text-[12px] font-extrabold">
+                    {sel.name} <span className="opacity-70">Lv {sel.level}</span>
+                  </span>
+                  <button type="button" onClick={onStore} className={EDIT_DARK}>
+                    <PackageOpen className="size-3.5" /> Store
+                  </button>
+                </>
+              )
+            )}
+          </div>
+        </div>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-2 pb-1.5">
+        <div className="pointer-events-auto flex max-w-full gap-1 overflow-x-auto rounded-xl border-2 border-[#fbbf24] bg-[#111827d9] p-1 no-scrollbar" onPointerDown={stop}>
+          {tray.length === 0 ? (
+            <p className="px-2 py-1.5 text-[12px] font-bold text-[#fef3c7]">Tap a building, then Store — or Store all to start a fresh layout.</p>
+          ) : (
+            tray.map((t) => (
+              <button
+                key={t.kind}
+                type="button"
+                onClick={() => onPlace(t.kind)}
+                aria-label={`Place ${BUILDINGS[t.kind].name}`}
+                title={BUILDINGS[t.kind].name}
+                className={`relative grid size-[44px] shrink-0 place-items-center rounded-lg ${p?.kind === t.kind ? "bg-gradient-to-b from-amber-200 to-amber-500 ring-2 ring-white" : "bg-white/10"}`}
+              >
+                {icons[`b:${t.kind}`] ? <Pic src={icons[`b:${t.kind}`]} alt="" className="size-9" /> : <span className="text-[9px] font-bold text-white">{BUILDINGS[t.kind].name}</span>}
+                <span className="kc-ink absolute right-0.5 bottom-0 text-[11px] font-black tabular-nums">×{t.n}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </>
   );
 }

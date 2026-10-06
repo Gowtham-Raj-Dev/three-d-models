@@ -29,6 +29,7 @@ export type BKind =
   | "archertower"
   | "catapult"
   | "magetower"
+  | "tesla"
   | "wall"
   | "bomb"
   | "skeltrap";
@@ -44,9 +45,11 @@ export interface AttackDef {
   interval: number;
   /** Splash radius (tiles). */
   splash?: number;
-  projectile: "cannonball" | "arrow" | "boulder" | "bolt";
+  projectile: "cannonball" | "arrow" | "boulder" | "bolt" | "zap";
   /** Tiles per second (boulders arc). */
   speed: number;
+  /** Shocks (Hidden Tesla): how many more troops the bolt jumps on to, per level (half damage each). */
+  chain?: number[];
 }
 
 export interface BDef {
@@ -79,6 +82,8 @@ export interface BDef {
   trap?: { damage: number[]; radius: number; trigger: number; spawn?: number[] };
   /** Hero altars: the hero who lives here (the altar's level is the hero's level). */
   hero?: HeroKind;
+  /** Hidden defences (Hidden Tesla): underground in battle until a troop comes this close (tiles from its centre). */
+  hidden?: number;
 }
 
 const L5 = [1, 1, 1, 1, 1];
@@ -312,6 +317,21 @@ export const BUILDINGS: Record<BKind, BDef> = {
     attack: { range: 7, damage: [14, 18, 23, 29, 36], interval: 1.3, splash: 1.1, projectile: "bolt", speed: 12 },
     desc: "Crackling arcane bolts that burst and hurt every troop nearby.",
   },
+  tesla: {
+    kind: "tesla",
+    name: "Hidden Tesla",
+    size: 2,
+    category: "defence",
+    res: "gold",
+    cost: [9000, 14000, 20000, 28000, 38000],
+    time: [40, 70, 100, 140, 175],
+    hp: [480, 550, 630, 720, 830],
+    counts: [0, 0, 0, 1, 2],
+    maxLevel: 5,
+    attack: { range: 6.5, damage: [11, 14, 18, 23, 29], interval: 0.6, projectile: "zap", speed: 60, chain: [0, 1, 1, 2, 2] },
+    hidden: 5.5,
+    desc: "Hides underground where raiders can't see it. When troops come close it springs up and shocks them with chain lightning.",
+  },
   wall: {
     kind: "wall",
     name: "Wall",
@@ -371,6 +391,7 @@ export const SHOP_ORDER: BKind[] = [
   "archertower",
   "catapult",
   "magetower",
+  "tesla",
   "bomb",
   "skeltrap",
   "wall",
@@ -395,7 +416,7 @@ export const unlockTh = (kind: BKind) => {
 
 // --- Troops -------------------------------------------------------------------------------------
 
-export type TroopKind = "warrior" | "archer" | "thief" | "giant" | "breaker" | "mage" | "healer";
+export type TroopKind = "warrior" | "archer" | "thief" | "giant" | "valkyrie" | "breaker" | "crossbow" | "mage" | "healer" | "knight";
 export type RaiderKind = "skeleton" | "zombie" | "vampire" | "keeper";
 export type HeroKind = "king" | "queen";
 /** "bones": the skeletons a Skeleton Trap springs. */
@@ -425,6 +446,8 @@ export interface UnitDef {
   heals?: boolean;
   /** Explodes on contact (wall breaker). */
   suicide?: boolean;
+  /** Wall breaker: blast damage to walls by level (one blast opens a wall of its own level or one above). */
+  wallDamage?: number[];
   ranged?: boolean;
   barracks: number;
   /** Elixir and seconds to research levels 2..5. */
@@ -507,25 +530,63 @@ export const TROOPS: Record<TroopKind, UnitDef> = {
     researchTime: [40, 80, 130, 180],
     desc: "A huge brute who soaks up damage and only attacks defences.",
   },
+  valkyrie: {
+    kind: "valkyrie",
+    name: "Valkyrie",
+    housing: 6,
+    train: 16,
+    cost: [600, 800, 1050, 1350, 1700],
+    hp: 380,
+    damage: 34,
+    interval: 1.3,
+    range: 0.6,
+    speed: 1.75,
+    prefer: "any",
+    // Melee splash: her great axe hits every building (and enemy) around her.
+    splash: 1.2,
+    barracks: 3,
+    research: [5000, 12000, 24000, 44000],
+    researchTime: [45, 85, 135, 180],
+    desc: "Swings a two-handed battle axe that hits every building and enemy around her — walls too.",
+  },
   breaker: {
     kind: "breaker",
     name: "Wall Breaker",
     housing: 2,
     train: 8,
     cost: [400, 550, 700, 900, 1100],
-    hp: 32,
+    hp: 34,
     damage: 24,
     interval: 1,
     range: 0.5,
-    speed: 2.4,
+    speed: 2.6,
     prefer: "wall",
-    splash: 1.4,
-    bonus: 30,
+    splash: 1.6,
     suicide: true,
+    wallDamage: [700, 1250, 1900, 2800, 3700],
     barracks: 4,
     research: [6000, 13000, 26000, 46000],
     researchTime: [45, 85, 135, 180],
-    desc: "Runs at the nearest wall with a powder keg and blows it open.",
+    desc: "A skeleton sapper carrying a lit bomb: runs straight at the nearest wall and blasts it — and the walls beside it — apart.",
+  },
+  crossbow: {
+    kind: "crossbow",
+    name: "Crossbowman",
+    housing: 3,
+    train: 10,
+    cost: [300, 400, 520, 660, 820],
+    hp: 140,
+    damage: 26,
+    interval: 1.5,
+    range: 5,
+    speed: 1.7,
+    prefer: "defence",
+    bonus: 1.5,
+    ranged: true,
+    barracks: 4,
+    research: [7000, 14000, 27000, 47000],
+    researchTime: [45, 85, 135, 180],
+    desc: "Goes for defences first and shoots heavy crossbow bolts from far away — half again as hard against defences.",
   },
   mage: {
     kind: "mage",
@@ -565,9 +626,26 @@ export const TROOPS: Record<TroopKind, UnitDef> = {
     researchTime: [60, 100, 150, 180],
     desc: "Follows your troops and heals everyone around the one she targets. Never attacks.",
   },
+  knight: {
+    kind: "knight",
+    name: "Knight",
+    housing: 12,
+    train: 40,
+    cost: [3200, 4000, 5000, 6200, 7600],
+    hp: 1150,
+    damage: 115,
+    interval: 1.8,
+    range: 0.75,
+    speed: 1.1,
+    prefer: "any",
+    barracks: 5,
+    research: [18000, 32000, 50000, 75000],
+    researchTime: [70, 110, 160, 180],
+    desc: "A champion in full armour with a two-handed greatsword. Slow, but every swing smashes a building.",
+  },
 };
 
-export const TROOP_ORDER: TroopKind[] = ["warrior", "archer", "thief", "giant", "breaker", "mage", "healer"];
+export const TROOP_ORDER: TroopKind[] = ["warrior", "archer", "thief", "giant", "valkyrie", "breaker", "crossbow", "mage", "healer", "knight"];
 
 /** Raiders attacking your village (they use the defender's Town Hall level as their level). */
 export const RAIDERS: Record<RaiderKind, UnitDef> = {
@@ -786,4 +864,6 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "king", name: "Long Live the King", desc: "Build the King's Altar", gems: 15 },
   { id: "queen", name: "Her Majesty", desc: "Build the Queen's Altar", gems: 20 },
   { id: "hero5", name: "Legendary", desc: "Raise a hero to level 5", gems: 40 },
+  { id: "online1", name: "Rival Raider", desc: "Win an online battle", gems: 10 },
+  { id: "online25", name: "Warlord of the Realm", desc: "Win 25 online battles", gems: 40 },
 ];

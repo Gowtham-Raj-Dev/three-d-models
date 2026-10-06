@@ -419,6 +419,27 @@ function magetower(level: number): Recipe {
   return { parts, turret: { y: top + 0.25, parts: [{ m: "crystalLarge", s: 0.9 + level * 0.08, look: level >= 5 ? "gold" : "glow" }] }, height: top + 1.2 };
 }
 
+function tesla(level: number): Recipe {
+  const gold: Look | undefined = level >= 5 ? "gold" : undefined;
+  // The coil (Crystal Crossroads' sci-fi machine) on a round stone pad. It grows every level; power
+  // cells gather round it from level 2 (two, then three, then four), it glows electric blue at 4 and
+  // turns gold at 5, and a charged crystal floats over its tip.
+  const h = 2.15 + level * 0.19;
+  const pad = 0.21;
+  const parts: Part[] = [{ m: "tdRoundBase", s: 1.45 + level * 0.04, sy: 1, look: gold ?? (level >= 4 ? "granite" : "stone") }];
+  parts.push({ m: "teslaCoil", y: pad, s: h / 5.6, look: gold ?? (level >= 4 ? "frost" : undefined) });
+  const cells: [number, number][] = [[0.66, 0.66], [-0.66, -0.66], [0.66, -0.66], [-0.66, 0.66]];
+  const n = level === 1 ? 0 : Math.min(4, level);
+  cells.slice(0, n).forEach(([x, z]) => parts.push({ m: "teslaCell", x, z, s: 0.5 + level * 0.025, look: gold ?? (level >= 4 ? "frost" : undefined) }));
+  if (level >= 3) parts.push({ m: "crystal", x: -0.72, z: 0.05, s: 0.75, look: "frost" }, { m: "crystal", x: 0.05, z: -0.72, s: 0.6, look: "frost" });
+  return {
+    parts,
+    // The charged crystal over the tip: electric blue (gold at 5).
+    spin: { x: 0, y: pad + h + 0.12, z: 0, r: 0, speed: 0, parts: [{ m: "crystal", s: 0.55 + level * 0.06, look: level >= 5 ? "gold" : "frost" }] },
+    height: pad + h + 0.4,
+  };
+}
+
 function skeltrap(level: number): Recipe {
   const parts: Part[] = [{ m: "graveMound", x: 0.05, z: 0.1, s: 0.75 }, { m: "gravestone", x: -0.05, z: -0.3, s: 0.6 + level * 0.04, look: level >= 5 ? "gold" : level >= 3 ? "dark" : undefined }];
   return { parts, height: 0.8 };
@@ -516,6 +537,8 @@ function baseRecipe(kind: BKind, l: number): Recipe {
       return catapult(l);
     case "magetower":
       return magetower(l);
+    case "tesla":
+      return tesla(l);
     case "bomb":
       return bomb(l);
     case "wall":
@@ -632,7 +655,25 @@ export interface TroopLook {
   clipSource?: ModelName;
   /** Built-in props to hide (by node name). */
   hide?: string[];
+  /**
+   * Made-up clips: `base`'s legs and body with `arms`' arms — moving, or frozen at second `at`
+   * (running while carrying something, or holding a weapon up instead of letting it hang).
+   */
+  mix?: { name: string; base: string; arms: string; at?: number }[];
 }
+
+/** Kenney mini characters' hands hang at hip height: these poses hold the weapon up in front instead. */
+const READY = "attack-melee-right";
+const READY_AT = 0.06;
+/** Arms raised in front of the chest (the end of "pick-up"): aiming a crossbow, carrying a bomb. */
+const CHEST = "pick-up";
+const CHEST_AT = 0.45;
+const readyMix = (arms = READY, at = READY_AT, name = "ready") => [
+  { name, base: "idle", arms, at },
+  { name: `${name}-walk`, base: "walk", arms, at },
+  { name: `${name}-run`, base: "sprint", arms, at },
+];
+const readyClips = (name = "ready") => ({ idle: name, walk: `${name}-walk` });
 
 /** KayKit adventurers (the Axe King). */
 const KAYKIT_CLIPS: Record<string, string> = { idle: "Idle", walk: "Walking_A", sprint: "Running_A", die: "Death_A", "emote-yes": "Cheer", "interact-right": "Interact", sleep: "Lie_Idle", ability: "Cheer" };
@@ -654,7 +695,10 @@ export function troopLook(kind: TroopKind | RaiderKind | HeroKind | "bones" | "b
         gear: [level >= 4 ? { ...sword(gold, 0.75 + level * 0.05), m: "chaosBlade" as const } : sword(gold, 0.9 + level * 0.06), ...(level >= 2 ? [shield(level >= 3 ? "shieldRect" : "shieldRound", gold)] : [])],
         attack: "attack-melee-right",
         combo: ["attack-melee-right", "attack-melee-right", "attack-kick-right"],
-        run: "sprint",
+        // Sword held up in front, not hanging at the hip.
+        run: "ready-run",
+        mix: readyMix(),
+        clips: readyClips(),
       };
     case "archer":
       return {
@@ -684,8 +728,57 @@ export function troopLook(kind: TroopKind | RaiderKind | HeroKind | "bones" | "b
         combo: ["attack-melee-left", "attack-melee-right", "attack-melee-left", "attack-kick-right"],
         run: "walk",
       };
+    case "valkyrie":
+      return {
+        m: "valkyrie",
+        height: 0.72 * grow,
+        // The Weapons page's two-handed battle axe.
+        gear: [{ m: "battleAxe", bone: "arm-right", x: -0.05, y: -0.13, z: 0.07, rx: R90, s: 0.36 + level * 0.012, look: gold }],
+        attack: "attack-melee-right",
+        combo: ["attack-melee-right", "attack-melee-left", "attack-melee-right", "attack-kick-right"],
+        run: "ready-run",
+        mix: readyMix(),
+        clips: readyClips(),
+      };
     case "breaker":
-      return { m: "breaker", height: 0.64 * grow, gear: [{ m: "keg", bone: "torso", y: 0.3, z: 0, s: 0.4 + level * 0.03, look: level >= 4 ? "red" : undefined }], attack: "interact-right", run: "sprint", hold: "holding-both" };
+      // A skeleton sapper running with a lit bomb in both hands in front of its chest (black, red at 4, gold at 5).
+      return {
+        m: "skeleton",
+        height: 0.62 * grow,
+        gear: [{ m: "bombBall", bone: "torso", x: 0, y: 0.16, z: 0.2, s: 0.6 + level * 0.04, look: gold ?? (level >= 4 ? "red" : "dark") }],
+        attack: "carry",
+        run: "carry-run",
+        hold: "carry",
+        mix: readyMix(CHEST, CHEST_AT, "carry"),
+        clips: readyClips("carry"),
+      };
+    case "crossbow":
+      return {
+        m: "crossbow",
+        height: 0.7 * grow,
+        // The Weapons page's two-handed crossbow.
+        // Aimed forward at chest height (stock up, bolt forward).
+        gear: [{ m: "heavyCrossbow", bone: "arm-right", x: -0.05, y: -0.15, z: 0.06, rx: R90, ry: -R90, s: 0.3 + level * 0.01, look: level >= 4 ? (gold ?? "dark") : undefined }],
+        attack: "aim",
+        run: "aim-run",
+        hold: "aim",
+        mix: readyMix(CHEST, CHEST_AT, "aim"),
+        clips: readyClips("aim"),
+      };
+    case "knight":
+      return {
+        m: "knight",
+        height: 1.0 + (level - 1) * 0.03,
+        // The Weapons page's two-handed greatsword in the knight's hand; his cape from level 3.
+        gear: [{ m: "greatsword", bone: "handslot.r", like: "2H_Sword", s: 1 + (level - 1) * 0.03, look: gold }],
+        hide: ["1H_Sword", "1H_Sword_Offhand", "2H_Sword", "Badge_Shield", "Rectangle_Shield", "Round_Shield", "Spike_Shield", ...(level >= 3 ? [] : ["Knight_Cape"])],
+        attack: "2H_Melee_Attack_Chop",
+        combo: ["2H_Melee_Attack_Chop", "2H_Melee_Attack_Slice"],
+        run: "Running_A",
+        hold: "2H_Melee_Idle",
+        // Standing with the greatsword up in both hands, not hanging.
+        clips: { ...KAYKIT_CLIPS, idle: "2H_Melee_Idle" },
+      };
     case "mage":
       return { m: "mage", height: 0.7 * grow, gear: [{ m: "crystal", bone: "arm-right", x: -0.05, y: -0.17, z: 0.06, s: 0.45 + level * 0.06, look: gold ?? "glow" }], attack: "holding-right-shoot", run: "walk", hold: "holding-right" };
     case "healer":
@@ -707,7 +800,7 @@ export function troopLook(kind: TroopKind | RaiderKind | HeroKind | "bones" | "b
     case "builder":
       return { m: "builder", height: 0.58, gear: [{ m: "hammer", bone: "arm-right", x: -0.05, y: -0.14, z: 0.07, rx: R90, s: 1.3 }], attack: "attack-melee-right", run: "walk" };
     case "skeleton":
-      return { m: "skeleton", height: 0.6 * grow, gear: [sword("dark", 0.9)], attack: "attack-melee-right", combo: ["attack-melee-right", "attack-kick-right"], run: "sprint" };
+      return { m: "skeleton", height: 0.6 * grow, gear: [sword("dark", 0.9)], attack: "attack-melee-right", combo: ["attack-melee-right", "attack-kick-right"], run: "ready-run", mix: readyMix(), clips: readyClips() };
     case "zombie":
       return { m: "zombie", height: 0.95 * grow, gear: [], attack: "attack-melee-right", combo: ["attack-melee-left", "attack-melee-right"], run: "walk" };
     case "vampire":

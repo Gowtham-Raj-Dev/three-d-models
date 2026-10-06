@@ -74,6 +74,8 @@ export class SB {
   readonly isWall: boolean;
   readonly isTrap: boolean;
   readonly inactive: boolean;
+  /** Hidden defences (Hidden Tesla) stay underground — unseen, untargetable, unhurt — until a troop comes close. */
+  hidden: boolean;
 
   constructor(
     readonly index: number,
@@ -101,6 +103,7 @@ export class SB {
     this.isTrap = !!def.trap;
     this.counts = !this.isWall && !this.isTrap;
     this.inactive = inactive;
+    this.hidden = !!def.hidden;
   }
 }
 
@@ -222,6 +225,10 @@ export interface SimEvents {
   deployed?(u: SU): void;
   ability?(u: SU): void;
   sprung?(b: SB, u: SU): void;
+  /** A hidden defence springs up. */
+  reveal?(b: SB): void;
+  /** A Hidden Tesla's shock: the troop it hit first, then the ones it jumped to. */
+  zap?(b: SB, hits: SU[]): void;
 }
 
 export interface SimSetup {
@@ -374,7 +381,7 @@ export class Sim {
       this.elixirTotal += sb.elixir;
     });
     for (const b of this.buildings) {
-      if (b.isTrap) continue;
+      if (b.isTrap || b.hidden) continue;
       for (let z = b.z - 1; z <= b.z + b.size; z++)
         for (let x = b.x - 1; x <= b.x + b.size; x++) if (x >= 0 && z >= 0 && x < N && z < N) this.noDeploy[z * N + x] = 1;
     }
@@ -481,7 +488,7 @@ export class Sim {
     this.zones.push(zone);
     if (kind === "jump") this.ver++;
     if (kind === "freeze") {
-      for (const b of this.buildings) if (!b.dead && (b.atk || b.isTrap) && rectDist(x, z, b) <= zone.r) b.frozen = Math.max(b.frozen, zone.dur);
+      for (const b of this.buildings) if (!b.dead && !b.hidden && (b.atk || b.isTrap) && rectDist(x, z, b) <= zone.r) b.frozen = Math.max(b.frozen, zone.dur);
     }
     this.events.spell?.(zone);
     return zone;
@@ -580,7 +587,7 @@ export class Sim {
     this.wallAt.fill(0);
     this.jumpAt.fill(0);
     for (const b of this.buildings) {
-      if (b.dead || b.isTrap) continue;
+      if (b.dead || b.isTrap || b.hidden) continue;
       const arr = b.isWall ? this.wallAt : this.occ;
       for (let z = b.z; z < b.z + b.size; z++) for (let x = b.x; x < b.x + b.size; x++) arr[z * N + x] = b.index + 1;
     }
@@ -660,7 +667,7 @@ export class Sim {
     let fallback: SB | null = null;
     let fallbackD = Infinity;
     for (const b of this.buildings) {
-      if (b.dead || b.isTrap) continue;
+      if (b.dead || b.isTrap || b.hidden) continue;
       const d = rectDist(u.x, u.z, b);
       if (b.isWall) {
         if (pref === "wall" && d < bestD) {
@@ -874,13 +881,14 @@ export class Sim {
     if (u.cooldown > 0) return;
     u.cooldown = u.def.interval;
     u.swing = 0;
-    const mult = (u.def.bonus && ((u.def.prefer === "resource" && isResource(b.kind)) || (u.def.prefer === "wall" && b.isWall)) ? u.def.bonus : 1) * (1 + u.rage) * (u.cloak > 0 ? 2 : 1);
+    const mult = (u.def.bonus && ((u.def.prefer === "resource" && isResource(b.kind)) || (u.def.prefer === "wall" && b.isWall) || (u.def.prefer === "defence" && !!b.atk)) ? u.def.bonus : 1) * (1 + u.rage) * (u.cloak > 0 ? 2 : 1);
     if (u.def.suicide) {
-      // Wall breaker: one big blast.
+      // Wall breaker: one big blast that opens the wall it reached and the segments beside it.
       const r = u.def.splash ?? 1.4;
+      const wallDmg = (u.def.wallDamage?.[u.level - 1] ?? u.dmg) * (1 + u.rage);
       for (const o of this.buildings) {
-        if (o.dead || o.isTrap) continue;
-        if (rectDist(u.x, u.z, o) <= r) this.hurt(o, u.dmg * (o.isWall ? u.def.bonus ?? 1 : 1) * (1 + u.rage));
+        if (o.dead || o.isTrap || o.hidden) continue;
+        if (rectDist(u.x, u.z, o) <= r) this.hurt(o, o.isWall ? wallDmg : u.dmg * (1 + u.rage));
       }
       this.events.explode?.(u);
       this.kill(u);
@@ -892,6 +900,8 @@ export class Sim {
       this.events.troopShot?.(u, p);
     } else {
       this.hurt(b, u.dmg * mult);
+      // Sweeping weapons (the Valkyrie's axe) hit everything else around too.
+      if (u.def.splash) for (const o of this.buildings) if (o !== b && !o.dead && !o.isTrap && !o.hidden && rectDist(u.x, u.z, o) <= u.def.splash) this.hurt(o, u.dmg * (1 + u.rage));
       this.events.hit?.(u, b);
     }
   }
@@ -910,6 +920,7 @@ export class Sim {
       this.events.troopShot?.(u, p);
     } else {
       this.hurtUnit(o, dmg);
+      if (u.def.splash && !u.def.suicide) for (const e of this.units) if (e !== o && !e.dead && e.side !== u.side && Math.hypot(e.x - u.x, e.z - u.z) <= u.def.splash) this.hurtUnit(e, dmg);
       this.events.hit?.(u, o);
       if (u.def.suicide) {
         this.events.explode?.(u);
@@ -993,10 +1004,33 @@ export class Sim {
     if (b.kind === "townhall") this.thDown = true;
     this.ver++;
     this.events.destroyed?.(b);
+    // Only hidden defences left: they show themselves, so the raid can still reach 100%.
+    if (this.buildings.every((o) => o.dead || !o.counts || o.hidden)) for (const o of this.buildings) if (o.hidden && !o.dead) this.reveal(o);
+  }
+
+  /** A hidden defence springs up: from now on it can be seen, targeted and hit. */
+  private reveal(b: SB) {
+    if (!b.hidden) return;
+    b.hidden = false;
+    // It takes a moment to rise before the first shock.
+    b.cooldown = Math.max(b.cooldown, 0.55);
+    this.ver++;
+    this.events.reveal?.(b);
   }
 
   private updateDefence(b: SB, dt: number) {
     const atk = b.atk!;
+    if (b.hidden) {
+      // Underground: springs up as soon as a troop comes close.
+      const r = BUILDINGS[b.kind].hidden ?? 0;
+      for (const u of this.units) {
+        if (!u.dead && u.side === 0 && u.cloak <= 0 && Math.hypot(u.x - b.cx, u.z - b.cz) <= r) {
+          this.reveal(b);
+          break;
+        }
+      }
+      return;
+    }
     b.cooldown -= dt;
     const t = b.target;
     const valid = (u: SU | null) => {
@@ -1022,6 +1056,29 @@ export class Sim {
     if (b.cooldown > 0) return;
     b.cooldown = atk.interval;
     b.fired = 0;
+    if (atk.projectile === "zap") {
+      // A shock hits at once and jumps on to the nearest other troops (half damage each).
+      const hits: SU[] = [u];
+      let from = u;
+      for (let i = atk.chain?.[b.level - 1] ?? 0; i > 0; i--) {
+        let next: SU | null = null;
+        let bd = 2.4;
+        for (const o of this.units) {
+          if (o.dead || o.side !== 0 || o.cloak > 0 || hits.includes(o)) continue;
+          const d = Math.hypot(o.x - from.x, o.z - from.z);
+          if (d < bd) {
+            bd = d;
+            next = o;
+          }
+        }
+        if (!next) break;
+        hits.push(next);
+        from = next;
+      }
+      hits.forEach((o, i) => this.hurtUnit(o, i === 0 ? b.damage : b.damage * 0.5));
+      this.events.zap?.(b, hits);
+      return;
+    }
     const homing = atk.projectile !== "boulder";
     // Boulders aim where the troop will be (roughly) — fast troops can still dodge.
     const lead = homing ? 0 : 0.35;
@@ -1105,7 +1162,7 @@ export class Sim {
       if (p.hitsSide === -1) {
         // Troop shot at a building (with splash for the mage).
         if (p.splash > 0) {
-          for (const o of this.buildings) if (!o.dead && !o.isTrap && rectDist(p.x1, p.z1, o) <= p.splash * 0.5) this.hurt(o, p.dmg);
+          for (const o of this.buildings) if (!o.dead && !o.isTrap && !o.hidden && rectDist(p.x1, p.z1, o) <= p.splash * 0.5) this.hurt(o, p.dmg);
         } else if (p.tB) this.hurt(p.tB, p.dmg);
       } else if (p.splash > 0) {
         for (const u of this.units) if (!u.dead && u.side === p.hitsSide && Math.hypot(u.x - p.x1, u.z - p.z1) <= p.splash) this.hurtUnit(u, p.dmg);
@@ -1129,7 +1186,7 @@ export class Sim {
           const r = Math.sqrt(this.rand()) * zn.r * 0.8;
           this.events.bolt?.(zn.x + Math.cos(a) * r, zn.z + Math.sin(a) * r);
           for (const b of this.buildings) {
-            if (b.dead || b.isTrap) continue;
+            if (b.dead || b.isTrap || b.hidden) continue;
             if (rectDist(zn.x, zn.z, b) <= zn.r) this.hurt(b, (zn.power / 6) * (b.isWall ? 0.25 : 1));
           }
         }

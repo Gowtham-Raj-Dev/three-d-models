@@ -1,7 +1,7 @@
 "use client";
 
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
-import { ArrowBigUp, BrickWall, Check, Clock, Coins, Crown, FlaskConical, Gem, Hammer, Info, Moon, Pause, Settings, Shield, ShoppingCart, Star, Swords, Trophy, Users, X, Zap } from "lucide-react";
+import { ArrowBigUp, ArrowRightToLine, BrickWall, Check, Coins, Crown, FlaskConical, Gem, Hammer, Info, LayoutGrid, Moon, Pause, Search, Settings, Shield, ShoppingCart, Star, Swords, Trophy, Users, X, Zap } from "lucide-react";
 import { BUILDINGS, HEROES, SPELLS, TROOPS, formatTime, gemsForResource, isHero, shortNumber, type HeroKind, type SpellKind, type TroopKind } from "./data";
 import type { BattleHud, SelectedInfo, Slot, VillageHud } from "./engine";
 import { Pic, ResIcon, SpellOrb, Stars } from "./hud";
@@ -57,7 +57,7 @@ const MIDDLE = "pointer-events-none absolute bottom-2.5 left-[86px] right-[140px
 
 // --- Village ------------------------------------------------------------------------------------------------
 
-export function MobileTopBar({ hud, onSettings, onDefend }: { hud: VillageHud; onSettings: () => void; onDefend: () => void }) {
+export function MobileTopBar({ hud, onSettings, onDefend, onEdit }: { hud: VillageHud; onSettings: () => void; onDefend: () => void; onEdit: () => void }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 px-2.5 pt-2">
       <div className="flex min-w-0 flex-col items-start gap-1.5">
@@ -79,9 +79,14 @@ export function MobileTopBar({ hud, onSettings, onDefend }: { hud: VillageHud; o
             </p>
           </div>
         </div>
-        <Chunky tone="gray" onClick={onSettings} aria-label="Settings" className="size-[38px] rounded-full">
-          <Settings className="size-5 drop-shadow-[0_1.5px_0_#1f2937]" />
-        </Chunky>
+        <div className="flex gap-1.5">
+          <Chunky tone="gray" onClick={onSettings} aria-label="Settings" className="size-[38px] rounded-full">
+            <Settings className="size-5 drop-shadow-[0_1.5px_0_#1f2937]" />
+          </Chunky>
+          <Chunky tone="gray" onClick={onEdit} aria-label="Edit layout" className="size-[38px] rounded-full">
+            <LayoutGrid className="size-5 drop-shadow-[0_1.5px_0_#1f2937]" />
+          </Chunky>
+        </div>
       </div>
       <div className="absolute top-2 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1.5">
         <div className={`${CHIP} inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[13px] font-extrabold whitespace-nowrap`}>
@@ -116,12 +121,13 @@ const FILL = {
 };
 
 /** A resource bar: the fill shows how full the storages are; the icon sits on the right end. */
-function ResourceMeter({ res, value, cap }: { res: "gold" | "elixir" | "gems"; value: number; cap?: number }) {
+function ResourceMeter({ res, value, cap, small = false }: { res: "gold" | "elixir" | "gems"; value: number; cap?: number; small?: boolean }) {
   const full = cap !== undefined && value >= cap;
   return (
-    <div className="relative h-[26px] w-[150px]">
+    <div className={`relative ${small ? "h-[22px] w-[128px]" : "h-[26px] w-[150px]"}`}>
       <div className="absolute inset-y-[3px] right-[12px] left-0 overflow-hidden rounded-l-[8px] rounded-r-[4px] border-2 border-[#1f2937] bg-[#0b1220d9]">
-        {cap !== undefined && res !== "gems" && <div className="absolute inset-y-0 left-0 transition-[width] duration-500" style={{ width: `${Math.min(100, (value / Math.max(1, cap)) * 100)}%`, background: FILL[res] }} />}
+        {/* Fills from the right, where the icon sits. */}
+        {cap !== undefined && res !== "gems" && <div className="absolute inset-y-0 right-0 transition-[width] duration-500" style={{ width: `${Math.min(100, (value / Math.max(1, cap)) * 100)}%`, background: FILL[res] }} />}
         {cap !== undefined && <span className="kc-ink absolute top-1/2 left-1.5 -translate-y-1/2 text-[10px] font-black opacity-90">{full ? "FULL" : `max ${shortNumber(cap)}`}</span>}
         <span className="g-display kc-ink absolute inset-y-0 right-3.5 flex items-center text-[14px] tabular-nums">{shortNumber(value)}</span>
       </div>
@@ -273,16 +279,23 @@ export function MobileBuildingBar({
   );
 }
 
-export function MobilePlacingBar({ hud, onConfirm, onCancel }: { hud: VillageHud; onConfirm: () => void; onCancel: () => void }) {
+export function MobilePlacingBar({ hud, onConfirm, onCancel, onRow }: { hud: VillageHud; onConfirm: () => void; onCancel: () => void; onRow: () => void }) {
   const p = hud.placing!;
   return (
     <div className={MIDDLE}>
       <div className={`${CHIP} pointer-events-auto flex items-center gap-2.5 py-1.5 pr-1.5 pl-3`} onPointerDown={(e) => e.stopPropagation()}>
         <div className="min-w-0">
           <p className="g-display text-[15px] leading-tight">{BUILDINGS[p.kind].name}</p>
-          <p className={`text-[12px] font-bold ${p.valid ? "opacity-85" : "text-red-300"}`}>{p.valid ? "Drag it into place" : "Not enough room here"}</p>
+          <p className={`text-[12px] font-bold ${p.valid ? "opacity-85" : "text-red-300"}`}>{p.valid ? (p.kind === "wall" ? "Walls follow on in a line" : "Drag it into place") : "Not enough room here"}</p>
         </div>
         <Price res={p.res as "gold" | "elixir"} amount={p.cost} have={p.res === "gold" ? hud.gold : hud.elixir} />
+        {p.kind === "wall" && (
+          <Chunky tone="gold" onClick={onRow} disabled={!p.valid} aria-label="Place a row of walls" className="h-[44px] rounded-full px-2.5">
+            <span className="g-display kc-ink inline-flex items-center gap-0.5 text-[13px]">
+              <ArrowRightToLine className="size-4" strokeWidth={3} /> Row
+            </span>
+          </Chunky>
+        )}
         <Chunky tone="green" onClick={onConfirm} disabled={!p.valid} aria-label="Place" className="size-[44px] rounded-full">
           <Check className="size-6" strokeWidth={3} />
         </Chunky>
@@ -328,60 +341,97 @@ const clock = (t: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-export function MobileBattleHud({ b, icons, onSlot, onEnd, onPause, onSpeed }: { b: BattleHud; icons: Record<string, string>; onSlot: (id: string) => void; onEnd: () => void; onPause: () => void; onSpeed: () => void }) {
+/**
+ * The battle screen, laid out like Clash of Clans: the rival and its loot top-left, the countdown
+ * ("Battle starts in" while scouting, "Battle ends in" after) top-centre, your own storages top-right,
+ * End battle and Next just above a slim troop bar. Kept small so the battlefield fills the screen.
+ */
+export function MobileBattleHud({ b, icons, onSlot, onEnd, onPause, onSpeed, onNext }: { b: BattleHud; icons: Record<string, string>; onSlot: (id: string) => void; onEnd: () => void; onPause: () => void; onSpeed: () => void; onNext: () => void }) {
   const raid = b.mode === "raid";
+  const scouting = raid && !b.started;
   const endLabel = b.percent > 0 || b.started ? "End battle" : raid ? "Retreat" : "Skip";
   return (
     <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 px-2.5 pt-2">
-        <div className={`${CHIP} max-w-[30%] px-2.5 py-1`}>
-          <p className="g-display truncate text-[14px] leading-tight text-white">{raid ? `${b.stage}. ${b.name}` : b.name}</p>
-          {raid ? (
-            <>
-              <p className="text-[10px] font-bold opacity-75">Loot taken</p>
-              <p className="flex items-center gap-1 text-[12px] font-extrabold">
-                <ResIcon res="gold" size={12} />
-                <span className="tabular-nums">{shortNumber(b.gold)}</span>
-                <span className="text-[11px] opacity-60">/ {shortNumber(b.goldAvail)}</span>
+      {/* The rival village, its loot and the trophies at stake */}
+      <div className="pointer-events-none absolute top-1.5 left-2.5 max-w-[34%]">
+        <p className="g-display kc-ink truncate text-[14px] leading-tight">{raid && !b.online ? `${b.stage}. ${b.name}` : b.name}</p>
+        {b.online && (
+          <p className="kc-ink truncate text-[11px] leading-tight font-extrabold">
+            {b.online.owner} · TH {b.online.th}
+          </p>
+        )}
+        {raid ? (
+          <div className="mt-0.5">
+            <p className="kc-ink text-[10px] leading-tight font-extrabold opacity-90">{scouting ? "Available loot:" : "Loot taken:"}</p>
+            {(["gold", "elixir"] as const).map((r) => (
+              <p key={r} className="kc-ink flex items-center gap-1 text-[13px] leading-[1.15] font-black tabular-nums">
+                <ResIcon res={r} size={12} />
+                {shortNumber(scouting ? (r === "gold" ? b.goldAvail : b.elixirAvail) : r === "gold" ? b.gold : b.elixir)}
+                {!scouting && <span className="text-[10px] opacity-75">/ {shortNumber(r === "gold" ? b.goldAvail : b.elixirAvail)}</span>}
               </p>
-              <p className="flex items-center gap-1 text-[12px] font-extrabold">
-                <ResIcon res="elixir" size={12} />
-                <span className="tabular-nums">{shortNumber(b.elixir)}</span>
-                <span className="text-[11px] opacity-60">/ {shortNumber(b.elixirAvail)}</span>
-              </p>
-            </>
-          ) : (
-            <p className="text-[12px] font-extrabold">Raiders left: {b.raidersLeft}</p>
-          )}
-        </div>
-        <div className="absolute top-2 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1">
-          <div className={`${CHIP} flex items-center gap-2 px-2.5 py-0.5`}>
-            <Stars n={b.stars} size={18} />
-            <span className="g-display kc-ink text-[18px] tabular-nums">{b.percent}%</span>
+            ))}
+            {b.online && (
+              <>
+                <p className="kc-ink mt-0.5 flex items-center gap-1 text-[13px] leading-tight font-black">
+                  <Trophy className="size-3 text-amber-300" /> {b.online.win}
+                </p>
+                <p className="kc-ink text-[10px] leading-tight font-extrabold">
+                  Defeat: <span className="text-red-300">−{b.online.lose}</span>
+                </p>
+              </>
+            )}
           </div>
-          {!b.started && raid && <p className={`${CHIP} px-2 py-0.5 text-[11px] font-bold whitespace-nowrap`}>The timer starts with your first troop</p>}
-        </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <div className={`${CHIP} flex items-center gap-1 px-2.5 py-0.5`}>
-            <Clock className="size-4" />
-            <span className={`g-display kc-ink text-[18px] tabular-nums ${b.timeLeft <= 30 ? "!text-red-300" : ""}`}>{clock(b.timeLeft)}</span>
+        ) : (
+          <p className="kc-ink text-[12px] font-extrabold">Raiders left: {b.raidersLeft}</p>
+        )}
+      </div>
+
+      {/* Countdown or battle clock, then stars and damage */}
+      <div className="pointer-events-none absolute top-1 left-1/2 flex -translate-x-1/2 flex-col items-center">
+        <p className="kc-ink text-[11px] leading-none font-extrabold whitespace-nowrap">{b.scoutLeft >= 0 ? "Battle starts in:" : scouting ? "Timer starts with your first troop" : "Battle ends in:"}</p>
+        <p className={`g-display kc-ink text-[21px] leading-tight tabular-nums ${!scouting && b.timeLeft <= 30 ? "!text-red-300" : ""}`}>{b.scoutLeft >= 0 ? `${b.scoutLeft}s` : clock(b.timeLeft)}</p>
+        {!scouting && (
+          <div className={`${CHIP} flex items-center gap-1.5 px-2 py-px`}>
+            <Stars n={b.stars} size={13} />
+            <span className="g-display text-[13px] tabular-nums">{b.percent}%</span>
           </div>
-          <div className="flex gap-1.5">
-            <Chunky tone="gray" onClick={onSpeed} aria-label="Battle speed" className="size-[38px] rounded-full">
-              <span className="g-display kc-ink text-[14px]">{b.speed}×</span>
-            </Chunky>
-            <Chunky tone="gray" onClick={onPause} aria-label="Pause" className="size-[38px] rounded-full">
-              <Pause className="size-4 fill-current drop-shadow-[0_1.5px_0_#1f2937]" />
-            </Chunky>
-          </div>
+        )}
+      </div>
+
+      {/* Your storages, speed and pause */}
+      <div className="absolute top-1.5 right-2.5 flex flex-col items-end gap-1">
+        <ResourceMeter res="gold" value={b.own.gold} cap={b.own.goldCap} small />
+        <ResourceMeter res="elixir" value={b.own.elixir} cap={b.own.elixirCap} small />
+        <div className="flex gap-1.5">
+          <Chunky tone="gray" onClick={onSpeed} aria-label="Battle speed" className="size-[32px] rounded-full">
+            <span className="g-display kc-ink text-[12px]">{b.speed}×</span>
+          </Chunky>
+          <Chunky tone="gray" onClick={onPause} aria-label="Pause" className="size-[32px] rounded-full">
+            <Pause className="size-3.5 fill-current drop-shadow-[0_1.5px_0_#1f2937]" />
+          </Chunky>
         </div>
       </div>
-      <Chunky tone="red" onClick={onEnd} className="absolute bottom-2.5 left-2.5 rounded-xl px-2.5 py-2">
-        <span className="g-display kc-ink text-[13px] leading-none whitespace-nowrap">{endLabel}</span>
+
+      {scouting && <p className="g-display kc-ink pointer-events-none absolute inset-x-0 bottom-[128px] text-center text-[15px]">Tap or press and hold to deploy troops</p>}
+
+      <Chunky tone="red" onClick={onEnd} className="absolute bottom-[84px] left-2.5 rounded-lg px-2.5 py-1">
+        <span className="g-display kc-ink text-[12px] leading-none whitespace-nowrap">{endLabel}</span>
       </Chunky>
-      <div className="pointer-events-none absolute right-2.5 bottom-2 left-[104px] flex justify-center">
-        <div className="pointer-events-auto flex max-w-full gap-1 overflow-x-auto rounded-xl border-2 border-[#fbbf24] bg-[#111827d9] p-1 pt-2 no-scrollbar" onPointerDown={(e) => e.stopPropagation()}>
-          {b.slots.length === 0 && <p className="px-3 py-3 text-[13px] font-bold text-[#fef3c7]">{raid ? "No troops" : "No troops to defend with — your defences are on their own!"}</p>}
+      {b.online && scouting && (
+        <Chunky tone="gold" onClick={onNext} aria-label="Next village" className="absolute right-2.5 bottom-[84px] rounded-xl px-2.5 py-1">
+          <span className="flex items-center gap-1.5">
+            <Search className="size-4 drop-shadow-[0_1.5px_0_#78350f]" strokeWidth={3} />
+            <span className="flex flex-col items-start gap-0.5 leading-none">
+              <span className="g-display kc-ink text-[15px]">Next</span>
+              <Price res="gold" amount={b.online.next} />
+            </span>
+          </span>
+        </Chunky>
+      )}
+
+      <div className="pointer-events-none absolute inset-x-2 bottom-1.5 flex justify-center">
+        <div className="pointer-events-auto no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-xl border-2 border-[#fbbf24] bg-[#111827d9] p-1 pt-1.5" onPointerDown={(e) => e.stopPropagation()}>
+          {b.slots.length === 0 && <p className="px-3 py-2.5 text-[13px] font-bold text-[#fef3c7]">{raid ? "No troops" : "No troops to defend with — your defences are on their own!"}</p>}
           {b.slots.map((s) => (
             <TroopCard key={s.id} s={s} active={b.selected === s.id} icon={icons[`t:${s.kind}`]} onClick={() => onSlot(s.id)} />
           ))}
@@ -391,6 +441,7 @@ export function MobileBattleHud({ b, icons, onSlot, onEnd, onPause, onSpeed }: {
   );
 }
 
+/** A card in the troop bar: how many are left on top (like Clash of Clans), the level in the corner. */
 function TroopCard({ s, active, icon, onClick }: { s: Slot; active: boolean; icon?: string; onClick: () => void }) {
   const hero = s.hero;
   const name = s.spell ? SPELLS[s.kind as SpellKind].name : isHero(s.kind) ? HEROES[s.kind as HeroKind].name : (TROOPS[s.kind as TroopKind]?.name ?? s.kind);
@@ -409,29 +460,25 @@ function TroopCard({ s, active, icon, onClick }: { s: Slot; active: boolean; ico
       onClick={onClick}
       disabled={hero ? spent : s.count === 0}
       aria-label={hero ? (ability ? `${name}: ${HEROES[s.kind as HeroKind].ability.name}` : name) : `${name} ×${s.count}`}
-      className={`relative flex w-[52px] shrink-0 flex-col items-center overflow-hidden rounded-lg border-[2.5px] pb-0.5 transition-transform disabled:opacity-40 ${active || ability ? "-translate-y-1 border-white" : "border-[#1f2937]"} ${ability ? "animate-pulse" : ""}`}
+      className={`relative flex w-[48px] shrink-0 flex-col items-center overflow-hidden rounded-lg border-[2.5px] pt-2.5 pb-0.5 transition-transform disabled:opacity-40 ${active || ability ? "-translate-y-1 border-white" : "border-[#1f2937]"} ${ability ? "animate-pulse" : ""}`}
       style={{ background: bg }}
     >
       {s.spell ? (
-        <span className="mt-1 mb-0.5">
-          <SpellOrb kind={s.kind as SpellKind} size={34} />
+        <span className="mb-0.5">
+          <SpellOrb kind={s.kind as SpellKind} size={32} />
         </span>
       ) : icon ? (
-        <Pic src={icon} alt="" className="size-[42px]" />
+        <Pic src={icon} alt="" className="size-[38px]" />
       ) : (
-        <span className="size-[42px]" />
+        <span className="size-[38px]" />
       )}
-      {hero ? (
-        <>
-          <span className="g-display kc-ink max-w-full truncate px-0.5 text-[10px] leading-none">{ability ? "Ability!" : !hero.out ? "Hero" : hero.hp > 0 ? "Fighting" : "Fallen"}</span>
-          <span className="mt-0.5 h-1.5 w-10 overflow-hidden rounded-full bg-black/45">
-            <span className="block h-full rounded-full bg-green-400" style={{ width: `${Math.round(hero.hp * 100)}%` }} />
-          </span>
-        </>
-      ) : (
-        <span className="g-display kc-ink text-[13px] leading-none tabular-nums">×{s.count}</span>
+      <span className="g-display kc-ink absolute top-0 left-1 text-[12px] leading-tight tabular-nums">{hero ? (ability ? "Ability!" : !hero.out ? "Hero" : hero.hp > 0 ? "Fight" : "Fallen") : `x${s.count}`}</span>
+      {hero && (
+        <span className="mt-0.5 h-1.5 w-9 overflow-hidden rounded-full bg-black/45">
+          <span className="block h-full rounded-full bg-green-400" style={{ width: `${Math.round(hero.hp * 100)}%` }} />
+        </span>
       )}
-      <span className="g-display kc-ink absolute top-0.5 left-1 text-[10px] leading-none">{s.level}</span>
+      <span className="absolute right-0.5 bottom-0.5 rounded bg-black/55 px-1 text-[9px] leading-tight font-black text-white">{s.level}</span>
     </button>
   );
 }

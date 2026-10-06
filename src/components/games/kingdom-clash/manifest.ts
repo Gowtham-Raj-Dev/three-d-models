@@ -157,11 +157,20 @@ export const K = {
   // God of War collection: the frost axe and chaos blade (hero / troop gear)
   frostAxe: "god-of-war/leviathan-axe",
   chaosBlade: "god-of-war/blades-of-chaos",
+  // Weapons from the library's Weapons page (Character Pack Adventures): the new troops' gear
+  battleAxe: "character-pack-adventures/axe-2handed",
+  heavyCrossbow: "character-pack-adventures/crossbow-2handed",
+  greatsword: "character-pack-adventures/sword-2handed-color",
+  bombBall: "character-pack-adventures/smokebomb",
+  // Crystal Crossroads: the Hidden Tesla's coil and its power cells
+  teslaCoil: "crystal-crossroads/sci-fi-machine",
+  teslaCell: "crystal-crossroads/sci-fi-battery-capsule01",
   // Characters
   warrior: "mini-arena/character-soldier",
   archer: "mini-forest/character-archer",
   giant: "mini-dungeon/character-orc",
-  breaker: mini("character-male-b"),
+  valkyrie: mini("character-female-b"),
+  crossbow: mini("character-male-f"),
   mage: mini("character-female-e"),
   thief: mini("character-female-f"),
   healer: mini("character-female-d"),
@@ -170,16 +179,20 @@ export const K = {
   zombie: grave("character-zombie"),
   vampire: grave("character-vampire"),
   keeper: grave("character-keeper"),
-  // Heroes and the Skeleton Trap's skeletons
+  // Heroes, the Knight and the Skeleton Trap's skeletons
   king: "character-pack-adventures/barbarian",
+  knight: "character-pack-adventures/knight",
   queen: "god-of-war/spartan-archer",
   bones: "god-of-war/spartan-warrior",
 } as const;
 
 export type ModelName = keyof typeof K;
 
-/** Raiders, heroes and trap skeletons only matter later: loaded after the first screen. */
-export const LATE: ModelName[] = ["skeleton", "zombie", "vampire", "keeper", "king", "queen", "bones"];
+/**
+ * Raiders, heroes, the Knight and trap skeletons only matter later: loaded after the first screen.
+ * (The skeleton loads early: the Wall Breaker is one.)
+ */
+export const LATE: ModelName[] = ["zombie", "vampire", "keeper", "king", "queen", "bones", "knight"];
 
 /** Load order matters: the village (buildings, then troops) first, raiders last. */
 export const MODELS: string[] = [
@@ -190,20 +203,22 @@ export const MODELS: string[] = [
 export const GAME: GameEntry = {
   slug: "kingdom-clash",
   title: "Kingdom Clash",
-  tagline: "Build your village, train an army, raid 100 rival villages.",
+  tagline: "Build your village, train an army, raid rival villages online and in a 100-stage campaign.",
   description:
-    "A 3D base-building strategy game. Name your village and grow it around the Town Hall: gold mines and elixir collectors, storages, barracks, army camps, a laboratory and a spell factory, hero altars, cannons, archer towers, catapults, mage towers, bomb and skeleton traps and walls — Town Hall and every building upgradeable to level 5. Train warriors, archers, thieves, giants, wall breakers, mages and healers who march to your army camps, lead them with the Axe King and the Elf Queen, brew lightning, heal, rage, freeze and jump spells, then raid a 100-stage campaign of enemy villages to steal their gold and elixir — and hold the line when raiders come for yours.",
+    "A 3D base-building strategy game. Name your village and grow it around the Town Hall: gold mines and elixir collectors, storages, barracks, army camps, a laboratory and a spell factory, hero altars, cannons, archer towers, catapults, mage towers, the Hidden Tesla that springs out of the ground to shock raiders, bomb and skeleton traps and walls — Town Hall and every building upgradeable to level 5, and a layout editor to arrange it all. Train warriors, archers, thieves, giants, axe-swinging valkyries, skeleton wall breakers with lit bombs, crossbowmen, mages, healers and greatsword knights who march to your army camps, lead them with the Axe King and the Elf Queen, brew lightning, heal, rage, freeze and jump spells, then find rival villages at your Town Hall level in online battles — or raid the 100-stage campaign — to steal their gold and elixir, and hold the line when raiders come for yours.",
   genre: "Base-building strategy",
   accent: "#fbbf24",
   cover: "/games/kingdom-clash/cover.webp",
   models: MODELS,
-  collections: ["Fantasy Town Kit", "Castle Kit", "Tower Defense Kit", "Survival Kit", "Nature Kit", "Mini Dungeon", "Mini Characters", "Graveyard Kit", "Character Pack Adventures"],
+  collections: ["Fantasy Town Kit", "Castle Kit", "Tower Defense Kit", "Survival Kit", "Nature Kit", "Mini Dungeon", "Mini Characters", "Graveyard Kit", "Character Pack Adventures", "Crystal Crossroads"],
   controls: [
     { action: "Select / place / collect", keys: ["Click"], touch: "Tap" },
     { action: "Move a selected building", keys: ["Drag"], touch: "Drag it" },
     { action: "Pan / zoom", keys: ["W A S D", "Wheel"], touch: "Drag / pinch" },
     { action: "Upgrade selected building", keys: ["U"], touch: "Upgrade button" },
     { action: "Shop / army / raid", keys: ["B", "T", "R"], touch: "Bottom buttons" },
+    { action: "Layout editor (drag, store, place back)", keys: ["E"], touch: "Edit layout button" },
+    { action: "Next rival village (online, before attacking)", keys: ["Enter"], touch: "Next" },
     { action: "Collect all resources", keys: ["C"], touch: "Collect bubbles" },
     { action: "Pick troop or spell in battle", keys: ["1–9"], touch: "Hotbar" },
     { action: "Hero ability (hero on the field)", keys: ["Hero's number"], touch: "Tap the hero again" },
@@ -215,10 +230,12 @@ export const GAME: GameEntry = {
     "Defences, walls and the Town Hall cost gold; barracks, camps, the laboratory, the spell factory, troops and spells cost elixir.",
     "Train troops in the Barracks — they march to the Army Camps and wait around the campfire. Research stronger troops and spells in the Laboratory.",
     "Build the King's Altar (Town Hall 3) and the Queen's Altar (Town Hall 4). Heroes join every raid once, tap them again for War Cry or Vanish, guard your village — and sleep at their altar to heal.",
-    "Raid the 100-stage campaign: tap outside the red zone to drop troops. 50% destroyed = 1 star, Town Hall = 1 star, 100% = 3 stars. Every attack steals gold and elixir — farm any stage again.",
+    "Online battles find a random rival village at your Town Hall level, full of loot: look it over, tap Next for another one, or drop a troop outside the white border to attack. 50% destroyed = 1 star, Town Hall = 1 star, 100% = 3 stars; stars win trophies.",
+    "The 100-stage campaign has fixed villages to beat one by one — every attack steals gold and elixir, and you can farm any stage again.",
+    "From Town Hall 4 the Hidden Tesla guards your village: raiders can't see it until they come close. Wall Breakers blow walls open; build walls in straight rows with the Row button, and rearrange everything in the layout editor.",
     "Raiders attack your village now and then: defences fight on their own, and you can drop your troops inside your walls to help.",
   ],
-  features: ["Town Hall, buildings, defences & troops up to level 5", "Axe King & Elf Queen heroes with abilities", "100-stage raid campaign with stars", "Steal gold & elixir, farm any stage again", "Spells: lightning, heal, rage, freeze, jump", "Skeleton traps, bombs & walls to defend your village"],
+  features: ["Town Hall, buildings, defences & troops up to level 5", "Online battles: random rivals at your Town Hall, big loot", "Hidden Tesla, skeleton traps, bombs & walls", "Valkyrie, Crossbowman, Knight & skeleton Wall Breakers", "Axe King & Elf Queen heroes with abilities", "100-stage raid campaign with stars", "Spells: lightning, heal, rage, freeze, jump", "Layout editor"],
   // Recorded tracks (soundtrack.ts), CC BY 4.0 — the full credit is in the game's Settings.
   music: "Thatched Villagers & Clash Defiant by Kevin MacLeod (CC BY 4.0)",
 };
