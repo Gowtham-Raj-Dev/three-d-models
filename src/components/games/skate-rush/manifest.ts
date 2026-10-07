@@ -79,6 +79,14 @@ export const GAME: GameEntry = {
     "Heart = shield (survives one crash), star = coin magnet, jewel = double score for 10 seconds.",
     "Press ↓ in mid-air to slam down fast and slide straight under a gate.",
   ],
+  touchHowTo: [
+    "Run as far as you can — your score grows with distance, and every coin adds 10 points.",
+    "Swipe left or right anywhere on the screen to change lanes — a long swipe moves two. Cars block a lane completely: move before you reach them, and watch for oncoming traffic!",
+    "Swipe up to jump over red-and-white barriers, cones and fences. Swipe down to duck under the gates with a striped bar.",
+    "Follow the coin trails — they always lead to a safe lane.",
+    "Heart = shield (survives one crash), star = coin magnet, jewel = double score for 10 seconds.",
+    "Swipe down in mid-air to slam down fast and slide straight under a gate.",
+  ],
   features: ["3 lanes, endless city", "Kickflips & 360 spins", "Shield, magnet & 2× power-ups", "Downtown and suburb districts"],
   music: "City Rush",
 };

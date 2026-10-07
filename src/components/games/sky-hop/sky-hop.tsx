@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { ArrowDownToLine, ChevronLeft, ChevronRight, CircleHelp, Clock, Flag, Heart, Home, KeyRound, Lock, Pause, Play, RotateCcw, Snowflake, Star, Sun, Trophy } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
 import {
-  BackLink,
   BigButton,
   createRecords,
   createStore,
@@ -384,8 +383,7 @@ function TitleScreen({
 }) {
   return (
     <div className="absolute inset-0 flex flex-col overflow-y-auto">
-      <div className="flex items-center justify-between p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5 [@media(max-height:480px)]:py-2">
-        <BackLink game={GAME} />
+      <div className="flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5 [@media(max-height:480px)]:py-2">
         <SystemButtons onHelp={onHelp} />
       </div>
 

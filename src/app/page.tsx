@@ -13,6 +13,7 @@ import {
   CATEGORIES,
   CATEGORY_INFO,
   categoryShowcase,
+  categorySlug,
   clipGroups,
   countBy,
   featuredPacks,
@@ -240,7 +241,7 @@ export default function Home() {
           {categoryTiles.map((c, i) => (
             <Link
               key={c.category}
-              href={`/models/?category=${c.category}`}
+              href={`/models/category/${categorySlug(c.category)}/`}
               className={`group relative overflow-hidden rounded-2xl border border-line bg-surface transition hover:border-line-strong ${i === 0 ? "col-span-2" : ""}`}
             >
               <div className="relative h-36 overflow-hidden sm:h-52 bg-[radial-gradient(ellipse_at_50%_100%,#221d33_0%,#0d0d13_70%)]">

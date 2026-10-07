@@ -7,14 +7,14 @@ const COLUMNS = [
     title: "Catalog",
     links: [
       { href: "/models/", label: "All models" },
-      { href: "/models/?category=God%20of%20War", label: "God of War" },
-      { href: "/models/?category=Skeletons", label: "Skeletons" },
-      { href: "/models/?category=Bikes", label: "Bikes" },
-      { href: "/models/?category=Gaming", label: "Gaming" },
-      { href: "/models/?category=Characters", label: "Characters" },
-      { href: "/models/?category=Vehicles", label: "Vehicles" },
-      { href: "/models/?category=Buildings", label: "Buildings" },
-      { href: "/models/?category=Space", label: "Space" },
+      { href: "/models/category/god-of-war/", label: "God of War" },
+      { href: "/models/category/skeletons/", label: "Skeletons" },
+      { href: "/models/category/bikes/", label: "Bikes" },
+      { href: "/models/category/gaming/", label: "Gaming" },
+      { href: "/models/category/characters/", label: "Characters" },
+      { href: "/models/category/vehicles/", label: "Vehicles" },
+      { href: "/models/category/buildings/", label: "Buildings" },
+      { href: "/models/category/space/", label: "Space" },
     ],
   },
   {
@@ -23,6 +23,7 @@ const COLUMNS = [
       { href: "/packs/", label: "Download packs" },
       { href: "/animations/", label: "Animations" },
       { href: "/games/", label: "Games" },
+      { href: "/developers/", label: "For developers & AI" },
       { href: "/license/", label: "Licensing" },
       { href: "/license/#attribution", label: "How to credit" },
       { href: "/#faq", label: "FAQ" },
@@ -56,7 +57,7 @@ export function SiteFooter() {
       <div className="border-t border-line">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-6 text-xs leading-relaxed text-subtle sm:px-6 md:flex-row md:justify-between">
           <p>
-            © {new Date().getFullYear()} {SITE.name}. Models are free under the MIT, CC0, public-domain and CC BY licenses —{" "}
+            © {new Date().getFullYear()} {SITE.brand} — site and games by {SITE.author}. Models are free under the MIT, CC0, public-domain and CC BY licenses —{" "}
             <Link href="/license/" className="text-muted underline underline-offset-2 hover:text-fg">
               licensing
             </Link>

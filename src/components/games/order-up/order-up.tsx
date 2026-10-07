@@ -5,7 +5,6 @@ import { CircleHelp, Home, Lock, Pause, Play, RotateCcw, ShoppingBag, Star, Tras
 import { asset } from "@/lib/asset";
 import type { LoadProgress } from "../shared/assets";
 import {
-  BackLink,
   BigButton,
   createRecords,
   createStore,
@@ -427,8 +426,7 @@ function MenuScreen({
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
-      <div className="pointer-events-auto flex items-center justify-between p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <BackLink game={GAME} />
+      <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <SystemButtons onHelp={onHelp} />
       </div>
       <div className="px-4 pt-1 text-center sm:pt-3">

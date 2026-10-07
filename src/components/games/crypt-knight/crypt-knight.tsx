@@ -26,7 +26,6 @@ import {
 } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
 import {
-  BackLink,
   BigButton,
   createRecords,
   createStore,
@@ -329,8 +328,7 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
 function MenuScreen({ best, wins, bestTime, later, onPlay, onHelp, touch }: { best: number; wins: number; bestTime: number; later: number; onPlay: () => void; onHelp: () => void; touch: boolean }) {
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col bg-[linear-gradient(to_bottom,rgb(7_5_11/0.8),transparent_35%,transparent_58%,rgb(7_5_11/0.88))]">
-      <div className="pointer-events-auto flex items-center justify-between p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <BackLink game={GAME} />
+      <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <SystemButtons onHelp={onHelp} />
       </div>
 

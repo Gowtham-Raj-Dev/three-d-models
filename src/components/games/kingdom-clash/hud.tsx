@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRightToLine, ArrowUpCircle, Check, ChevronsRight, CircleHelp, Clock, Crown, Dices, Globe, Hammer, Home, LayoutGrid, Lock, Map as MapIcon, Moon, Music, PackageOpen, Pause, Play, Search, Settings, Shield, ShoppingCart, Sparkles, Star, Swords, Trophy, Users, Volume2, X, Zap } from "lucide-react";
+import { ArrowRightToLine, ArrowUpCircle, Check, ChevronsRight, CircleHelp, Clock, Crown, Dices, Globe, Hammer, Home, Info, LayoutGrid, Lock, Map as MapIcon, Moon, Music, PackageOpen, Pause, Play, Search, Settings, Shield, ShoppingCart, Sparkles, Star, Swords, Trophy, Users, Volume2, X, Zap } from "lucide-react";
 import { audio } from "../shared/audio";
+import { useNativeApp } from "../shared/native-app";
 import { BigButton, IconButton, SoftButton, SystemButtons, useAudioSettings, useMediaQuery, usePhoneLandscape } from "../shared/ui";
 import {
   ACHIEVEMENTS,
@@ -28,6 +29,7 @@ import {
 } from "./data";
 import type { BattleHud, BattleResult, HeroHud, Quality, SelectedInfo, Slot, VillageHud } from "./engine";
 import { ONLINE_LOOT, searchCost, stage as stageOf } from "./layouts";
+import { SITE } from "@/lib/site";
 import * as V from "./village";
 
 // --- Little pieces ---------------------------------------------------------------------------------------
@@ -1302,130 +1304,205 @@ export function SettingsPanel({
   onClose: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
+  const [tab, setTab] = useState<"settings" | "credits">("settings");
   const sound = useAudioSettings();
   return (
-    <Sheet title="Settings" onClose={onClose} wide={false}>
-      <div className="space-y-3 land:grid land:grid-cols-2 land:items-start land:gap-3 land:space-y-0">
-        <div className="space-y-3">
-          <div className="g-tint flex items-center justify-between gap-2 rounded-xl p-3">
-            <div className="min-w-0">
-              <p className="g-muted text-[11px] font-bold uppercase">Village</p>
-              <p className="g-display truncate text-xl">{save.name}</p>
-            </div>
-            <button type="button" onClick={onRename} className="g-soft px-3 py-2 text-sm font-bold">
-              <span className="g-unskew">Rename</span>
-            </button>
-          </div>
-          <div className="g-tint space-y-2 rounded-xl p-3">
-            <p className="g-muted text-[11px] font-bold uppercase">Sound</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                data-active={sound.music}
-                onClick={() => {
-                  audio.unlock();
-                  audio.toggleMusic();
-                }}
-                className={`g-soft px-3 py-2.5 text-sm font-bold ${sound.music ? "" : "opacity-60"}`}
-              >
-                <span className="g-unskew gap-1.5">
-                  <Music className="size-4" /> Music {sound.music ? "on" : "off"}
-                </span>
-              </button>
-              <button
-                type="button"
-                data-active={sound.sfx}
-                onClick={() => {
-                  audio.unlock();
-                  audio.toggleSfx();
-                }}
-                className={`g-soft px-3 py-2.5 text-sm font-bold ${sound.sfx ? "" : "opacity-60"}`}
-              >
-                <span className="g-unskew gap-1.5">
-                  <Volume2 className="size-4" /> Effects {sound.sfx ? "on" : "off"}
-                </span>
+    <Sheet
+      title={tab === "credits" ? "Credits" : "Settings"}
+      onClose={onClose}
+      wide={false}
+      tabs={
+        <>
+          <Tab active={tab === "settings"} onClick={() => setTab("settings")}>
+            <Settings className="size-4" /> Settings
+          </Tab>
+          <Tab active={tab === "credits"} onClick={() => setTab("credits")}>
+            <Info className="size-4" /> Credits
+          </Tab>
+        </>
+      }
+    >
+      {tab === "credits" ? (
+        <CreditsTab />
+      ) : (
+        <div className="space-y-3 land:grid land:grid-cols-2 land:items-start land:gap-3 land:space-y-0">
+          <div className="space-y-3">
+            <div className="g-tint flex items-center justify-between gap-2 rounded-xl p-3">
+              <div className="min-w-0">
+                <p className="g-muted text-[11px] font-bold uppercase">Village</p>
+                <p className="g-display truncate text-xl">{save.name}</p>
+              </div>
+              <button type="button" onClick={onRename} className="g-soft px-3 py-2 text-sm font-bold">
+                <span className="g-unskew">Rename</span>
               </button>
             </div>
-            <p className="g-muted pt-1 text-[11px] font-bold uppercase">Graphics</p>
-            <div className="grid grid-cols-3 gap-1.5">
-              {QUALITIES.map((q) => (
-                <button key={q.id} type="button" data-active={quality === q.id} onClick={() => onQuality(q.id)} className={`g-soft px-2 py-2 text-sm font-bold ${quality === q.id ? "" : "opacity-60"}`}>
-                  <span className="g-unskew flex-col gap-0 leading-tight">
-                    {q.label}
-                    <span className="text-[10px] font-semibold opacity-90">{q.hint}</span>
+            <div className="g-tint space-y-2 rounded-xl p-3">
+              <p className="g-muted text-[11px] font-bold uppercase">Sound</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  data-active={sound.music}
+                  onClick={() => {
+                    audio.unlock();
+                    audio.toggleMusic();
+                  }}
+                  className={`g-soft px-3 py-2.5 text-sm font-bold ${sound.music ? "" : "opacity-60"}`}
+                >
+                  <span className="g-unskew gap-1.5">
+                    <Music className="size-4" /> Music {sound.music ? "on" : "off"}
                   </span>
                 </button>
-              ))}
+                <button
+                  type="button"
+                  data-active={sound.sfx}
+                  onClick={() => {
+                    audio.unlock();
+                    audio.toggleSfx();
+                  }}
+                  className={`g-soft px-3 py-2.5 text-sm font-bold ${sound.sfx ? "" : "opacity-60"}`}
+                >
+                  <span className="g-unskew gap-1.5">
+                    <Volume2 className="size-4" /> Effects {sound.sfx ? "on" : "off"}
+                  </span>
+                </button>
+              </div>
+              <p className="g-muted pt-1 text-[11px] font-bold uppercase">Graphics</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {QUALITIES.map((q) => (
+                  <button key={q.id} type="button" data-active={quality === q.id} onClick={() => onQuality(q.id)} className={`g-soft px-2 py-2 text-sm font-bold ${quality === q.id ? "" : "opacity-60"}`}>
+                    <span className="g-unskew flex-col gap-0 leading-tight">
+                      {q.label}
+                      <span className="text-[10px] font-semibold opacity-90">{q.hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
+            <div className="g-tint grid grid-cols-3 gap-2 rounded-xl p-3 text-center text-xs font-bold">
+              <div>
+                <p className="g-display text-xl">{save.stats.raids}</p>raids
+              </div>
+              <div>
+                <p className="g-display text-xl">{save.stats.wins}</p>wins
+              </div>
+              <div>
+                <p className="g-display text-xl">
+                  {save.stats.held}/{save.stats.defences}
+                </p>
+                defences held
+              </div>
+            </div>
+            <button type="button" onClick={onHelp} className="g-soft flex w-full items-center justify-center px-3 py-2 text-sm font-bold">
+              <span className="g-unskew gap-1.5">
+                <CircleHelp className="size-4" /> How to play
+              </span>
+            </button>
           </div>
-          <div className="g-tint grid grid-cols-3 gap-2 rounded-xl p-3 text-center text-xs font-bold">
+          <div className="space-y-3">
             <div>
-              <p className="g-display text-xl">{save.stats.raids}</p>raids
-            </div>
-            <div>
-              <p className="g-display text-xl">{save.stats.wins}</p>wins
-            </div>
-            <div>
-              <p className="g-display text-xl">
-                {save.stats.held}/{save.stats.defences}
+              <p className="g-muted mb-1.5 text-[11px] font-bold uppercase">
+                Achievements {save.ach.length}/{ACHIEVEMENTS.length}
               </p>
-              defences held
+              <ul className="space-y-1">
+                {ACHIEVEMENTS.map((a) => {
+                  const done = save.ach.includes(a.id);
+                  return (
+                    <li key={a.id} className={`g-tint flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs ${done ? "" : "opacity-65"}`}>
+                      <span className={`grid size-5 shrink-0 place-items-center rounded-full ${done ? "bg-green-600 text-white" : "bg-[color-mix(in_srgb,currentColor_15%,transparent)]"}`}>{done && <Check className="size-3.5" />}</span>
+                      <span className="flex-1">
+                        <b>{a.name}</b> · {a.desc}
+                      </span>
+                      <span className="inline-flex items-center gap-1 font-bold">
+                        <ResIcon res="gems" size={11} />
+                        {a.gems}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
+            {confirm ? (
+              <div className="rounded-xl border-2 border-red-700 p-3 text-center">
+                <p className="text-sm font-bold text-red-800">Start over? Your village, army and campaign stars will be lost.</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <SoftButton onClick={() => setConfirm(false)}>Keep playing</SoftButton>
+                  <button type="button" onClick={onReset} className="rounded-[14px] border-[3px] border-red-900 bg-red-600 px-3 py-2 text-sm font-bold text-white">
+                    Reset village
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setConfirm(true)} className="w-full text-center text-xs font-bold text-red-700 underline">
+                Reset progress…
+              </button>
+            )}
           </div>
-          <button type="button" onClick={onHelp} className="g-soft flex w-full items-center justify-center px-3 py-2 text-sm font-bold">
-            <span className="g-unskew gap-1.5">
-              <CircleHelp className="size-4" /> How to play
-            </span>
-          </button>
-          <p className="g-muted text-center text-[11px] leading-snug">
-            Music: “Thatched Villagers”, “Master of the Feast”, “Clash Defiant” and “Five Armies” by Kevin MacLeod (incompetech.com), licensed under{" "}
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+const MUSIC = ["Thatched Villagers", "Master of the Feast", "Clash Defiant", "Five Armies"];
+
+/** The 3D model packs (manifest `collections`), all CC0, by their original makers. */
+const MODEL_MAKERS = [
+  { by: "Kenney", packs: "Fantasy Town, Castle, Tower Defense, Survival, Nature and Graveyard kits, Mini Dungeon and Mini Characters" },
+  { by: "KayKit", packs: "Adventurers character pack (the heroes)" },
+  { by: "Polygonal Mind", packs: "Crystal Crossroads" },
+];
+
+function CreditsTab() {
+  const app = useNativeApp();
+  const version = app ? navigator.userAgent.match(/KingdomClashApp\/([\d.]+)/)?.[1] : null;
+  const label = "g-muted mb-1 text-[11px] font-bold uppercase";
+  return (
+    <div className="space-y-3 text-sm leading-snug land:grid land:grid-cols-2 land:items-start land:gap-3 land:space-y-0">
+      <div className="space-y-3">
+        <div className="g-tint rounded-xl p-3 text-center">
+          <p className="g-display text-2xl">Kingdom Clash</p>
+          <p className="mt-1">
+            Created by <b>{SITE.author}</b>
+          </p>
+          <p>
+            Published by <b>{SITE.brand}</b>
+          </p>
+          {version && <p className="g-muted mt-1 text-xs">Android app · version {version}</p>}
+        </div>
+        <div className="g-tint rounded-xl p-3">
+          <p className={label}>Music</p>
+          <p>{MUSIC.map((t) => `“${t}”`).join(", ")}</p>
+          <p className="mt-1">
+            by <b>Kevin MacLeod</b> (incompetech.com), licensed under{" "}
             <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className="underline">
               CC BY 4.0
             </a>
             .
           </p>
         </div>
-        <div className="space-y-3">
-          <div>
-            <p className="g-muted mb-1.5 text-[11px] font-bold uppercase">
-              Achievements {save.ach.length}/{ACHIEVEMENTS.length}
-            </p>
-            <ul className="space-y-1">
-              {ACHIEVEMENTS.map((a) => {
-                const done = save.ach.includes(a.id);
-                return (
-                  <li key={a.id} className={`g-tint flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs ${done ? "" : "opacity-65"}`}>
-                    <span className={`grid size-5 shrink-0 place-items-center rounded-full ${done ? "bg-green-600 text-white" : "bg-[color-mix(in_srgb,currentColor_15%,transparent)]"}`}>{done && <Check className="size-3.5" />}</span>
-                    <span className="flex-1">
-                      <b>{a.name}</b> · {a.desc}
-                    </span>
-                    <span className="inline-flex items-center gap-1 font-bold">
-                      <ResIcon res="gems" size={11} />
-                      {a.gems}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-          {confirm ? (
-            <div className="rounded-xl border-2 border-red-700 p-3 text-center">
-              <p className="text-sm font-bold text-red-800">Start over? Your village, army and campaign stars will be lost.</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <SoftButton onClick={() => setConfirm(false)}>Keep playing</SoftButton>
-                <button type="button" onClick={onReset} className="rounded-[14px] border-[3px] border-red-900 bg-red-600 px-3 py-2 text-sm font-bold text-white">
-                  Reset village
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button type="button" onClick={() => setConfirm(true)} className="w-full text-center text-xs font-bold text-red-700 underline">
-              Reset progress…
-            </button>
-          )}
+        <div className="g-tint rounded-xl p-3">
+          <p className={label}>Sound effects</p>
+          <p>Made in code: every sound is generated live while you play.</p>
         </div>
       </div>
-    </Sheet>
+      <div className="space-y-3">
+        <div className="g-tint rounded-xl p-3">
+          <p className={label}>3D models</p>
+          <ul className="space-y-1.5">
+            {MODEL_MAKERS.map((m) => (
+              <li key={m.by}>
+                <b>{m.by}</b> · {m.packs}
+              </li>
+            ))}
+          </ul>
+          <p className="g-muted mt-2 text-xs">All CC0 (public domain), from the {SITE.brand} library.</p>
+        </div>
+        <div className="g-tint rounded-xl p-3">
+          <p className={label}>Made with</p>
+          <p>three.js, React and Next.js · fonts Lilita One and Signika (SIL Open Font License)</p>
+        </div>
+      </div>
+    </div>
   );
 }
 

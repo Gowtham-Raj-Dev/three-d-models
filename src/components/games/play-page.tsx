@@ -7,7 +7,7 @@ import { gameDisplayClass, gameFontVars } from "@/lib/game-fonts";
 import { modelSizes } from "@/lib/game-models";
 import type { GameEntry } from "@/lib/games";
 import { pageMetadata } from "@/lib/seo";
-import { absoluteUrl, SITE } from "@/lib/site";
+import { absoluteUrl, GAME_CREDIT, SITE } from "@/lib/site";
 
 /**
  * Server side of a game's full-screen player route (/games/<slug>/play/). Each game has its own
@@ -15,18 +15,24 @@ import { absoluteUrl, SITE } from "@/lib/site";
  */
 
 export function playMetadata(game: GameEntry): Metadata {
+  const credits = { authors: [{ name: SITE.author }], creator: SITE.author, publisher: SITE.brand };
   if (game.comingSoon) {
     return {
       ...pageMetadata({ title: `${game.title} — Coming Soon`, description: game.description, path: `/games/${game.slug}/play/` }),
+      ...credits,
       robots: { index: false, follow: true },
     };
   }
-  return pageMetadata({
-    title: `Play ${game.title} — Free 3D ${game.genre} Game`,
-    description: game.description,
-    path: `/games/${game.slug}/play/`,
-    image: { url: game.cover, alt: `${game.title} gameplay` },
-  });
+  return {
+    ...pageMetadata({
+      title: `Play ${game.title} — Free 3D ${game.genre} Game`,
+      description: `${game.description} ${GAME_CREDIT}.`,
+      path: `/games/${game.slug}/play/`,
+      image: { url: game.cover, alt: `${game.title} gameplay` },
+      keywords: [game.title, `play ${game.title.toLowerCase()}`, `${game.title.toLowerCase()} online`, `free ${game.genre.toLowerCase()} game`, "free browser game", SITE.brand],
+    }),
+    ...credits,
+  };
 }
 
 export function PlayPage({ game, Player }: { game: GameEntry; Player: ComponentType<{ sizes: Record<string, number> }> }) {
@@ -43,7 +49,9 @@ export function PlayPage({ game, Player }: { game: GameEntry; Player: ComponentT
           genre: game.genre,
           gamePlatform: "Web browser",
           isAccessibleForFree: true,
-          publisher: { "@type": "Organization", name: SITE.name, url: absoluteUrl("/") },
+          author: { "@type": "Person", name: SITE.author },
+          creator: { "@type": "Person", name: SITE.author },
+          publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
         }}
       />
       <h1 className="sr-only">{game.title}</h1>

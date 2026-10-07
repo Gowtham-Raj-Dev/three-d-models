@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type Po
 import { CircleHelp, Home, Lock, Play, Rocket, RotateCcw, Trophy } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
 import {
-  BackLink,
   BigButton,
   createRecords,
   createStore,
@@ -388,8 +387,7 @@ function MenuScreen({
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-[2] flex flex-col overflow-y-auto">
-      <div className="pointer-events-auto flex items-center justify-between p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <BackLink game={GAME} />
+      <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <SystemButtons onHelp={onHelp} />
       </div>
 

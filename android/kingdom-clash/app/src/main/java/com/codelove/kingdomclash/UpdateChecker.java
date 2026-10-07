@@ -37,7 +37,7 @@ final class UpdateChecker {
      * Where the site is published: Firebase App Hosting and the custom domain. Both are asked and the
      * highest version wins, so one that is down or out of date doesn't matter.
      */
-    private static final String[] ORIGINS = {"https://three-d-models--d-models-bfb95.asia-southeast1.hosted.app", "https://modals.codelove.in"};
+    private static final String[] ORIGINS = {"https://three-d-models--d-models-bfb95.asia-southeast1.hosted.app", "https://models.codelove.in"};
     private static final String INFO = "/downloads/kingdom-clash.json";
     private static final String APK = "/downloads/kingdom-clash.apk";
     private static final String APK_TYPE = "application/vnd.android.package-archive";

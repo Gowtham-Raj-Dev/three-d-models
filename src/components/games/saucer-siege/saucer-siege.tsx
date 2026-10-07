@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { ChevronRight, ChevronsUp, CircleHelp, Coins, Crosshair, FastForward, Heart, Home, Pause, Play, RotateCcw, Skull, Snowflake, Star, Swords, Trophy, X } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
 import {
-  BackLink,
   BigButton,
   createRecords,
   createStore,
@@ -326,8 +325,7 @@ function MenuScreen({
   const rec = maps[map.id];
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
-      <div className="pointer-events-auto flex items-center justify-between p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <BackLink game={GAME} />
+      <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <SystemButtons onHelp={onHelp} />
       </div>
 

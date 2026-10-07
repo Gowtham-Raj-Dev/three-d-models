@@ -132,9 +132,10 @@ export const GAME: GameEntry = {
   collections: ["Space Kit", "Space Station Kit", "Modular Space Kit", "Planets & Small Bodies", "Satellites & Probes", "Crystal Crossroads", "Avatar Garden", "Towers"],
   controls: [
     { action: "Fly", keys: ["W", "A", "S", "D", "Arrows"], touch: "Left stick" },
-    { action: "Fire (hold to charge a lock-on)", keys: ["Space", "J", "Click"], touch: "Fire button" },
-    { action: "Barrel roll", keys: ["Q", "E"], touch: "Roll button" },
-    { action: "Boost / brake", keys: ["Shift", "C"], touch: "Boost button" },
+    { action: "Fire (hold to charge a lock-on)", keys: ["Space", "J", "Click"], touch: "FIRE button (hold to charge)" },
+    { action: "Barrel roll", keys: ["Q", "E"], touch: "ROLL button" },
+    { action: "Boost", keys: ["Shift"], touch: "BOOST button (hold)" },
+    { action: "Brake", keys: ["C"] },
     { action: "Nova bomb", keys: ["B"], touch: "Bomb button" },
   ],
   howTo: [
@@ -142,6 +143,14 @@ export const GAME: GameEntry = {
     "Tap fire for lasers. Hold it to charge: sweep the reticle over up to 4 targets, then let go to fire homing shots.",
     "A barrel roll (Q / E) knocks enemy shots away for a moment — roll through a volley.",
     "Fly through golden rings to repair your shield. Nova bombs (B) clear the screen — save them for bosses.",
+    "Every stage ends with a boss: watch for the warning glow, then hit the glowing weak points.",
+    "Chain kills quickly for a combo multiplier, and destroy most of a stage for a gold medal.",
+  ],
+  touchHowTo: [
+    "Your ship flies forward on its own — drag on the left half of the screen to steer, dodge rocks and shoot everything in your way.",
+    "Tap FIRE for lasers. Hold it until its ring fills to charge, steer the ship's nose over up to 4 targets, then let go to fire homing shots.",
+    "Tap ROLL for a barrel roll — it knocks enemy shots away for a moment, so roll through a volley.",
+    "Fly through golden rings to repair your shield. The bomb button fires a nova bomb that clears the screen — save them for bosses.",
     "Every stage ends with a boss: watch for the warning glow, then hit the glowing weak points.",
     "Chain kills quickly for a combo multiplier, and destroy most of a stage for a gold medal.",
   ],

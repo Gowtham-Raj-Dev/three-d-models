@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Boxes, Music, Smartphone } from "lucide-react";
 import { GameCard } from "@/components/game-card";
@@ -7,13 +8,32 @@ import { androidApp } from "@/lib/game-apps";
 import { gameModels } from "@/lib/game-models";
 import { games } from "@/lib/games";
 import { pageMetadata } from "@/lib/seo";
+import { SITE } from "@/lib/site";
 
-export const metadata = pageMetadata({
-  title: "Free 3D Browser Games — Made Only from Our Free 3D Models",
-  description:
-    "Play free 3D games in your browser — an endless skate runner, tower defense, naval battles, a dungeon roguelite, a burger cooking rush and a hex puzzle — every one built only from the free 3D models in this library.",
-  path: "/games/",
-});
+export const metadata: Metadata = {
+  ...pageMetadata({
+    title: "Free 3D Browser Games — Made Only from Our Free 3D Models",
+    description:
+      "Play free 3D games in your browser — an endless skate runner, tower defense, naval battles, a dungeon roguelite, a burger cooking rush, a hex puzzle, kart racing and a village strategy game — every one built only from the free 3D models in this library. Created by Gowtham, published by models.codelove.in.",
+    path: "/games/",
+    keywords: [
+      "free browser games",
+      "free 3D games online",
+      "play games online no download",
+      "three.js games",
+      "HTML5 3D games",
+      "skate runner game",
+      "tower defense game",
+      "kart racing game",
+      "village strategy game",
+      "Gowtham games",
+      "models.codelove.in games",
+    ],
+  }),
+  authors: [{ name: SITE.author }],
+  creator: SITE.author,
+  publisher: SITE.brand,
+};
 
 export default function GamesPage() {
   const playable = games.filter((g) => !g.comingSoon);

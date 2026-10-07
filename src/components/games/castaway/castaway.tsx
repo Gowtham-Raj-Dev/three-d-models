@@ -5,7 +5,6 @@ import { Apple, BookOpen, Check, CircleHelp, Drumstick, Flame, Hand, Heart, Home
 import type { LoadProgress } from "../shared/assets";
 import { audio } from "../shared/audio";
 import {
-  BackLink,
   BigButton,
   createRecords,
   createStore,
@@ -426,8 +425,7 @@ function MenuScreen({
   const [showAch, setShowAch] = useState(false);
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col bg-[linear-gradient(to_bottom,rgb(11_37_49/0.7),transparent_32%,transparent_55%,rgb(20_12_6/0.85))]">
-      <div className="pointer-events-auto flex items-center justify-between p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <BackLink game={GAME} />
+      <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <SystemButtons onHelp={onHelp} />
       </div>
       <div className="px-4 pt-1 text-center sm:pt-2">

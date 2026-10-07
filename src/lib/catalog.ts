@@ -49,24 +49,97 @@ export const CATEGORIES: Category[] = [
   "Props",
 ];
 
-export const CATEGORY_INFO: Record<Category, { singular: string; blurb: string }> = {
-  Hair: { singular: "hairstyle", blurb: "Long, bob, bun and anime hairstyles by Sketchfab artists (credit the author)" },
-  "God of War": { singular: "God of War character / warrior", blurb: "Kratos, Spartan champions, archers and mythological deities" },
-  Skeletons: { singular: "skeleton", blurb: "Undead skeleton warriors, mages, rogues and dungeon armaments" },
-  Bikes: { singular: "bike", blurb: "Motorcycles, racing road bikes, choppers, and urban cycles" },
-  Gaming: { singular: "game asset", blurb: "Arcade machines, combat soldiers, battle arenas and RPG loot" },
-  Characters: { singular: "character", blurb: "Rigged people, professions and stylized characters" },
-  Animals: { singular: "animal", blurb: "Farm animals, pets, birds and creatures" },
-  Vehicles: { singular: "vehicle", blurb: "Cars, trucks, trains, boats and karts" },
-  Buildings: { singular: "building", blurb: "Houses, city blocks, castles and roads" },
-  Furniture: { singular: "furniture", blurb: "Home, kitchen, office and outdoor furniture" },
-  Food: { singular: "food", blurb: "Meals, fruit, drinks and restaurant props" },
-  Nature: { singular: "nature", blurb: "Plants, flowers, rocks and terrain" },
-  Trees: { singular: "tree", blurb: "Oaks, pines, palms, autumn and snowy trees" },
-  Space: { singular: "space", blurb: "Spacecraft, rovers, planets and space bases" },
-  Weapons: { singular: "weapon", blurb: "Swords, shields, bows, blasters and siege engines" },
-  Props: { singular: "prop", blurb: "Game kits, dungeons, tools and decorations" },
+export const CATEGORY_INFO: Record<Category, { singular: string; blurb: string; keywords: string[] }> = {
+  Hair: {
+    singular: "hairstyle",
+    blurb: "Long, bob, bun and anime hairstyles by Sketchfab artists (credit the author)",
+    keywords: ["3D hair model", "free hair 3D model", "anime hair 3D model", "hairstyle GLB", "3D hairstyles for avatars"],
+  },
+  "God of War": {
+    singular: "God of War character / warrior",
+    blurb: "Kratos, Spartan champions, archers and mythological deities",
+    keywords: ["Kratos 3D model", "God of War 3D model", "Spartan warrior 3D model", "Leviathan Axe 3D model", "Blades of Chaos 3D model", "Greek warrior 3D model"],
+  },
+  Skeletons: {
+    singular: "skeleton",
+    blurb: "Undead skeleton warriors, mages, rogues and dungeon armaments",
+    keywords: ["skeleton 3D model", "rigged skeleton warrior", "undead 3D model", "skeleton mage 3D model", "free skeleton GLB"],
+  },
+  Bikes: {
+    singular: "bike",
+    blurb: "Motorcycles, racing road bikes, choppers, and urban cycles",
+    keywords: ["motorcycle 3D model", "bike 3D model free", "chopper 3D model", "cyberpunk motorbike 3D model", "bicycle 3D model"],
+  },
+  Gaming: {
+    singular: "game asset",
+    blurb: "Arcade machines, combat soldiers, battle arenas and RPG loot",
+    keywords: ["game assets 3D", "arcade machine 3D model", "soldier 3D model", "battle arena 3D model", "free game assets GLB"],
+  },
+  Characters: {
+    singular: "character",
+    blurb: "Rigged people, professions and stylized characters",
+    keywords: ["free rigged 3D characters", "3D people models", "3D human model", "rigged character GLB", "3D avatar free", "animated 3D character"],
+  },
+  Animals: {
+    singular: "animal",
+    blurb: "Farm animals, pets, birds and creatures",
+    keywords: ["animal 3D models free", "rigged animal 3D model", "dog 3D model", "horse 3D model", "farm animals 3D", "low poly animals"],
+  },
+  Vehicles: {
+    singular: "vehicle",
+    blurb: "Cars, trucks, trains, boats and karts",
+    keywords: ["free car 3D models", "vehicle 3D models", "police car 3D model", "truck 3D model", "train 3D model", "low poly car GLB"],
+  },
+  Buildings: {
+    singular: "building",
+    blurb: "Houses, city blocks, castles and roads",
+    keywords: ["free building 3D models", "house 3D model", "city 3D model", "castle 3D model", "road tiles 3D", "low poly buildings"],
+  },
+  Furniture: {
+    singular: "furniture",
+    blurb: "Home, kitchen, office and outdoor furniture",
+    keywords: ["free furniture 3D models", "sofa 3D model", "chair 3D model", "bed 3D model", "kitchen 3D model", "interior 3D models"],
+  },
+  Food: {
+    singular: "food",
+    blurb: "Meals, fruit, drinks and restaurant props",
+    keywords: ["food 3D models free", "burger 3D model", "pizza 3D model", "fruit 3D model", "cake 3D model", "low poly food"],
+  },
+  Nature: {
+    singular: "nature",
+    blurb: "Plants, flowers, rocks and terrain",
+    keywords: ["nature 3D models free", "plant 3D model", "rock 3D model", "flower 3D model", "grass 3D model", "low poly nature"],
+  },
+  Trees: {
+    singular: "tree",
+    blurb: "Oaks, pines, palms, autumn and snowy trees",
+    keywords: ["free tree 3D models", "palm tree 3D model", "pine tree 3D model", "low poly tree", "tree GLB"],
+  },
+  Space: {
+    singular: "space",
+    blurb: "Spacecraft, rovers, planets and space bases",
+    keywords: ["space 3D models free", "NASA 3D models", "spacecraft 3D model", "satellite 3D model", "rocket 3D model", "planet 3D model"],
+  },
+  Weapons: {
+    singular: "weapon",
+    blurb: "Swords, shields, bows, blasters and siege engines",
+    keywords: ["weapon 3D models free", "sword 3D model", "gun 3D model", "shield 3D model", "bow 3D model", "low poly weapons"],
+  },
+  Props: {
+    singular: "prop",
+    blurb: "Game kits, dungeons, tools and decorations",
+    keywords: ["3D props free", "dungeon 3D models", "game kit 3D", "modular 3D kit", "low poly props", "treasure chest 3D model"],
+  },
 };
+
+/** URL segment of a category's landing page: "God of War" → "god-of-war". */
+export function categorySlug(category: Category): string {
+  return category.toLowerCase().replace(/\s+/g, "-");
+}
+
+export function categoryFromSlug(slug: string): Category | undefined {
+  return CATEGORIES.find((c) => categorySlug(c) === slug);
+}
 
 export interface SourceInfo {
   key: SourceKey;
@@ -253,7 +326,7 @@ const libraryModels: ModelEntry[] = library.models
       glbBytes: m.glbBytes,
       thumb: m.thumb,
       stats: { triangles: m.stats.triangles, vertices: m.stats.vertices, bones: null, materials: m.stats.materials, textures: m.stats.textures, size: m.stats.size },
-      og: `/og/category-${category.toLowerCase().replace(/\s+/g, "-")}.jpg`,
+      og: `/og/category-${categorySlug(category)}.jpg`,
       credit: m.credit ?? null,
     };
   });

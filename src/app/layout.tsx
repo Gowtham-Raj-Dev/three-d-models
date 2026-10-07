@@ -31,8 +31,9 @@ export const metadata: Metadata = {
   applicationName: SITE.name,
   keywords: SITE.keywords,
   category: "technology",
-  creator: SITE.name,
-  publisher: SITE.name,
+  authors: [{ name: SITE.author }],
+  creator: SITE.author,
+  publisher: SITE.brand,
   formatDetection: { telephone: false, email: false, address: false },
   appleWebApp: { title: SITE.name, statusBarStyle: "black-translucent" },
   robots: {
@@ -53,11 +54,13 @@ export const viewport: Viewport = {
 const websiteJsonLd = {
   "@context": "https://schema.org",
   "@type": "WebSite",
-  name: SITE.name,
+  name: SITE.brand,
+  alternateName: SITE.name,
   url: absoluteUrl("/"),
   description: SITE.description,
   inLanguage: "en",
-  publisher: { "@type": "Organization", name: SITE.name, url: absoluteUrl("/"), logo: absoluteUrl("/icons/icon-512.png") },
+  creator: { "@type": "Person", name: SITE.author },
+  publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/"), logo: absoluteUrl("/icons/icon-512.png") },
   potentialAction: {
     "@type": "SearchAction",
     target: { "@type": "EntryPoint", urlTemplate: `${absoluteUrl("/models/")}?q={search_term_string}` },

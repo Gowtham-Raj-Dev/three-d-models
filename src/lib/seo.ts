@@ -12,6 +12,7 @@ export function pageMetadata({
   description,
   path,
   image,
+  keywords,
   absoluteTitle = false,
 }: {
   title: string;
@@ -19,6 +20,7 @@ export function pageMetadata({
   /** Route path with trailing slash, e.g. "/models/". */
   path: string;
   image?: { url: string; alt: string };
+  keywords?: string[];
   /** Use the title as-is instead of the "%s | 3D Models" template. */
   absoluteTitle?: boolean;
 }): Metadata {
@@ -27,10 +29,11 @@ export function pageMetadata({
   return {
     title: absoluteTitle ? { absolute: title } : title,
     description,
+    ...(keywords ? { keywords: [...new Set(keywords.filter(Boolean))] } : {}),
     alternates: { canonical: path },
     openGraph: {
       type: "website",
-      siteName: SITE.name,
+      siteName: SITE.brand,
       locale: SITE.locale,
       url: path,
       title: fullTitle,

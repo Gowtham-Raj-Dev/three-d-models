@@ -79,13 +79,14 @@ export const GAME: GameEntry = {
   models: MODELS,
   collections: ["Character Pack Adventures", "Character Pack Skeletons", "Dungeon Remastered"],
   controls: [
-    { action: "Move", keys: ["W", "A", "S", "D"], touch: "Left stick" },
+    { action: "Move", keys: ["W", "A", "S", "D"], touch: "Left stick (thumb anywhere bottom-left)" },
     { action: "Attack (tap for combos)", keys: ["J", "Click"], touch: "Sword button" },
-    { action: "Block (hold)", keys: ["K", "Right-click"], touch: "Shield button" },
+    { action: "Block (hold)", keys: ["K", "Right-click"], touch: "Shield button (hold)" },
     { action: "Dodge roll", keys: ["Space", "Shift"], touch: "Roll button" },
     { action: "Spin attack (when charged)", keys: ["L", "E"], touch: "Spin button" },
     { action: "Drink potion", keys: ["Q"], touch: "Potion button" },
     { action: "Pick a power", keys: ["1", "2", "3"], touch: "Tap a card" },
+    { action: "Buy a potion between rooms", keys: ["B"], touch: "Buy potion button" },
   ],
   howTo: [
     "Clear every skeleton in a room to open the door to the next one. Ten rooms deep, the Bone King waits.",

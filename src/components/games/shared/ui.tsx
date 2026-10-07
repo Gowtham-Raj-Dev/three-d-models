@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore, type HTMLAttributes, type ReactNode } from "react";
-import { ArrowLeft, CircleHelp, Expand, Music, Music2, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ArrowLeft, CircleHelp, Expand, Info, Music, Music2, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
 import { asset } from "@/lib/asset";
-import { GAME_SHORTCUTS, type GameEntry } from "@/lib/games";
+import { GAME_BUTTONS, GAME_SHORTCUTS, howToFor, type GameEntry } from "@/lib/games";
+import { SITE } from "@/lib/site";
 import { themeVars } from "../themes";
 import type { LoadProgress } from "./assets";
 import { audio } from "./audio";
@@ -100,6 +102,16 @@ export function useMediaQuery(query: string) {
 /** True on a phone in landscape (and always in the Android app): HUDs switch to their landscape layout. */
 export const usePhoneLandscape = () => useMediaQuery(PHONE_LANDSCAPE);
 
+/** Set by GameRoot once a finger touches the game (touch-screen laptops report a mouse pointer). */
+const touchUsed = createStore(false);
+
+/** True on touch screens — phones, tablets, the Android app, or after a touch — which get touch instructions. */
+export function useTouchScreen() {
+  const coarse = useMediaQuery("(pointer: coarse)");
+  const app = useNativeApp();
+  return useStore(touchUsed) || coarse || app;
+}
+
 export function useAudioSettings() {
   return useSyncExternalStore(audio.subscribe, audio.getSettings, audio.serverSettings);
 }
@@ -153,11 +165,16 @@ export function GameRoot({
   // Browsers only start audio after a gesture: the first tap or key press anywhere unlocks it.
   useEffect(() => {
     const unlock = () => audio.unlock();
+    const touched = (e: PointerEvent) => {
+      if (e.pointerType === "touch" && !touchUsed.get()) touchUsed.set(true);
+    };
     window.addEventListener("pointerdown", unlock, { once: true });
     window.addEventListener("keydown", unlock, { once: true });
+    window.addEventListener("pointerdown", touched);
     return () => {
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
+      window.removeEventListener("pointerdown", touched);
     };
   }, []);
   return (
@@ -308,12 +325,64 @@ export function SystemButtons({ onHelp, children, vertical = false, small = fals
           <CircleHelp className={icon} />
         </IconButton>
       )}
+      {onHelp && <CreditsButton small={small} iconClass={icon} />}
       {!app && (
         <IconButton label="Fullscreen (F)" onClick={toggleFullscreen} className="hidden sm:grid" small={small}>
           <Expand className={icon} />
         </IconButton>
       )}
     </div>
+  );
+}
+
+// --- Credits ----------------------------------------------------------------------------------------
+
+/** Who made the game: opened from the Credits button beside "How to play" (and Kingdom Clash's settings). */
+export function CreditsSheet({ onClose }: { onClose: () => void }) {
+  // Drawn into the game frame so it sits above every HUD layer and keeps the game's theme.
+  const root = document.querySelector<HTMLElement>(".g-root");
+  if (!root) return null;
+  return createPortal(
+    <div
+      className="absolute inset-0 z-50 overflow-y-auto bg-black/55 backdrop-blur-sm"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div className="grid min-h-full place-items-center p-4">
+        <div role="dialog" aria-label="Credits" className="g-panel relative w-full max-w-xs p-5 text-center" onClick={(e) => e.stopPropagation()}>
+          <h2 className="g-panel-title text-2xl sm:text-3xl">Credits</h2>
+          <dl className="mt-4 space-y-3">
+            <div>
+              <dt className="g-display g-muted text-xs">Created by</dt>
+              <dd className="g-display mt-0.5 text-xl">{SITE.author}</dd>
+            </div>
+            <div>
+              <dt className="g-display g-muted text-xs">Published by</dt>
+              <dd className="g-display mt-0.5 text-xl">{SITE.brand}</dd>
+            </div>
+          </dl>
+          <div className="mt-5">
+            <BigButton onClick={onClose}>Close</BigButton>
+          </div>
+        </div>
+      </div>
+    </div>,
+    root,
+  );
+}
+
+function CreditsButton({ small, iconClass }: { small: boolean; iconClass: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <IconButton label="Credits" onClick={() => setOpen(true)} small={small}>
+        <Info className={iconClass} />
+      </IconButton>
+      {open && <CreditsSheet onClose={() => setOpen(false)} />}
+    </>
   );
 }
 
@@ -333,7 +402,6 @@ function ControlsList({ game }: { game: GameEntry }) {
             {c.keys.map((k) => (
               <Kbd key={k}>{k}</Kbd>
             ))}
-            {c.touch && <span className="g-muted ml-1 text-xs">· {c.touch}</span>}
           </span>
         </li>
       ))}
@@ -341,7 +409,45 @@ function ControlsList({ game }: { game: GameEntry }) {
   );
 }
 
+/** Touch screens: each action's tap / swipe / button, and the on-screen buttons instead of keyboard shortcuts. */
+function TouchControlsList({ game }: { game: GameEntry }) {
+  return (
+    <ul className="space-y-2">
+      {game.controls
+        .filter((c) => c.touch)
+        .map((c) => (
+          <li key={c.action} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+            <span className="font-semibold">{c.action}</span>
+            <span className="g-tint rounded-full px-2.5 py-1 text-right text-xs font-bold">{c.touch}</span>
+          </li>
+        ))}
+    </ul>
+  );
+}
+
+function ButtonsList() {
+  const app = useNativeApp();
+  const [canFullscreen] = useState(() => typeof document !== "undefined" && document.fullscreenEnabled);
+  return (
+    <>
+      <p className="g-muted -mt-1 mb-3 text-xs">In the top corner of the screen, or in the pause or settings menu.</p>
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {GAME_BUTTONS.filter((b) => !b.fullscreen || (canFullscreen && !app)).map(({ action, icon: Icon, fullscreen }) => (
+          // The fullscreen button only shows on wider screens (see SystemButtons).
+          <li key={action} className={`g-tint items-center gap-2.5 rounded-[var(--g-hud-radius)] px-3 py-2 text-xs ${fullscreen ? "hidden sm:flex" : "flex"}`}>
+            <span className="g-hud grid size-7 shrink-0 place-items-center">
+              <Icon className="size-4" />
+            </span>
+            {action}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 export function HowToPlay({ game, onClose }: { game: GameEntry; onClose: () => void }) {
+  const touch = useTouchScreen();
   return (
     <div className="absolute inset-0 z-20 overflow-y-auto bg-black/55 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
       <div className="grid min-h-full place-items-center p-4">
@@ -357,28 +463,32 @@ export function HowToPlay({ game, onClose }: { game: GameEntry; onClose: () => v
           <p className="g-display text-xs text-[var(--accent)]">{game.genre}</p>
           <h2 className="g-panel-title mt-1 pr-10 text-2xl sm:text-3xl">How to play {game.title}</h2>
           <ul className="mt-4 space-y-2">
-            {game.howTo.map((line) => (
+            {howToFor(game, touch).map((line) => (
               <li key={line} className="flex gap-2.5 text-sm leading-relaxed">
                 <span className="mt-2 size-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
                 {line}
               </li>
             ))}
           </ul>
-          <h3 className="g-display g-muted mt-6 mb-3 text-xs">Controls</h3>
-          <ControlsList game={game} />
-          <h3 className="g-display g-muted mt-6 mb-3 text-xs">Shortcuts</h3>
-          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {GAME_SHORTCUTS.map((s) => (
-              <li key={s.action} className="g-tint flex items-center justify-between gap-2 rounded-[var(--g-hud-radius)] px-3 py-2 text-xs">
-                {s.action}
-                <span className="flex gap-1">
-                  {s.keys.map((k) => (
-                    <Kbd key={k}>{k}</Kbd>
-                  ))}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <h3 className="g-display g-muted mt-6 mb-3 text-xs">{touch ? "Touch controls" : "Controls"}</h3>
+          {touch ? <TouchControlsList game={game} /> : <ControlsList game={game} />}
+          <h3 className="g-display g-muted mt-6 mb-3 text-xs">{touch ? "Buttons" : "Shortcuts"}</h3>
+          {touch ? (
+            <ButtonsList />
+          ) : (
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {GAME_SHORTCUTS.map((s) => (
+                <li key={s.action} className="g-tint flex items-center justify-between gap-2 rounded-[var(--g-hud-radius)] px-3 py-2 text-xs">
+                  {s.action}
+                  <span className="flex gap-1">
+                    {s.keys.map((k) => (
+                      <Kbd key={k}>{k}</Kbd>
+                    ))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="mt-6">
             <BigButton onClick={onClose}>Got it</BigButton>
           </div>

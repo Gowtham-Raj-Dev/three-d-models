@@ -23,7 +23,7 @@ import {
   Star,
   Timer,
 } from "lucide-react";
-import { BackLink, BigButton, GameTitle, IconButton, SoftButton, SystemButtons, useStore, type Store } from "../shared/ui";
+import { BigButton, GameTitle, IconButton, SoftButton, SystemButtons, useStore, type Store } from "../shared/ui";
 import type { Hud, NightHeistGame, Result } from "./engine";
 import { LEVELS, LOOT_VALUE, parseLevel, TARGET_VALUE } from "./levels";
 import { GAME } from "./manifest";
@@ -190,8 +190,7 @@ export function CaseFiles({ records, onPick, onHelp }: { records: Records; onPic
   return (
     <div className="absolute inset-0 overflow-y-auto bg-[linear-gradient(180deg,#05070dcc,#05070d99_40%,#05070de6)]">
       <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 pt-[max(env(safe-area-inset-top),12px)] pb-8 sm:px-6">
-        <div className="flex items-center justify-between gap-3 py-2">
-          <BackLink game={GAME} />
+        <div className="flex items-center justify-end gap-3 py-2">
           <SystemButtons onHelp={onHelp} />
         </div>
         <div className="mt-2 text-center">

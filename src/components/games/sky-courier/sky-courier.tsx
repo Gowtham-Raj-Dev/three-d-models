@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { ChevronLeft, ChevronRight, CircleHelp, Coins, Home, Lock, Map as MapIcon, Medal, Package, Pause, Play, RotateCcw, Timer, Wrench, Zap } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
 import {
-  BackLink,
   BigButton,
   createRecords,
   createStore,
@@ -350,7 +349,6 @@ function TopBar({ onHelp, children }: { onHelp?: () => void; children?: ReactNod
   return (
     <div className="pointer-events-auto flex items-center justify-between gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
       <div className="flex items-center gap-2">
-        <BackLink game={GAME} />
         {children}
       </div>
       <SystemButtons onHelp={onHelp} />

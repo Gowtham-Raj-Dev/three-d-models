@@ -13,6 +13,8 @@ import { asset } from "@/lib/asset";
 import {
   animationsFor,
   catalog,
+  CATEGORY_INFO,
+  categorySlug,
   completePack,
   describeModel,
   formatBytes,
@@ -34,7 +36,25 @@ export function generateStaticParams() {
 }
 
 function seoTitle(m: ModelEntry) {
-  return `${m.title} — Free ${m.rigged ? "Rigged " : ""}3D Model (GLB)`;
+  return `${m.title} 3D Model — Free ${m.rigged ? "Rigged " : ""}GLB Download`;
+}
+
+function seoKeywords(m: ModelEntry): string[] {
+  const name = m.title.toLowerCase();
+  const singular = CATEGORY_INFO[m.category].singular;
+  return [
+    `${name} 3D model`,
+    `${name} 3D model free`,
+    `${name} GLB`,
+    `${name} glTF`,
+    m.rigged ? `rigged ${name}` : "",
+    m.credit ? `${name} by ${m.credit.author}` : "",
+    `free ${singular} 3D model`,
+    `${m.collection} 3D models`,
+    m.role ?? m.species ?? "",
+    ...CATEGORY_INFO[m.category].keywords.slice(0, 2),
+    "free 3D model download",
+  ];
 }
 
 export async function generateMetadata({ params }: PageProps<"/models/[slug]">): Promise<Metadata> {
@@ -47,8 +67,8 @@ export async function generateMetadata({ params }: PageProps<"/models/[slug]">):
       description: `${describeModel(model)} Free download for personal and commercial use.`,
       path: `/models/${model.slug}/`,
       image: { url: model.og, alt: `${model.title} — free 3D model` },
+      keywords: seoKeywords(model),
     }),
-    keywords: [model.title, model.collection, model.category, model.role ?? model.species ?? "", "free 3D model", model.rigged ? "rigged" : "", "GLB", "glTF"].filter(Boolean),
   };
 }
 
@@ -72,8 +92,8 @@ function structuredData(model: ModelEntry) {
       isAccessibleForFree: true,
       license: src.licenseUrl,
       ...(model.credit ? { creator: { "@type": "Person", name: model.credit.author, url: model.credit.authorUrl }, isBasedOn: model.credit.url } : {}),
-      isPartOf: { "@type": "CreativeWork", name: model.collection },
-      publisher: { "@type": "Organization", name: SITE.name, url: absoluteUrl("/") },
+      isPartOf: { "@type": "CollectionPage", name: model.collection, url: absoluteUrl(`/models/collection/${model.collectionKey}/`) },
+      publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
       keywords: [model.category, model.collection, model.rigged ? "rigged" : "", "GLB", "glTF"].filter(Boolean).join(", "),
     },
     {
@@ -82,8 +102,9 @@ function structuredData(model: ModelEntry) {
       itemListElement: [
         { "@type": "ListItem", position: 1, name: "Home", item: absoluteUrl("/") },
         { "@type": "ListItem", position: 2, name: "Models", item: absoluteUrl("/models/") },
-        { "@type": "ListItem", position: 3, name: model.category, item: absoluteUrl(`/models/?category=${model.category}`) },
-        { "@type": "ListItem", position: 4, name: model.title, item: url },
+        { "@type": "ListItem", position: 3, name: model.category, item: absoluteUrl(`/models/category/${categorySlug(model.category)}/`) },
+        { "@type": "ListItem", position: 4, name: model.collection, item: absoluteUrl(`/models/collection/${model.collectionKey}/`) },
+        { "@type": "ListItem", position: 5, name: model.title, item: url },
       ],
     },
   ];
@@ -167,8 +188,12 @@ export default async function ModelPage({ params }: PageProps<"/models/[slug]">)
           Models
         </Link>
         <span>/</span>
-        <Link href={`/models/?category=${model.category}`} className="hover:text-fg">
+        <Link href={`/models/category/${categorySlug(model.category)}/`} className="hover:text-fg">
           {model.category}
+        </Link>
+        <span className="hidden sm:inline">/</span>
+        <Link href={`/models/collection/${model.collectionKey}/`} className="hidden truncate hover:text-fg sm:inline">
+          {model.collection}
         </Link>
         <span>/</span>
         <span className="truncate text-muted">{model.title}</span>
@@ -345,7 +370,7 @@ export default async function ModelPage({ params }: PageProps<"/models/[slug]">)
         <section className="mt-20 sm:mt-24">
           <div className="mb-6 flex items-end justify-between">
             <h2 className="text-2xl font-semibold tracking-tight">More like this</h2>
-            <Link href={`/models/?collection=${encodeURIComponent(collection.name)}`} className={button.ghost}>
+            <Link href={`/models/collection/${collection.key}/`} className={button.ghost}>
               View collection <ArrowRight className="size-4" />
             </Link>
           </div>

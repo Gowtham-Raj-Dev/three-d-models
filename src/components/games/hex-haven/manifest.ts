@@ -43,6 +43,14 @@ export const GAME: GameEntry = {
     "Tiles with a flag carry a quest such as \"Forest of 8\": grow that connected area to the size shown to win more tiles and points.",
     "The game ends when your stack runs out, so chase perfect fits and quests to keep building.",
   ],
+  touchHowTo: [
+    "Tap a glowing spot next to your island to try the tile in your hand there, then tap the same spot again (or tap Place) to put it down. The next three tiles wait beside it in the tray.",
+    "Turn it with the rotate buttons on either side of the tile so its sides match the neighbours: every matching side scores 10 points. Green marks match, white marks don't, red marks block.",
+    "Rivers must flow into rivers or lakes, and roads must meet roads (or open space). Sand next to a lake counts as a beach match.",
+    "Perfect fit: touch 3 or more tiles and match every side for a bonus tile (match all 6 for two).",
+    "Tiles with a flag carry a quest such as \"Forest of 8\": grow that connected area to the size shown to win more tiles and points.",
+    "The game ends when your stack runs out, so chase perfect fits and quests to keep building. Drag to look around, pinch to zoom.",
+  ],
   features: ["Relaxing, no timer", "Perfect fits earn extra tiles", "Forest, village, lake, river & road quests", "Animated windmills, boats and swaying trees"],
   music: "Hex Haven",
 };

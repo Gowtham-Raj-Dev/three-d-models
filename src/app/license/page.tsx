@@ -176,7 +176,7 @@ export default function LicensePage() {
               {collections.map((c) => (
                 <tr key={c.key} className="hover:bg-white/[0.02]">
                   <td className="px-4 py-2.5">
-                    <Link href={`/models/?collection=${encodeURIComponent(c.name)}`} className="text-fg hover:text-accent">
+                    <Link href={`/models/collection/${c.key}/`} className="text-fg hover:text-accent">
                       {c.name}
                     </Link>
                   </td>

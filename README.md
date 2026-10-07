@@ -1,4 +1,4 @@
-# 3D Models — modals.codelove.in
+# 3D Models — models.codelove.in
 
 A free 3D model library: thousands of models — rigged characters (with 20 animation clips), animals, vehicles,
 buildings, furniture, food, nature, trees and space — from five permissively licensed sources. Browse, preview in real-time
@@ -165,7 +165,7 @@ Brand name, domain, description and keywords live in **`src/lib/site.ts`**.
 
 | Env var | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Production origin (default `https://modals.codelove.in`) — used for canonical URLs, sitemap, Open Graph, JSON-LD |
+| `NEXT_PUBLIC_SITE_URL` | Production origin (default `https://models.codelove.in`) — used for canonical URLs, sitemap, Open Graph, JSON-LD |
 | `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | Optional Google Search Console verification code |
 | `NEXT_PUBLIC_BASE_PATH` | Only when hosting under a sub-path (not needed for the subdomain) |
 | `NEXT_PUBLIC_GEMINI_API_KEY` | Default key for the builder's AI scenes. Keep it in `.env.development.local` (loaded by `npm run dev` only). Setting it for `next build` puts it in the public JavaScript, where anyone can copy it and use your quota — on the live site visitors can use their own key instead |
@@ -173,12 +173,14 @@ Brand name, domain, description and keywords live in **`src/lib/site.ts`**.
 ## SEO
 
 - Per-page titles, descriptions, keywords and canonical URLs (`src/lib/seo.ts`)
+- Landing pages per category (`/models/category/<slug>/`) and per collection (`/models/collection/<key>/`) — crawlable links to every model, with search keywords in `CATEGORY_INFO` (`src/lib/catalog.ts`)
+- Game credits: "Created by Gowtham · Published by Models.codelove.in" (`GAME_CREDIT` in `src/lib/site.ts`) on every game's title, loading and how-to-play screens, its page, and its metadata / `VideoGame` JSON-LD
 - Open Graph + Twitter cards with a 1200×630 share image per model (`public/og/`, rendered by `npm run models:og`)
 - `sitemap.xml` (all pages + model images), `robots.txt`, `manifest.webmanifest`
 - Structured data (JSON-LD): `WebSite` + search action, `FAQPage`, `CollectionPage`/`ItemList`, `3DModel`, `BreadcrumbList`
 - Favicon set from `src/app/icon.svg`: SVG icon, `favicon.ico`, Apple touch icon, PWA icons (`npm run icons`)
 
-After going live, add the site in Google Search Console and submit `https://modals.codelove.in/sitemap.xml`.
+Google Search Console: the site is verified with `public/googlefa1d1cdbc2c7df2a.html` (keep that file). Submit `https://models.codelove.in/sitemap.xml` under Sitemaps.
 
 ## Getting started
 
@@ -229,7 +231,7 @@ The pipeline (`scripts/build-models.mjs`):
 `vendor/` and `.cache/` are git-ignored; you can delete them after building. Download links and steps to get them
 back: [VENDOR.md](VENDOR.md).
 
-## Deploying to modals.codelove.in
+## Deploying to models.codelove.in
 
 Locally, `next build` produces a fully static site in `out/` (for `npm start` and the Android app build); Firebase App
 Hosting builds the same code as a Next.js server. Size check (full library):
@@ -247,7 +249,7 @@ the GitHub repo, so every push to `main` builds and rolls out the site (~10–15
   `.next/standalone/.next/routes-manifest.json` not found).
 - `apphosting.yaml` scales to zero when idle and caps the backend at 4 instances (1 GiB each).
 - The project is on the Blaze plan (pay as you go, after the monthly no-cost amounts).
-- Custom domain: App Hosting → `three-d-models` → Settings → Domains → add `modals.codelove.in`, then add the records
+- Custom domain: App Hosting → `three-d-models` → Settings → Domains → add `models.codelove.in`, then add the records
   Firebase shows at the DNS provider for `codelove.in` (replacing the Vercel CNAME).
 - Analytics: `src/components/firebase-analytics.tsx` starts Google Analytics for Firebase on the published site only
   (not in `next dev`, on localhost, or in the Android app). The web config is in `src/lib/firebase.ts` — those values
@@ -260,8 +262,8 @@ the GitHub repo, so every push to `main` builds and rolls out the site (~10–15
    organization).
 2. In Vercel: Add New → Project → import the repo (framework preset: Next.js, defaults are fine). Every push to `main`
    deploys production; every other branch / pull request gets a preview URL.
-3. Project → Settings → Domains → add `modals.codelove.in`.
-4. At your DNS provider for `codelove.in`, add a **CNAME** record: name `modals`, value = the target Vercel shows
+3. Project → Settings → Domains → add `models.codelove.in`.
+4. At your DNS provider for `codelove.in`, add a **CNAME** record: name `models`, value = the target Vercel shows
    (usually `cname.vercel-dns.com`).
 
 Don't add `NEXT_PUBLIC_GEMINI_API_KEY` to Vercel's environment variables (it would be public — see Configuration).
@@ -291,5 +293,6 @@ src/components/viewer/   three.js / React Three Fiber viewer
 The 3D models, textures and animations are from the Microsoft Rocketbox Avatar Library, **Copyright (c) 2020
 Microsoft**, released under the **MIT License** — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This site is
 independent and is not affiliated with or endorsed by Microsoft.
-#   t h r e e - d - m o d e l s  
+#   t h r e e - d - m o d e l s 
+ 
  

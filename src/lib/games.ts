@@ -1,3 +1,4 @@
+import { CircleHelp, Expand, Music, Pause, Volume2, type LucideIcon } from "lucide-react";
 import { GAME as skyHop } from "@/components/games/sky-hop/manifest";
 import { GAME as turboKarts } from "@/components/games/turbo-karts/manifest";
 import { GAME as siegeSmash } from "@/components/games/siege-smash/manifest";
@@ -24,6 +25,7 @@ import { GAME as skateRush } from "@/components/games/skate-rush/manifest";
 export interface GameControl {
   action: string;
   keys: string[];
+  /** The same action on a touch screen. Leave it out when there is none: phones then skip the row. */
   touch?: string;
 }
 
@@ -44,6 +46,8 @@ export interface GameEntry {
   controls: GameControl[];
   /** Goal and tips, shown in "How to play" and on the games page. */
   howTo: string[];
+  /** The same tips for touch screens (phones, tablets, the Android app) — set it when a tip names keys or the mouse. */
+  touchHowTo?: string[];
   /** Short highlights for the games page. */
   features: string[];
   /** Name of the game's soundtrack. */
@@ -60,6 +64,18 @@ export const GAME_SHORTCUTS: { action: string; keys: string[] }[] = [
   { action: "How to play", keys: ["H"] },
   { action: "Fullscreen", keys: ["F"] },
 ];
+
+/** The on-screen buttons every game has: touch screens are shown these instead of the shortcuts. */
+export const GAME_BUTTONS: { action: string; icon: LucideIcon; fullscreen?: boolean }[] = [
+  { action: "Pause / resume", icon: Pause },
+  { action: "Music on / off", icon: Music },
+  { action: "Sound effects on / off", icon: Volume2 },
+  { action: "How to play", icon: CircleHelp },
+  { action: "Fullscreen", icon: Expand, fullscreen: true },
+];
+
+/** Tips for the player's device: the touch ones on touch screens, when the game has them. */
+export const howToFor = (game: GameEntry, touch: boolean) => (touch && game.touchHowTo) || game.howTo;
 
 export const games: GameEntry[] = [
   skateRush,

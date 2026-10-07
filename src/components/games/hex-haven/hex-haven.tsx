@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
 import {
-  BackLink,
   BigButton,
   createRecords,
   createStore,
@@ -341,8 +340,7 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
 function MenuScreen({ best, games, onPlay, onHelp }: { best: number; games: number; onPlay: () => void; onHelp: () => void }) {
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
-      <div className="pointer-events-auto flex items-center justify-between p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <BackLink game={GAME} />
+      <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <SystemButtons onHelp={onHelp} />
       </div>
 

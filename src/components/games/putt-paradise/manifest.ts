@@ -83,9 +83,9 @@ export const GAME: GameEntry = {
   collections: ["Minigolf Kit", "Nature Kit"],
   controls: [
     { action: "Aim and set power", keys: ["Drag back", "A", "D", "W", "S"], touch: "Drag back from the ball" },
-    { action: "Putt", keys: ["Release", "Space"], touch: "Release" },
-    { action: "Orbit / zoom camera", keys: ["Q", "E", "Drag", "Wheel"], touch: "Drag / two-finger pinch" },
-    { action: "Overview of the hole", keys: ["Tab"], touch: "Map button" },
+    { action: "Putt", keys: ["Release", "Space"], touch: "Let go" },
+    { action: "Orbit / zoom camera", keys: ["Q", "E", "Drag", "Wheel"], touch: "Drag away from the ball · pinch · twist" },
+    { action: "Overview of the hole", keys: ["Tab"], touch: "Map button (flag to go back)" },
     { action: "Replay the hole", keys: ["R"], touch: "Pause → Replay" },
   ],
   howTo: [
@@ -94,6 +94,14 @@ export const GAME: GameEntry = {
     "Bank shots off the walls to get round corners.",
     "Ramps and the loop need speed; bumps and hills nudge the ball.",
     "Off the course or into the lagoon costs a stroke and puts the ball back. After 10 strokes the hole ends.",
+  ],
+  touchHowTo: [
+    "Get the ball in the cup in as few strokes as you can. Each hole shows its par.",
+    "Put your finger on the ball and drag back like a slingshot: the dotted line shows the direction, its length and colour the power. Let go to putt — a very short pull cancels.",
+    "Bank shots off the walls to get round corners.",
+    "Ramps and the loop need speed; bumps and hills nudge the ball.",
+    "Off the course or into the lagoon costs a stroke and puts the ball back. After 10 strokes the hole ends.",
+    "Drag anywhere away from the ball to look around. With two fingers, pinch to zoom and twist to turn. The map button shows the whole hole.",
   ],
   features: ["Real rolling physics", "9 handcrafted island holes", "Windmill, castle, sky jump & loop", "Best round & holes-in-one saved"],
   music: "Fairway Breeze",

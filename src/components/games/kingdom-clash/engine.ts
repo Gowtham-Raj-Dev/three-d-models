@@ -503,6 +503,8 @@ export class KingdomEngine {
   private readonly keys = new Set<string>();
   private viewW = 1;
   private viewH = 1;
+  /** A new view size or pixel ratio waits for the next frame: see resize(). */
+  private resizePending = false;
   private shake = 0;
 
   // Input
@@ -544,7 +546,7 @@ export class KingdomEngine {
     this.overlay = new Overlay(overlayEl, this.camera);
     this.save = V.sanitize(store.get()) ?? V.newVillage();
     this.setupScene(coarse);
-    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver = new ResizeObserver(() => (this.resizePending = true));
     this.resizeObserver.observe(canvas.parentElement ?? canvas);
     this.resize();
     this.timer.connect(document);
@@ -3123,12 +3125,20 @@ export class KingdomEngine {
     this.dist = clamp(this.dist * f, 9, this.fitDist() * 1.25);
   }
 
+  /**
+   * Resizing the canvas clears it, so frame() calls this right before drawing — never after a frame
+   * is drawn, or the phone shows that cleared frame as a black flash.
+   */
   private resize() {
+    this.resizePending = false;
     const el = this.canvas.parentElement ?? this.canvas;
     const w = Math.max(1, el.clientWidth);
     const h = Math.max(1, el.clientHeight);
+    const ratio = this.perf.ratio;
+    if (w === this.viewW && h === this.viewH && ratio === this.renderer.getPixelRatio()) return;
     this.viewW = w;
     this.viewH = h;
+    if (ratio !== this.renderer.getPixelRatio()) this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -3407,8 +3417,9 @@ export class KingdomEngine {
       this.shadowTick ^= 1;
       sm.needsUpdate = this.shadowTick === 0;
     } else sm.autoUpdate = true;
-    this.renderer.render(this.scene, this.camera);
     this.adaptResolution(dt);
+    if (this.resizePending) this.resize();
+    this.renderer.render(this.scene, this.camera);
   };
 
   /** Graphics setting: "smooth" favours frame rate, "hd" renders at the screen's full sharpness. */
@@ -3451,8 +3462,8 @@ export class KingdomEngine {
       sh.map?.dispose();
       sh.map = null;
     }
-    this.renderer.setPixelRatio(p.ratio);
-    if (this.viewW > 1) this.resize();
+    // The new sharpness is applied by the next frame, just before it draws.
+    this.resizePending = true;
   }
 
   private adaptResolution(dt: number) {
@@ -3481,8 +3492,7 @@ export class KingdomEngine {
     } else p.good = 0;
     if (next === p.ratio) return;
     p.ratio = next;
-    this.renderer.setPixelRatio(next);
-    this.resize();
+    this.resizePending = true;
   }
 
   /**

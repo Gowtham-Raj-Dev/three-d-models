@@ -9,9 +9,9 @@ import { androidApp } from "@/lib/game-apps";
 import { formatBytes, formatNumber } from "@/lib/catalog";
 import { gameDisplayClass } from "@/lib/game-fonts";
 import { gameDownloadBytes, gameModels } from "@/lib/game-models";
-import { GAME_SHORTCUTS, games, getGame } from "@/lib/games";
+import { GAME_BUTTONS, GAME_SHORTCUTS, games, getGame } from "@/lib/games";
 import { pageMetadata } from "@/lib/seo";
-import { absoluteUrl, SITE } from "@/lib/site";
+import { absoluteUrl, GAME_CREDIT, SITE } from "@/lib/site";
 
 export const dynamicParams = false;
 
@@ -23,25 +23,60 @@ export async function generateMetadata({ params }: PageProps<"/games/[slug]">): 
   const { slug } = await params;
   const game = getGame(slug);
   if (!game) return {};
+  const credits = { authors: [{ name: SITE.author }], creator: SITE.author, publisher: SITE.brand };
   if (game.comingSoon) {
     return {
       ...pageMetadata({ title: `${game.title} — Coming Soon`, description: game.description, path: `/games/${game.slug}/` }),
+      ...credits,
       robots: { index: false, follow: true },
     };
   }
+  const name = game.title.toLowerCase();
+  const app = androidApp(game.slug);
   return {
     ...pageMetadata({
       title: `${game.title} — Free 3D ${game.genre} Game in Your Browser`,
-      description: game.description,
+      description: `${game.description} ${GAME_CREDIT}.`,
       path: `/games/${game.slug}/`,
       image: { url: game.cover, alt: `${game.title} gameplay` },
+      keywords: [
+        game.title,
+        `${name} game`,
+        `play ${name} online`,
+        `${name} free`,
+        ...(app ? [`${name} apk`, `${name} android`] : []),
+        `free ${game.genre.toLowerCase()} game`,
+        `${game.genre.toLowerCase()} browser game`,
+        "free browser game",
+        "free online 3D game",
+        "no download game",
+        "three.js game",
+        `${SITE.author} games`,
+        SITE.brand,
+        ...game.collections,
+      ],
     }),
-    keywords: [game.title, game.genre, "free browser game", "3D game", "three.js game", ...game.collections],
+    ...credits,
   };
 }
 
 function Kbd({ children }: { children: string }) {
   return <kbd className="rounded-md border border-line-strong border-b-2 bg-elevated px-1.5 py-0.5 font-mono text-[11px] text-fg">{children}</kbd>;
+}
+
+function Steps({ lines, accent, className = "" }: { lines: string[]; accent: string; className?: string }) {
+  return (
+    <ol className={`mt-5 space-y-3 ${className}`}>
+      {lines.map((line, i) => (
+        <li key={line} className="flex gap-3 text-sm leading-relaxed text-muted">
+          <span className="grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-bold text-black/80" style={{ background: accent }}>
+            {i + 1}
+          </span>
+          {line}
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 export default async function GameDetailsPage({ params }: PageProps<"/games/[slug]">) {
@@ -50,7 +85,7 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
   if (!game) notFound();
   const models = gameModels(game);
   const bytes = gameDownloadBytes(game);
-  const packs = [...new Map(models.map((m) => [m.collectionKey, m.collection])).values()];
+  const packs = [...new Map(models.map((m) => [m.collectionKey, m.collection])).entries()];
   const withThumbs = models.filter((m) => m.thumb);
   const shown = withThumbs.slice(0, 48);
   const others = games.filter((g) => g.slug !== game.slug && !g.comingSoon).slice(0, 3);
@@ -79,7 +114,9 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
                   playMode: "SinglePlayer",
                   isAccessibleForFree: true,
                   offers: { "@type": "Offer", price: 0, priceCurrency: "USD" },
-                  publisher: { "@type": "Organization", name: SITE.name, url: absoluteUrl("/") },
+                  author: { "@type": "Person", name: SITE.author },
+                  creator: { "@type": "Person", name: SITE.author },
+                  publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
                 },
               ]),
           {
@@ -140,6 +177,12 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
             {game.title}
           </h1>
           <p className="text-lg font-medium text-fg">{game.tagline}</p>
+          <p className="text-sm text-muted">
+            Created by <span className="font-medium text-fg">{SITE.author}</span> · Published by{" "}
+            <Link href="/" className="font-medium text-fg hover:underline">
+              {SITE.brand}
+            </Link>
+          </p>
           {soon ? (
             <div className="flex flex-wrap items-center gap-3">
               <span
@@ -234,59 +277,71 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
         ))}
       </section>
 
-      {/* How to play + controls */}
+      {/* How to play + controls. Touch screens (pointer-coarse) get their own tips, gestures and buttons. */}
       <section className="mt-12 grid gap-6 lg:grid-cols-2">
         <div className="rounded-3xl border border-line bg-surface p-6 sm:p-7">
           <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
             <ListChecks className="size-5" style={{ color: game.accent }} /> How to play
           </h2>
-          <ol className="mt-5 space-y-3">
-            {game.howTo.map((line, i) => (
-              <li key={line} className="flex gap-3 text-sm leading-relaxed text-muted">
-                <span
-                  className="grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-bold text-black/80"
-                  style={{ background: game.accent }}
-                >
-                  {i + 1}
-                </span>
-                {line}
-              </li>
-            ))}
-          </ol>
+          {game.touchHowTo ? (
+            <>
+              <Steps lines={game.howTo} accent={game.accent} className="pointer-coarse:hidden" />
+              <Steps lines={game.touchHowTo} accent={game.accent} className="hidden pointer-coarse:block" />
+            </>
+          ) : (
+            <Steps lines={game.howTo} accent={game.accent} />
+          )}
         </div>
 
         <div className="rounded-3xl border border-line bg-surface p-6 sm:p-7">
           <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-            <Keyboard className="size-5" style={{ color: game.accent }} /> Controls
+            <span className="contents pointer-coarse:hidden">
+              <Keyboard className="size-5" style={{ color: game.accent }} /> Controls
+            </span>
+            <span className="hidden pointer-coarse:contents">
+              <Smartphone className="size-5" style={{ color: game.accent }} /> Touch controls
+            </span>
           </h2>
           <div className="mt-5 overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-line text-xs text-subtle">
                   <th className="pb-2 font-medium">Action</th>
-                  <th className="pb-2 font-medium">Keyboard / mouse</th>
+                  <th className="pb-2 font-medium pointer-coarse:hidden">Keyboard / mouse</th>
                   <th className="pb-2 font-medium">Touch</th>
                 </tr>
               </thead>
               <tbody>
                 {game.controls.map((c) => (
-                  <tr key={c.action} className="border-b border-line/60 last:border-0">
+                  <tr key={c.action} className={`border-b border-line/60 last:border-0 ${c.touch ? "" : "pointer-coarse:hidden"}`}>
                     <td className="py-2.5 pr-3 font-medium text-fg">{c.action}</td>
-                    <td className="py-2.5 pr-3">
+                    <td className="py-2.5 pr-3 pointer-coarse:hidden">
                       <span className="flex flex-wrap gap-1">
                         {c.keys.map((k) => (
                           <Kbd key={k}>{k}</Kbd>
                         ))}
                       </span>
                     </td>
-                    <td className="py-2.5 text-muted">{c.touch ?? "—"}</td>
+                    <td className="py-2.5 text-muted pointer-coarse:text-fg">{c.touch ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <h3 className="mt-6 mb-2 text-xs font-semibold tracking-wide text-subtle uppercase">Shortcuts in every game</h3>
-          <ul className="grid gap-1.5 sm:grid-cols-2">
+          <h3 className="mt-6 mb-2 hidden text-xs font-semibold tracking-wide text-subtle uppercase pointer-coarse:block">Buttons in every game</h3>
+          <p className="-mt-1 mb-2 hidden text-xs text-subtle pointer-coarse:block">In the top corner of the screen, or in the pause or settings menu.</p>
+          <ul className="hidden gap-1.5 pointer-coarse:grid sm:grid-cols-2">
+            {GAME_BUTTONS.filter((b) => !b.fullscreen).map(({ action, icon: Icon }) => (
+              <li key={action} className="flex items-center gap-2.5 rounded-xl bg-elevated px-3 py-2 text-xs text-muted">
+                <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface text-fg">
+                  <Icon className="size-4" />
+                </span>
+                {action}
+              </li>
+            ))}
+          </ul>
+          <h3 className="mt-6 mb-2 text-xs font-semibold tracking-wide text-subtle uppercase pointer-coarse:hidden">Shortcuts in every game</h3>
+          <ul className="grid gap-1.5 pointer-coarse:hidden sm:grid-cols-2">
             {GAME_SHORTCUTS.map((s) => (
               <li key={s.action} className="flex items-center justify-between gap-2 rounded-xl bg-elevated px-3 py-2 text-xs text-muted">
                 {s.action}
@@ -309,10 +364,10 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
               <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">Built with {formatNumber(models.length)} models from this library</h2>
               <p className="mt-1 text-sm text-muted">
                 Every 3D model in {game.title} comes from{" "}
-                {packs.map((name, i) => (
-                  <span key={name}>
+                {packs.map(([key, name], i) => (
+                  <span key={key}>
                     {i > 0 && (i === packs.length - 1 ? " and " : ", ")}
-                    <Link href={`/models/?collection=${encodeURIComponent(name)}`} className="text-fg underline-offset-2 hover:underline">
+                    <Link href={`/models/collection/${key}/`} className="text-fg underline-offset-2 hover:underline">
                       {name}
                     </Link>
                   </span>
