@@ -133,12 +133,27 @@ body::before {
 @layer components {
   .g-root {
     font-family: var(--game-body), ui-sans-serif, system-ui, sans-serif;
-    /* Safe area beside a notch / camera cutout: env() in browsers (with viewport-fit=cover), and
-       --app-safe-* from the Android app, which draws the game under the cutout. */
-    --safe-l: max(env(safe-area-inset-left, 0px), var(--app-safe-left, 0px));
-    --safe-r: max(env(safe-area-inset-right, 0px), var(--app-safe-right, 0px));
+    /* Safe area beside a notch / camera cutout: env() in browsers (every play route has
+       viewport-fit=cover), and --app-safe-* from the Android app, which draws the game under the cutout. */
+    --cut-l: max(env(safe-area-inset-left, 0px), var(--app-safe-left, 0px));
+    --cut-r: max(env(safe-area-inset-right, 0px), var(--app-safe-right, 0px));
+    --safe-l: var(--cut-l);
+    --safe-r: var(--cut-r);
     --safe-t: max(env(safe-area-inset-top, 0px), var(--app-safe-top, 0px));
     --safe-b: max(env(safe-area-inset-bottom, 0px), var(--app-safe-bottom, 0px));
+  }
+  /*
+   * The 3D view fills the screen beside a cutout too (a phone held sideways); every other layer keeps
+   * its content clear of it. A transparent side border does that, so dims and backgrounds still reach
+   * the edge and the layer's own padding stays; inside it the sides count as safe already. Layers
+   * placed in screen coordinates opt out with data-bleed (and keep clear with .g-safe themselves);
+   * Kingdom Clash places its whole HUD itself (data-safe-area="manual").
+   */
+  .g-root:not([data-safe-area="manual"]) > :not(canvas, style, [data-bleed]) {
+    border-left: var(--cut-l) solid transparent;
+    border-right: var(--cut-r) solid transparent;
+    --safe-l: 0px;
+    --safe-r: 0px;
   }
   /* The part of the screen HUD buttons may use: everything but the cutout. */
   .g-safe {

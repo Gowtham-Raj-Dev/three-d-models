@@ -1,13 +1,16 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { audio } from "../shared/audio";
-import { disposeTree, loadModels, makeProto, type Fit, type LoadProgress, type Proto } from "../shared/assets";
+import { disposeTree, loadModels, makeProto, type Fit, type LoadedModel, type LoadProgress, type Proto } from "../shared/assets";
 import { music } from "../shared/music";
 import { SKY_HOP } from "../shared/songs";
+import { applySkin, shaderTime } from "../skate-rush/looks";
 import { Sfx } from "./audio";
+import { BASE_PERKS, findItem, HEROES, perksOf, SKINS, WORLDS, type Perks, type WorldDef } from "./content";
 import { Clouds, makeBlobShadow, makeGlow, Particles, Sky, Snow } from "./fx";
-import { buildLevel, coinTotal, LEVELS, MENU, U, type LevelData, type LevelDef, type Path, type V3 } from "./levels";
-import { BLOCKS, CHARACTERS, ENEMIES, M, MODELS, type EnemyKind } from "./manifest";
+import { stageDef, stageSeed } from "./generator";
+import { buildLevel, coinTotal, MENU, U, type LevelData, type LevelDef, type Path, type RouteNode, type V3 } from "./levels";
+import { BLOCKS, ENEMIES, M, MODELS, type EnemyKind } from "./manifest";
 import { makeBox, moveBoxTo, World, type Box, type Hit } from "./physics";
 
 // --- Tuning (metres, seconds) -------------------------------------------------------------------
@@ -15,7 +18,7 @@ import { makeBox, moveBoxTo, World, type Box, type Hit } from "./physics";
 const RADIUS = 0.42;
 const HEIGHT = 1.3;
 const FOOT = 0.3;
-const RUN = 7.6;
+const RUN_SPEED = 7.6;
 const ACCEL = 46;
 const DECEL = 58;
 const AIR_ACCEL = 30;
@@ -27,8 +30,10 @@ const GRAVITY = 34;
 const FALL_MULT = 1.35;
 const CUT_MULT = 2.6;
 const MAX_FALL = 26;
-const JUMP_V = 12.6;
-const DOUBLE_V = 11.4;
+const JUMP_SPEED = 12.6;
+const DOUBLE_SPEED = 11.4;
+/** Gliding (perk): the slowest fall while jump is held. */
+const GLIDE_FALL = 3.2;
 const COYOTE = 0.12;
 const BUFFER = 0.14;
 const STEP = 0.45;
@@ -41,7 +46,6 @@ const SPRING_V = 23;
 const STOMP_V = 11;
 const STOMP_HELD_V = 14.5;
 const INVULNERABLE = 1.6;
-const MAX_HP = 3;
 export const START_LIVES = 5;
 const SPIKE_PERIOD = 2.6;
 
@@ -66,6 +70,7 @@ export type ToastKind = "info" | "star" | "life" | "key" | "checkpoint";
 export interface Hud {
   level: number;
   coins: number;
+  maxHp: number;
   levelCoins: number;
   lives: number;
   hp: number;
@@ -75,8 +80,20 @@ export interface Hud {
   time: number;
 }
 
-export interface LevelResult {
-  level: number;
+/** Which stage: a world and its stage number (0-based). */
+export interface StageRef {
+  world: string;
+  stage: number;
+}
+
+/** What the player has on: hero, skin and the world shown on the menu. */
+export interface Loadout {
+  hero: string;
+  skin: string;
+  world: string;
+}
+
+export interface LevelResult extends StageRef {
   time: number;
   coins: number;
   totalCoins: number;
@@ -90,8 +107,11 @@ export interface GameEvents {
   toast(text: string, kind: ToastKind): void;
   fade(alpha: number): void;
   complete(result: LevelResult): void;
-  over(level: number): void;
+  /** Out of lives: the coins picked up on the way are still saved. */
+  over(stage: StageRef, coins: number): void;
   error(message: string): void;
+  /** Downloading a hero picked in the shop (0..1), null when done. */
+  busy?(ratio: number | null): void;
 }
 
 // --- Internal types -----------------------------------------------------------------------------
@@ -101,6 +121,8 @@ interface Rig {
   mixer: THREE.AnimationMixer;
   actions: Map<string, THREE.AnimationAction>;
   current: THREE.AnimationAction | null;
+  /** Skin applied to it. */
+  skin: string;
 }
 
 interface Coin {
@@ -345,8 +367,73 @@ function fadeNearCamera(source: THREE.Material) {
   return mat;
 }
 
+/** sRGB bytes → hue (degrees), saturation and lightness (0..1). */
+function toHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+function fromHsl(h: number, s: number, l: number, out: Uint8ClampedArray, i: number) {
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  out[i] = f(0) * 255;
+  out[i + 1] = f(8) * 255;
+  out[i + 2] = f(4) * 255;
+}
+
+const hexHsl = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  return toHsl((n >> 16) & 255, (n >> 8) & 255, n & 255);
+};
+
+/**
+ * A copy of the kit's colour atlas with its greens (grass, leaves) and earthy browns swapped for a
+ * world's colours. Each texel keeps its own light and shade, so the atlas gradients survive.
+ */
+function recolourAtlas(source: THREE.Texture, green: string | null, earth: string | null) {
+  const image = source.image as CanvasImageSource & { width: number; height: number };
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const tex = source.clone();
+  if (!ctx) return tex;
+  ctx.drawImage(image, 0, 0);
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const px = pixels.data;
+  const g = green ? hexHsl(green) : null;
+  const e = earth ? hexHsl(earth) : null;
+  for (let i = 0; i < px.length; i += 4) {
+    const [h, s, l] = toHsl(px[i], px[i + 1], px[i + 2]);
+    let to: [number, number, number] | null = null;
+    let ref = 0.5;
+    if (g && s > 0.18 && h >= 75 && h <= 172) {
+      to = g;
+      ref = 0.55;
+    } else if (e && s > 0.15 && s < 0.8 && l > 0.18 && l < 0.78 && (h <= 35 || h >= 345)) {
+      to = e;
+      ref = 0.5;
+    }
+    if (to) fromHsl(to[0], to[1], Math.min(0.97, Math.max(0.03, to[2] + (l - ref) * 0.9)), px, i);
+  }
+  ctx.putImageData(pixels, 0, 0);
+  // A clone shares its image source with the original: give the copy its own.
+  tex.source = new THREE.TextureSource(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
 const SPIKE_HIDE = -0.26;
-const THEME_FOG: Record<string, string> = { grass: "#cfe8fb", snow: "#e6eef8" };
 
 // --- Game ---------------------------------------------------------------------------------------
 
@@ -382,19 +469,57 @@ export class SkyHopGame {
   private readonly squashNode = new THREE.Group();
   private readonly flipNode = new THREE.Group();
   private readonly holder = new THREE.Group();
-  private readonly rigs: Rig[] = [];
+  /** Heroes built so far (each downloaded when first picked), by hero id. */
+  private readonly rigs = new Map<string, Rig>();
+  private rig: Rig | null = null;
+  private readonly models = new Map<string, LoadedModel>();
+  private sizes: Record<string, number> = {};
+  private heroTicket = 0;
   private readonly keyBadge = new THREE.Group();
-  private charIndex = 0;
+  private readonly loadout: Loadout = { hero: HEROES[0].id, skin: SKINS[0].id, world: WORLDS[0].id };
+  /** The world being shown (the equipped one on the menu, the stage's own in a stage). */
+  private worldDef: WorldDef = WORLDS[0];
+  private readonly worldMaterials = new Map<string, { solid: THREE.MeshStandardMaterial; decor: THREE.Material; maps: THREE.Texture[] }>();
+  private perks: Perks = BASE_PERKS;
+  private maxHp = BASE_PERKS.hearts;
+  /** Skin patterns are drawn relative to the hero's feet. */
+  private readonly skinOrigin = { value: new THREE.Vector3() };
+  /** YouTube's pause: no frames at all. */
+  private suspended = false;
+  /** The shop covers part of the screen: the menu picture slides into the rest (fractions of the view). */
+  private showcase = false;
+  private readonly shift = { x: 0, y: 0, cx: 0, cy: 0 };
+
+  /** Trailer: plays itself along the stage's route. */
+  autopilot = false;
+  /** Trailer: nothing hurts, and a fall puts the hero back on the route. */
+  invincible = false;
+  /** Trailer: camera distance (below 1 = closer). */
+  cinema = 1;
+  /** Trailer: times the autopilot had to be put back on its route. */
+  rescues = 0;
+  private readonly ap = {
+    /** Next route point. */
+    i: 0,
+    wish: new THREE.Vector3(),
+    /** Something to land on first: an enemy to stomp, a crate to smash or a spring. */
+    aim: null as { kind: "enemy"; enemy: Enemy } | { kind: "crate"; crate: Crate } | { kind: "spring"; spring: Spring } | null,
+    rideT: 0,
+    lastI: -1,
+    stuckT: 0,
+  };
 
   // State.
   private phase: Phase = "loading";
+  /** The stage being played: its world and number. */
+  private stageWorld = WORLDS[0].id;
   private levelIndex = 0;
   private def: LevelDef = MENU;
   private data: LevelData | null = null;
   private lt = 0;
   private elapsed = 0;
   private lives = START_LIVES;
-  private hp = MAX_HP;
+  private hp = BASE_PERKS.hearts;
   private coinCounter = 0;
   private levelCoins = 0;
   private stars = [false, false, false];
@@ -407,7 +532,7 @@ export class SkyHopGame {
   private completeSent = false;
   private finaleOn = false;
   private lockedToastT = 0;
-  private hud: Hud = { level: 0, coins: 0, levelCoins: 0, lives: START_LIVES, hp: MAX_HP, stars: [false, false, false], key: false, chest: false, time: 0 };
+  private hud: Hud = { level: 0, coins: 0, maxHp: BASE_PERKS.hearts, levelCoins: 0, lives: START_LIVES, hp: BASE_PERKS.hearts, stars: [false, false, false], key: false, chest: false, time: 0 };
   private fadeValue = 0;
 
   // Player physics.
@@ -459,6 +584,7 @@ export class SkyHopGame {
 
   // Level entities.
   private staticMesh: THREE.Mesh | null = null;
+  private propMesh: THREE.Mesh | null = null;
   private decorMesh: THREE.Mesh | null = null;
   private coinInst: Instanced | null = null;
   private coins: Coin[] = [];
@@ -486,6 +612,8 @@ export class SkyHopGame {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly events: GameEvents,
+    /** In YouTube Playables the SDK pauses the game; the page visibility API must not be used. */
+    { visibility = true }: { visibility?: boolean } = {},
   ) {
     this.coarse = window.matchMedia("(pointer: coarse)").matches;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -507,7 +635,7 @@ export class SkyHopGame {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas.parentElement ?? canvas);
     this.resize();
-    this.timer.connect(document);
+    if (visibility) this.timer.connect(document);
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -515,8 +643,8 @@ export class SkyHopGame {
 
   private setupWorld() {
     const { scene } = this;
-    scene.fog = new THREE.Fog(THEME_FOG.grass, 70, 260);
-    scene.background = new THREE.Color(THEME_FOG.grass);
+    scene.fog = new THREE.Fog("#cfe8fb", 70, 260);
+    scene.background = new THREE.Color("#cfe8fb");
     this.camera.add(this.sky.mesh);
     scene.add(this.camera);
 
@@ -540,11 +668,18 @@ export class SkyHopGame {
     this.snow.points.visible = false;
   }
 
-  /** sizes: bytes per model (from the catalog) so the loading bar is exact. */
-  async load(sizes: Record<string, number>) {
+  /** sizes: bytes per model (from the catalog) so the loading bar is exact; loadout: the equipped hero, skin and world. */
+  async load(sizes: Record<string, number>, loadout: Loadout) {
+    this.sizes = sizes;
+    Object.assign(this.loadout, loadout);
+    this.worldDef = findItem(WORLDS, loadout.world);
+    // The equipped hero comes with the first load; the others when first picked in the shop.
+    let hero = findItem(HEROES, loadout.hero);
     try {
-      const models = await loadModels(MODELS, this.renderer, (p) => !this.disposed && this.events.progress(p), { sizes });
+      const models = await loadModels(MODELS.includes(hero.key) ? MODELS : [...MODELS, hero.key], this.renderer, (p) => !this.disposed && this.events.progress(p), { sizes });
       if (this.disposed) return;
+      models.forEach((m, k) => this.models.set(k, m));
+      if (!models.has(hero.key)) hero = HEROES[0];
       const used = new Set<string>();
       const proto = (id: string, key: string, fit: Fit, opts: { shadows?: boolean; receive?: boolean } = {}) => {
         const m = models.get(key);
@@ -553,7 +688,6 @@ export class SkyHopGame {
         used.add(key);
       };
 
-      for (const c of CHARACTERS) proto(c.key, c.key, { height: HEIGHT });
       for (const theme of ["grass", "snow"] as const) {
         const set = BLOCKS[theme];
         for (const kind of ["large", "long", "one", "lowLarge", "lowLong", "low", "tall"] as const) proto(`${theme}:${kind}`, set[kind], { scale: U }, { receive: true });
@@ -600,8 +734,8 @@ export class SkyHopGame {
         if (inner) inner.position.x = 0.056;
       }
 
-      const required = ["grass:large", "grass:long", "grass:one", "coin", "star", "flag", "flagBig", ...CHARACTERS.map((c) => c.key)];
-      if (!required.every((k) => this.protos.has(k))) throw new Error("Some game models could not be loaded. Check your connection and reload.");
+      const required = ["grass:large", "grass:long", "grass:one", "coin", "star", "flag", "flagBig"];
+      if (!required.every((k) => this.protos.has(k)) || !this.models.has(hero.key)) throw new Error("Some game models could not be loaded. Check your connection and reload.");
 
       // All Platformer Kit pieces share one texture atlas: the static level is one merged mesh.
       this.protos.get("grass:large")!.object.traverse((o) => {
@@ -609,7 +743,8 @@ export class SkyHopGame {
       });
 
       this.buildPlayer();
-      this.loadLevel(-1);
+      this.showHero(hero.id);
+      this.loadMenu();
       music.play(SKY_HOP, 0);
       this.setPhase("menu");
     } catch (err) {
@@ -620,40 +755,140 @@ export class SkyHopGame {
   }
 
   private buildPlayer() {
-    for (const c of CHARACTERS) {
-      const p = this.protos.get(c.key);
-      if (!p) continue;
-      const root = p.object;
-      root.visible = false;
-      root.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) o.frustumCulled = false;
-      });
-      const mixer = new THREE.AnimationMixer(root);
-      const actions = new Map(p.animations.map((clip) => [clip.name, mixer.clipAction(clip)]));
-      this.holder.add(root);
-      this.rigs.push({ root, mixer, actions, current: null });
-    }
     const badge = this.protos.get("keyBadge");
     if (badge) this.keyBadge.add(badge.object);
     this.keyBadge.add(makeGlow("#ffe680", 0.9));
     this.keyBadge.visible = false;
     this.player.add(this.keyBadge);
-    this.selectCharacter(this.charIndex);
   }
 
-  // --- Public API -------------------------------------------------------------------------------
-
-  get levelCount() {
-    return LEVELS.length;
+  /** One rig per hero, from its own model (every hero has the same set of animations). */
+  private makeRig(id: string): Rig | null {
+    const def = findItem(HEROES, id);
+    const m = this.models.get(def.key);
+    if (!m) return null;
+    const p = makeProto(m.scene, m.animations, { height: HEIGHT });
+    const root = p.object;
+    root.visible = false;
+    root.traverse((o) => {
+      // Skinned bounds don't follow the animation.
+      if ((o as THREE.Mesh).isMesh) o.frustumCulled = false;
+    });
+    const mixer = new THREE.AnimationMixer(root);
+    const actions = new Map(p.animations.map((clip) => [clip.name, mixer.clipAction(clip)]));
+    this.holder.add(root);
+    const rig: Rig = { root, mixer, actions, current: null, skin: "classic" };
+    this.rigs.set(def.id, rig);
+    return rig;
   }
 
-  selectCharacter(index: number) {
-    this.charIndex = ((index % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
-    this.rigs.forEach((r, i) => (r.root.visible = i === this.charIndex));
+  private showHero(id: string) {
+    const rig = this.rigs.get(id) ?? this.makeRig(id);
+    if (!rig) return;
+    const was = this.rig?.current?.getClip().name ?? "idle";
+    this.loadout.hero = id;
+    this.perks = perksOf(findItem(HEROES, id));
+    for (const [rid, r] of this.rigs) r.root.visible = rid === id;
+    this.rig = rig;
+    rig.current = null;
+    this.applySkinTo(rig);
     if (this.phase === "menu" || this.phase === "loading") {
       this.play("emote-yes", { once: true, fade: 0.1 });
       this.menuEmoteT = 0.9;
       if (this.phase === "menu") this.sfx.jump();
+    } else this.play(was === "emote-yes" ? "idle" : was, { fade: 0 });
+  }
+
+  private applySkinTo(rig: Rig) {
+    const look = findItem(SKINS, this.loadout.skin).look;
+    if (rig.skin === look) return;
+    applySkin(rig.root, look, this.skinOrigin);
+    rig.skin = look;
+  }
+
+  /** The kit's island and leaf materials recoloured for a world (made once per world). */
+  private materialsFor(world: WorldDef) {
+    const kit = this.kitMaterial as THREE.MeshStandardMaterial;
+    const { top, earth, leaves, glow, glowColor } = world.look;
+    if (!top && !earth && !leaves) return { solid: kit as THREE.Material, decor: (this.staticMaterial ??= fadeNearCamera(kit)) };
+    let made = this.worldMaterials.get(world.id);
+    if (!made) {
+      const solid = kit.clone();
+      const decor = kit.clone();
+      if (kit.map) {
+        solid.map = recolourAtlas(kit.map, top, earth);
+        decor.map = recolourAtlas(kit.map, leaves, null);
+      }
+      if (glow > 0) {
+        // Lava light: the islands glow in their own (recoloured) colours.
+        solid.emissive.set(glowColor);
+        solid.emissiveIntensity = glow;
+        solid.emissiveMap = solid.map;
+      }
+      made = { solid, decor: fadeNearCamera(decor), maps: [solid.map, decor.map].filter((t): t is THREE.Texture => !!t && t !== kit.map) };
+      decor.dispose();
+      this.worldMaterials.set(world.id, made);
+    }
+    return made;
+  }
+
+  // --- Public API -------------------------------------------------------------------------------
+
+  /** Shows a hero (downloading it first if needed): the equipped one and shop previews. */
+  async setHero(id: string) {
+    const def = findItem(HEROES, id);
+    const ticket = ++this.heroTicket;
+    if (!this.models.has(def.key)) {
+      this.events.busy?.(0);
+      const loaded = await loadModels([def.key], this.renderer, (p) => this.heroTicket === ticket && this.events.busy?.(p.ratio), { sizes: this.sizes });
+      if (this.disposed) return;
+      loaded.forEach((m, k) => this.models.set(k, m));
+      if (this.heroTicket === ticket) this.events.busy?.(null);
+    }
+    if (this.heroTicket !== ticket || this.phase === "loading" || !this.models.has(def.key)) return;
+    this.showHero(def.id);
+  }
+
+  setSkin(id: string) {
+    this.loadout.skin = findItem(SKINS, id).id;
+    if (this.rig) this.applySkinTo(this.rig);
+  }
+
+  /** The world shown on the menu (its colours, sky and weather). */
+  setWorld(id: string) {
+    const world = findItem(WORLDS, id);
+    this.loadout.world = world.id;
+    if (world === this.worldDef) return;
+    this.worldDef = world;
+    if (this.phase === "menu") this.loadMenu();
+  }
+
+  /** Shop open or closed; `shift` is how far to slide the picture (fractions of the view). */
+  setShowcase(on: boolean, shift = { x: 0, y: 0 }) {
+    this.showcase = on;
+    this.shift.x = on ? shift.x : 0;
+    this.shift.y = on ? shift.y : 0;
+  }
+
+  /** The hero cheers (something was bought). */
+  celebrate() {
+    if (this.phase !== "menu") return;
+    audio.unlock();
+    this.play("emote-yes", { once: true, fade: 0.1 });
+    this.menuEmoteT = 1.1;
+    this.sfx.star();
+    const p = this.p.pos;
+    this.confetti(p.x, p.y + 3, p.z, 70);
+  }
+
+  /** Stops every frame (YouTube's pause): nothing runs until it is resumed. */
+  setSuspended(on: boolean) {
+    if (on === this.suspended || this.disposed) return;
+    this.suspended = on;
+    if (on) cancelAnimationFrame(this.raf);
+    else {
+      this.timer.reset();
+      this.raf = requestAnimationFrame(this.frame);
     }
   }
 
@@ -680,17 +915,20 @@ export class SkyHopGame {
   }
 
   /**
-   * Starts a level. `freshLives` resets the lives (starting from the level select); `found` marks
+   * Starts a stage. `freshLives` resets the lives (starting from the stage map); `found` marks
    * stars collected on earlier visits, which show as see-through ghosts.
    */
-  startLevel(index: number, freshLives: boolean, found: boolean[] = [false, false, false]) {
+  startStage(ref: StageRef, freshLives: boolean, found: boolean[] = [false, false, false]) {
     audio.unlock();
     this.found = found;
+    this.worldDef = findItem(WORLDS, ref.world);
+    this.stageWorld = this.worldDef.id;
+    this.levelIndex = ref.stage;
     if (freshLives) {
-      this.lives = START_LIVES;
+      this.lives = START_LIVES + this.perks.lives;
       this.coinCounter = 0;
     }
-    this.loadLevel(index);
+    this.loadLevel(stageDef(ref.world, ref.stage), stageSeed(ref.world, ref.stage), false);
     this.introT = 0;
     this.sfx.go();
     music.play(SKY_HOP, 1);
@@ -701,7 +939,7 @@ export class SkyHopGame {
   }
 
   restartLevel() {
-    this.startLevel(this.levelIndex, false, this.found);
+    this.startStage({ world: this.stageWorld, stage: this.levelIndex }, false, this.found);
   }
 
   /** Back to the last checkpoint without losing a life. */
@@ -728,7 +966,11 @@ export class SkyHopGame {
   }
 
   toMenu() {
-    this.loadLevel(-1);
+    this.autopilot = false;
+    this.invincible = false;
+    this.cinema = 1;
+    this.worldDef = findItem(WORLDS, this.loadout.world);
+    this.loadMenu();
     music.play(SKY_HOP, 0);
     music.setIntensity(0);
     music.duck(false);
@@ -780,6 +1022,37 @@ export class SkyHopGame {
     this.poundQueued = false;
   }
 
+  // --- Trailer ----------------------------------------------------------------------------------
+
+  /**
+   * Trailer only: starts a stage straight away (no swoop-in) with the hero at route point `at` (its
+   * index — negative counts from the end — or the first point with that act) and the autopilot
+   * driving from there.
+   */
+  jumpTo(ref: StageRef, at: number | RouteNode["act"] = 0) {
+    this.startStage(ref, true);
+    this.introT = 1;
+    const route = this.data?.route ?? [];
+    const i = typeof at === "number" ? (at < 0 ? route.length + at : at) : Math.max(0, route.findIndex((n) => n.act === at));
+    this.ap.i = Math.min(i, Math.max(0, route.length - 1));
+    if (this.ap.i > 0) this.backOnRoute(false);
+  }
+
+  /** Trailer only: runs the game this many seconds without drawing. */
+  warp(seconds: number) {
+    const dt = 1 / 60;
+    for (let t = 0; t < seconds; t += dt) {
+      this.elapsed += dt;
+      if (this.phase === "playing") this.updatePlaying(dt);
+      else if (this.phase === "complete") this.updateComplete(dt);
+      if (this.phase !== "playing") this.updateWorld(dt, this.phase !== "menu");
+      this.rig?.mixer.update(dt);
+      this.updateRig(dt);
+      this.particles.update(dt);
+      this.updateCamera(dt);
+    }
+  }
+
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
@@ -794,6 +1067,15 @@ export class SkyHopGame {
       sprite.material.dispose();
     });
     for (const proto of this.protos.values()) disposeTree(proto.object);
+    for (const rig of this.rigs.values()) {
+      rig.mixer.stopAllAction();
+      disposeTree(rig.root);
+    }
+    for (const m of this.worldMaterials.values()) {
+      m.solid.dispose();
+      m.decor.dispose();
+      m.maps.forEach((t) => t.dispose());
+    }
     this.envTexture?.dispose();
     this.staticMaterial?.dispose();
     this.ghostMaterial?.dispose();
@@ -825,11 +1107,12 @@ export class SkyHopGame {
   // --- Level construction -----------------------------------------------------------------------
 
   private clearLevel() {
-    for (const mesh of [this.staticMesh, this.decorMesh]) {
+    for (const mesh of [this.staticMesh, this.propMesh, this.decorMesh]) {
       mesh?.geometry.dispose();
       mesh?.removeFromParent();
     }
     this.staticMesh = null;
+    this.propMesh = null;
     this.decorMesh = null;
     this.coinInst?.dispose();
     this.coinInst = null;
@@ -871,30 +1154,39 @@ export class SkyHopGame {
     return g;
   }
 
-  /** -1 = the menu island. */
-  private loadLevel(index: number) {
+  /** The menu island, in the equipped world's colours. */
+  private loadMenu() {
+    const world = this.worldDef;
+    this.loadLevel({ ...MENU, theme: world.theme, sky: world.look.sky }, 1157, true);
+  }
+
+  private loadLevel(def: LevelDef, seed: number, menu: boolean) {
     this.clearLevel();
-    this.levelIndex = Math.max(0, index);
-    this.def = index < 0 ? MENU : LEVELS[index];
-    const data = buildLevel(this.def, 1234 + index * 77);
+    this.def = def;
+    const data = buildLevel(def, seed);
     this.data = data;
     const theme = data.theme;
+    const look = this.worldDef.look;
 
-    // Look.
-    this.sky.set(this.def.sky[0], this.def.sky[1]);
-    const fog = new THREE.Color(this.def.sky[1]);
+    // Look: the world's light and weather (the handcrafted levels keep their own skies).
+    this.sky.set(def.sky[0], def.sky[1]);
+    const fog = new THREE.Color(def.sky[1]);
     (this.scene.fog as THREE.Fog).color.copy(fog);
     (this.scene.background as THREE.Color).copy(fog);
-    this.hemi.color.set(theme === "snow" ? "#eef5ff" : "#e3f2ff");
-    this.hemi.groundColor.set(theme === "snow" ? "#7f8fa8" : "#9a8a6a");
-    this.sun.color.set(this.def.name === "Sawmill Gorge" ? "#ffd9a8" : "#fff4df");
-    this.snow.points.visible = theme === "snow";
+    this.hemi.color.set(look.hemiSky);
+    this.hemi.groundColor.set(look.hemiGround);
+    this.sun.color.set(def.name === "Sawmill Gorge" ? "#ffd9a8" : look.sun);
+    const weather = look.weather ?? (theme === "snow" ? { color: "#ffffff", fall: 1, size: 1, wind: 1.2 } : null);
+    this.snow.points.visible = !!weather;
+    if (weather) this.snow.setStyle(weather);
     // Snow is bright: a touch less exposure and cooler fill light keep it from washing out.
-    this.renderer.toneMappingExposure = theme === "snow" ? 0.94 : 1.08;
+    this.renderer.toneMappingExposure = theme === "snow" ? Math.min(look.exposure, 0.94) : look.exposure;
     this.hemi.intensity = theme === "snow" ? 1.05 : 1.3;
 
-    // Static pieces → two merged meshes: islands, and decoration that dissolves near the camera.
+    // Static pieces → three merged meshes: islands (in the world's colours), wooden planks and
+    // fences, and decoration that dissolves near the camera.
     const solid: { proto: Proto; matrix: THREE.Matrix4 }[] = [];
+    const props: { proto: Proto; matrix: THREE.Matrix4 }[] = [];
     const decor: { proto: Proto; matrix: THREE.Matrix4 }[] = [];
     for (const pc of data.pieces) {
       const id = pc.id.startsWith("tree:") ? `${pc.id}:${theme}` : pc.id;
@@ -903,16 +1195,20 @@ export class SkyHopGame {
       this.tmpQ.setFromAxisAngle(this.up, pc.rot);
       this.tmpS.setScalar(pc.scale ?? 1);
       const part = { proto, matrix: new THREE.Matrix4().compose(this.tmpV.set(pc.x, pc.y, pc.z), this.tmpQ, this.tmpS) };
-      (pc.id.startsWith("tree:") || pc.id.startsWith("deco:") ? decor : solid).push(part);
+      (pc.id.startsWith("tree:") || pc.id.startsWith("deco:") ? decor : pc.id === "plank" || pc.id === "fence" ? props : solid).push(part);
     }
     if (this.kitMaterial) {
-      this.staticMaterial ??= fadeNearCamera(this.kitMaterial);
+      const mats = this.materialsFor(this.worldDef);
       if (solid.length) {
-        this.staticMesh = mergeStatic(solid, this.kitMaterial);
+        this.staticMesh = mergeStatic(solid, mats.solid);
         this.levelRoot.add(this.staticMesh);
       }
+      if (props.length) {
+        this.propMesh = mergeStatic(props, this.kitMaterial);
+        this.levelRoot.add(this.propMesh);
+      }
       if (decor.length) {
-        this.decorMesh = mergeStatic(decor, this.staticMaterial);
+        this.decorMesh = mergeStatic(decor, mats.decor);
         this.levelRoot.add(this.decorMesh);
       }
     }
@@ -1098,7 +1394,7 @@ export class SkyHopGame {
       this.chests.push({ obj, lock, mixer, open, pos: new THREE.Vector3(c.x, c.y, c.z), rot: c.rot, star: c.star, opened: false });
     }
 
-    if (index >= 0) {
+    if (!menu) {
       const f = data.finish;
       this.finishPos.set(f.x, f.y, f.z);
       this.finishObj = this.clone("flagBig");
@@ -1122,14 +1418,19 @@ export class SkyHopGame {
       minZ = Math.min(minZ, b.min.z);
       maxZ = Math.max(maxZ, b.max.z);
     }
-    this.clouds.scatter((minX + maxX) / 2, (minZ + maxZ) / 2, (maxX - minX) / 2, (maxZ - minZ) / 2, data.killY + 6, 99 + index * 13);
-    (this.scene.fog as THREE.Fog).near = index < 0 ? 40 : 60;
-    (this.scene.fog as THREE.Fog).far = index < 0 ? 200 : 240;
-    this.clouds.setFog(fog, index < 0 ? 40 : 60, index < 0 ? 200 : 240);
+    this.clouds.scatter((minX + maxX) / 2, (minZ + maxZ) / 2, (maxX - minX) / 2, (maxZ - minZ) / 2, data.killY + 6, 1 + (seed % 9973));
+    (this.scene.fog as THREE.Fog).near = menu ? 40 : 60;
+    (this.scene.fog as THREE.Fog).far = menu ? 200 : 240;
+    this.clouds.setFog(fog, menu ? 40 : 60, menu ? 200 : 240);
 
     // Run state.
     this.lt = 0;
-    this.hp = MAX_HP;
+    this.maxHp = this.perks.hearts;
+    this.hp = this.maxHp;
+    this.ap.i = 0;
+    this.ap.aim = null;
+    this.ap.rideT = 0;
+    this.ap.lastI = -1;
     this.levelCoins = 0;
     this.stars = [false, false, false];
     this.hasKey = false;
@@ -1140,7 +1441,7 @@ export class SkyHopGame {
     this.respawn.pos.set(data.start.x, data.start.y, data.start.z);
     this.respawn.yaw = data.start.yaw;
     this.placePlayer(this.respawn.pos, this.respawn.yaw);
-    if (index < 0) {
+    if (menu) {
       this.p.facing = Math.PI * 0.15;
       this.play("idle", { fade: 0 });
     }
@@ -1177,20 +1478,20 @@ export class SkyHopGame {
   // --- Animation --------------------------------------------------------------------------------
 
   private play(name: string, { once = false, fade = 0.15, timeScale = 1 } = {}) {
-    for (const rig of this.rigs) {
-      const next = rig.actions.get(name);
-      if (!next) continue;
-      next.timeScale = timeScale;
-      if (rig.current === next && !once) continue;
-      next.reset();
-      next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
-      next.clampWhenFinished = once;
-      next.enabled = true;
-      next.setEffectiveWeight(1);
-      if (rig.current && rig.current !== next) next.crossFadeFrom(rig.current, fade, false);
-      next.play();
-      rig.current = next;
-    }
+    const rig = this.rig;
+    const next = rig?.actions.get(name);
+    if (!rig || !next) return;
+    next.timeScale = timeScale;
+    if (rig.current === next && !once) return;
+    next.reset();
+    next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
+    next.clampWhenFinished = once;
+    next.enabled = true;
+    next.setEffectiveWeight(1);
+    if (rig.current && rig.current !== next) next.crossFadeFrom(rig.current, fade, false);
+    else if (!rig.current) rig.mixer.stopAllAction();
+    next.play();
+    rig.current = next;
   }
 
   private playEnemy(e: Enemy, name: string, timeScale = 1) {
@@ -1209,7 +1510,7 @@ export class SkyHopGame {
   // --- Frame ------------------------------------------------------------------------------------
 
   private frame = (time: number) => {
-    if (this.disposed) return;
+    if (this.disposed || this.suspended) return;
     this.raf = requestAnimationFrame(this.frame);
     this.timer.update(time);
     const dt = Math.min(this.timer.getDelta(), 1 / 20);
@@ -1222,7 +1523,7 @@ export class SkyHopGame {
       else if (this.phase === "complete") this.updateComplete(dt);
       else if (this.phase === "menu" || this.phase === "over") this.updateMenu(dt);
       if (this.phase !== "playing") this.updateWorld(dt, this.phase !== "menu" && this.phase !== "over");
-      this.rigs[this.charIndex]?.mixer.update(dt);
+      this.rig?.mixer.update(dt);
       this.updateRig(dt);
       this.particles.update(dt);
       this.clouds.update(this.elapsed);
@@ -1233,6 +1534,8 @@ export class SkyHopGame {
       const scale = this.renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
       this.particles.uniforms.scale.value = scale;
       if (this.snow.points.visible) this.snow.update(this.elapsed, this.camera.position, scale);
+      shaderTime.value = this.elapsed;
+      this.skinOrigin.value.copy(this.player.position);
       this.renderer.render(this.scene, this.camera);
     }
   };
@@ -1295,6 +1598,7 @@ export class SkyHopGame {
   // --- Player -----------------------------------------------------------------------------------
 
   private moveInput(out: THREE.Vector3) {
+    if (this.autopilot) return out.copy(this.ap.wish);
     let ix = this.stick.x;
     let iy = this.stick.y;
     const k = this.keys;
@@ -1356,6 +1660,7 @@ export class SkyHopGame {
   private updatePlayer(dt: number) {
     const p = this.p;
     const world = this.world;
+    if (this.autopilot) this.drive(dt);
     p.coyote -= dt;
     p.buffer -= dt;
     p.hurtT -= dt;
@@ -1373,9 +1678,12 @@ export class SkyHopGame {
     const wish = this.moveInput(this.tmpV);
     const wishLen = Math.min(1, wish.length());
     const icy = p.grounded && !!p.ground?.slippery;
+    const run = RUN_SPEED * this.perks.run;
     if (p.pound) {
       p.vel.x = 0;
       p.vel.z = 0;
+    } else if (this.autopilot && !p.grounded) {
+      /* the autopilot sets its air speed itself (steerAir) */
     } else {
       let accel: number;
       if (p.grounded) {
@@ -1385,8 +1693,8 @@ export class SkyHopGame {
       } else {
         accel = wishLen > 0.1 ? AIR_ACCEL : AIR_DECEL;
       }
-      const tx = wish.x * RUN;
-      const tz = wish.z * RUN;
+      const tx = wish.x * run;
+      const tz = wish.z * run;
       const dx = tx - p.vel.x;
       const dz = tz - p.vel.z;
       const d = Math.hypot(dx, dz);
@@ -1404,12 +1712,12 @@ export class SkyHopGame {
     if (this.jumpQueued) {
       this.jumpQueued = false;
       if (!p.pound) {
-        if (p.grounded || p.coyote > 0) this.jump(JUMP_V, false);
-        else if (p.airJumps < 1) this.jump(DOUBLE_V, true);
+        if (p.grounded || p.coyote > 0) this.jump(JUMP_SPEED * this.perks.jump, false);
+        else if (p.airJumps < this.perks.airJumps) this.jump(DOUBLE_SPEED * this.perks.jump, true);
         else p.buffer = BUFFER;
       }
     }
-    if (p.buffer > 0 && p.grounded && !p.pound) this.jump(JUMP_V, false);
+    if (p.buffer > 0 && p.grounded && !p.pound) this.jump(JUMP_SPEED * this.perks.jump, false);
 
     // Ground pound.
     if (this.poundQueued) {
@@ -1440,6 +1748,11 @@ export class SkyHopGame {
       if (p.vel.y < 0) g *= FALL_MULT;
       else if (p.jumping && !held) g *= CUT_MULT;
       p.vel.y = Math.max(p.vel.y - g * dt, -MAX_FALL);
+      // Gliders (a hero's perk) float down while jump is held.
+      if (this.perks.glide && held && p.vel.y < -GLIDE_FALL && p.airT > 0.25) {
+        p.vel.y = Math.min(-GLIDE_FALL, p.vel.y + 60 * dt);
+        if (Math.random() < dt * 14) this.particles.burst(p.pos.x, p.pos.y + 0.4, p.pos.z, { count: 1, color: ["#ffffff", "#fff6c0"], speed: 0.6, size: [0.25, 0.1], life: [0.3, 0.5], shape: 2 });
+      }
     }
     if (!p.grounded) p.airT += dt;
 
@@ -1526,7 +1839,7 @@ export class SkyHopGame {
     // Footsteps and running dust.
     const speed = Math.hypot(p.vel.x, p.vel.z);
     if (p.grounded && speed > 2) {
-      p.stepT -= dt * (speed / RUN);
+      p.stepT -= dt * (speed / RUN_SPEED);
       if (p.stepT <= 0) {
         p.stepT = 0.17;
         this.sfx.step();
@@ -1555,6 +1868,10 @@ export class SkyHopGame {
       p.pound = 0;
       p.airT = 0;
       p.sq = 1.35;
+      if (this.autopilot && this.data?.route[this.ap.i]?.act === "spring") {
+        this.ap.i++;
+        this.ap.aim = null;
+      }
       this.sfx.spring();
       this.play("jump", { once: true, fade: 0.05 });
       this.particles.burst(p.pos.x, p.pos.y, p.pos.z, { count: 10, color: ["#ffd84a", "#ffffff"], speed: 4, ring: true, size: [0.3, 0.6], life: [0.3, 0.5], shape: 2 });
@@ -1599,12 +1916,12 @@ export class SkyHopGame {
         this.dust(Math.round(4 + hard * 8), 0.5 + hard);
       }
     }
-    if (p.buffer > 0) this.jump(JUMP_V, false);
+    if (p.buffer > 0) this.jump(JUMP_SPEED * this.perks.jump, false);
   }
 
   private hurt(fromX: number, fromZ: number) {
     const p = this.p;
-    if (p.hurtT > 0 || this.phase !== "playing") return;
+    if (p.hurtT > 0 || this.phase !== "playing" || this.invincible) return;
     this.hp--;
     this.sfx.hurt();
     this.shake = Math.max(this.shake, 0.35);
@@ -1630,6 +1947,10 @@ export class SkyHopGame {
 
   private die(cause: "fall" | "hurt") {
     if (this.phase !== "playing") return;
+    if (this.invincible) {
+      this.backOnRoute(true);
+      return;
+    }
     this.dieCause = cause;
     this.dieT = 0;
     this.releaseInput();
@@ -1661,7 +1982,7 @@ export class SkyHopGame {
         this.lives = 0;
         this.emitHud(true);
         this.setPhase("over");
-        this.events.over(this.levelIndex);
+        this.events.over({ world: this.stageWorld, stage: this.levelIndex }, this.levelCoins);
         this.setFade(0);
         this.p.pos.copy(this.respawn.pos);
         music.play(SKY_HOP, 0);
@@ -1675,7 +1996,7 @@ export class SkyHopGame {
   }
 
   private respawnPlayer() {
-    this.hp = MAX_HP;
+    this.hp = this.maxHp;
     this.placePlayer(this.respawn.pos, this.respawn.yaw);
     this.p.hurtT = 1;
     this.introT = 0.55;
@@ -1736,7 +2057,8 @@ export class SkyHopGame {
     if (this.completeT > 1.5 && !this.completeSent) {
       this.completeSent = true;
       this.events.complete({
-        level: this.levelIndex,
+        world: this.stageWorld,
+        stage: this.levelIndex,
         time: Math.round(this.lt * 10) / 10,
         coins: this.levelCoins,
         totalCoins: this.data ? coinTotal(this.data) : 0,
@@ -1753,7 +2075,8 @@ export class SkyHopGame {
     const cy = p.pos.y + HEIGHT / 2;
     const cz = p.pos.z;
 
-    // Coins.
+    // Coins (a magnet hero pulls in the ones nearby).
+    const magnet = this.perks.magnet * this.perks.magnet;
     for (let i = 0; i < this.coins.length; i++) {
       const c = this.coins[i];
       if (c.state !== 0) continue;
@@ -1761,6 +2084,11 @@ export class SkyHopGame {
       const dy = c.y + 0.37 - cy;
       const dz = c.z - cz;
       if (dx * dx + dz * dz < 1.3 && Math.abs(dy) < 1.15) this.collectCoin(c);
+      else if (dx * dx + dy * dy + dz * dz < magnet) {
+        c.state = 3;
+        c.t = 0.45;
+        c.vx = c.vy = c.vz = 0;
+      }
     }
 
     // Pickups.
@@ -1785,8 +2113,8 @@ export class SkyHopGame {
         this.sfx.checkpoint();
         this.events.toast("Checkpoint!", "checkpoint");
         this.particles.burst(c.pos.x, c.pos.y + 2.4, c.pos.z, { count: 30, color: ["#facc15", "#ffffff", "#4ade80"], speed: 5, up: 3, size: [0.25, 0.25], life: [0.8, 1.4], gravity: 6, shape: 1 });
-        if (this.hp < MAX_HP) {
-          this.hp = MAX_HP;
+        if (this.hp < this.maxHp) {
+          this.hp = this.maxHp;
           this.emitHud(true);
         }
       }
@@ -1890,7 +2218,7 @@ export class SkyHopGame {
       this.events.toast(`Star ${n} of 3!`, "star");
       this.particles.burst(p.x, p.y + 0.5, p.z, { count: 26, color: ["#ffd84a", "#fff6c0", "#ffffff"], speed: 6, up: 2, size: [0.5, 0.15], life: [0.5, 0.9], drag: 3, shape: 2 });
     } else if (k.kind === "heart") {
-      if (this.hp < MAX_HP) this.hp++;
+      if (this.hp < this.maxHp) this.hp++;
       else this.addCoins(5);
       this.sfx.heart();
       this.particles.burst(p.x, p.y + 0.4, p.z, { count: 14, color: ["#ff6b81", "#ffffff"], speed: 4, size: [0.4, 0.1], life: [0.4, 0.7], shape: 2 });
@@ -2323,7 +2651,7 @@ export class SkyHopGame {
     const cam = this.camera;
     let yaw = this.camYaw;
     let pitch = this.camPitch;
-    let dist = portrait ? 11 : this.camDist;
+    let dist = (portrait ? 11 : this.camDist) * this.cinema;
     let fov = portrait ? 70 : 58;
     const target = this.camTarget;
 
@@ -2331,10 +2659,13 @@ export class SkyHopGame {
       yaw = this.elapsed * 0.1 + 0.6;
       pitch = 0.22;
       dist = portrait ? 9.5 : 6.2;
+      // The shop: closer, with the hero in the middle of the picture (the view itself slides aside).
+      if (this.showcase) dist = portrait ? 7 : 5.2;
+      dist *= this.cinema;
       target.set(p.pos.x, p.pos.y, p.pos.z);
-      this.look.set(target.x, target.y + (portrait ? 1.5 : 1.0), target.z);
+      this.look.set(target.x, target.y + (portrait ? 1.5 : 1.0) - (this.showcase && portrait ? 0.5 : 0), target.z);
       // On wide screens, frame the character to the right of the menu.
-      if (!portrait) {
+      if (!portrait && !this.showcase) {
         const s = Math.sin(yaw);
         const c = Math.cos(yaw);
         this.look.x -= c * 1.6;
@@ -2346,6 +2677,7 @@ export class SkyHopGame {
       cam.position.copy(this.camPos);
       cam.lookAt(this.look);
       this.setFov(fov);
+      this.applyShift(dt);
       return;
     }
 
@@ -2365,7 +2697,7 @@ export class SkyHopGame {
         const fz = -Math.cos(this.camYaw);
         const along = fx * vx + fz * vz;
         const want = Math.atan2(-vx, -vz);
-        const rate = 1.1 * Math.min(1, speed / RUN) * THREE.MathUtils.clamp(along + 0.35, 0, 1);
+        const rate = (this.autopilot ? 2.2 : 1.1) * Math.min(1, speed / RUN_SPEED) * THREE.MathUtils.clamp(along + 0.35, 0, 1);
         this.camYaw = dampAngle(this.camYaw, want, rate, dt);
       }
       yaw = this.camYaw;
@@ -2415,6 +2747,22 @@ export class SkyHopGame {
     cam.lookAt(this.look);
     if (this.phase === "complete") fov -= 4;
     this.setFov(fov);
+    this.applyShift(dt);
+  }
+
+  /** The shop covers part of the screen: slide the picture into the rest. */
+  private applyShift(dt: number) {
+    const sh = this.shift;
+    const menu = this.phase === "menu";
+    if (dt > 0) {
+      sh.cx = damp(sh.cx, menu ? sh.x : 0, 6, dt);
+      sh.cy = damp(sh.cy, menu ? sh.y : 0, 6, dt);
+    } else if (!menu) sh.cx = sh.cy = 0;
+    const el = this.renderer.domElement;
+    const w = el.width;
+    const h = el.height;
+    if (Math.abs(sh.cx) + Math.abs(sh.cy) > 1e-3) this.camera.setViewOffset(w, h, -sh.cx * w, sh.cy * h, w, h);
+    else if (this.camera.view) this.camera.clearViewOffset();
   }
 
   private setFov(fov: number) {
@@ -2444,12 +2792,219 @@ export class SkyHopGame {
     this.camera.updateProjectionMatrix();
   }
 
+  // --- Trailer autopilot ------------------------------------------------------------------------
+
+  /** Walks towards a point (slowing down to stop on it when `stop`). */
+  private steerTo(x: number, z: number, stop = false) {
+    const p = this.p.pos;
+    const dx = x - p.x;
+    const dz = z - p.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.05) return this.ap.wish.set(0, 0, 0);
+    const m = stop ? Math.min(1, d / 1.4) : 1;
+    return this.ap.wish.set((dx / d) * m, 0, (dz / d) * m);
+  }
+
+  /** Where the autopilot wants to land: what it aims at, the platform it boards, or the route point. */
+  private apTarget(out: THREE.Vector3) {
+    const ap = this.ap;
+    const aim = ap.aim;
+    if (aim?.kind === "enemy" && aim.enemy.state !== "dead" && aim.enemy.state !== "squash") return out.set(aim.enemy.pos.x, aim.enemy.pos.y + aim.enemy.height * 0.55, aim.enemy.pos.z);
+    if (aim?.kind === "crate" && !aim.crate.broken) return out.set(aim.crate.pos.x, aim.crate.box.maxY, aim.crate.pos.z);
+    if (aim?.kind === "spring") return out.set(aim.spring.box.minX / 2 + aim.spring.box.maxX / 2, aim.spring.box.maxY, aim.spring.box.minZ / 2 + aim.spring.box.maxZ / 2);
+    ap.aim = null;
+    const node = this.data?.route[ap.i];
+    if (!node) return null;
+    if (node.act === "ride") {
+      const m = this.movers[node.mover ?? -1];
+      if (m) return out.set(m.pos.x, m.pos.y, m.pos.z);
+    }
+    return out.set(node.x, node.y, node.z);
+  }
+
+  /** In the air: picks the speed that lands on the target, double-jumping when it is too far or too high. */
+  private steerAir(dt: number) {
+    const p = this.p;
+    const t = this.apTarget(this.tmpV);
+    if (!t) return;
+    const dx = t.x - p.pos.x;
+    const dz = t.z - p.pos.z;
+    const dist = Math.hypot(dx, dz);
+    const vy = p.vel.y;
+    const canDouble = p.airJumps < this.perks.airJumps && !p.pound && vy < 2.5 && vy > -6;
+    const apex = vy > 0 ? p.pos.y + (vy * vy) / (2 * GRAVITY) : p.pos.y;
+    let left: number;
+    if (apex < t.y + 0.15) {
+      if (canDouble) this.jumpQueued = true;
+      left = Math.max(0.05, vy > 0 ? vy / GRAVITY : 0.05);
+    } else left = (vy > 0 ? vy / GRAVITY : 0) + Math.sqrt((2 * (apex - t.y)) / (GRAVITY * FALL_MULT));
+    const run = RUN_SPEED * this.perks.run;
+    // A long way to go: double jump near the top for the extra air time (and the flip).
+    if (dist / Math.max(left, 0.05) > run * 1.2 && canDouble && vy < 1.5) this.jumpQueued = true;
+    const speed = Math.min(dist / Math.max(left, 0.08), run * 1.6);
+    const k = 1 - Math.exp(-14 * dt);
+    const vx = dist > 0.05 ? (dx / dist) * speed : 0;
+    const vz = dist > 0.05 ? (dz / dist) * speed : 0;
+    p.vel.x += (vx - p.vel.x) * k;
+    p.vel.z += (vz - p.vel.z) * k;
+    if (this.ap.aim?.kind === "crate" && dist < 0.4 && vy < 2 && p.airT > 0.15 && !p.pound) this.poundQueued = true;
+  }
+
+  /** Something worth landing on just ahead: an enemy to stomp or a crate to smash. */
+  private aimAhead(toX: number, toZ: number) {
+    const p = this.p.pos;
+    const fx = toX - p.x;
+    const fz = toZ - p.z;
+    const fl = Math.hypot(fx, fz) || 1;
+    const ahead = (x: number, z: number, reach: number) => {
+      const dx = x - p.x;
+      const dz = z - p.z;
+      const d = Math.hypot(dx, dz);
+      return d < reach && (d < 1.6 || (dx * fx + dz * fz) / (d * fl) > 0.35);
+    };
+    for (const e of this.enemies) {
+      if (e.state === "dead" || e.state === "squash" || Math.abs(e.pos.y - p.y) > 1.2) continue;
+      if (ahead(e.pos.x, e.pos.z, 4.4)) {
+        this.ap.aim = { kind: "enemy", enemy: e };
+        return true;
+      }
+    }
+    for (const c of this.crates) {
+      if (c.broken || Math.abs(c.pos.y - p.y) > 0.4) continue;
+      if (ahead(c.pos.x, c.pos.z, 3.2)) {
+        this.ap.aim = { kind: "crate", crate: c };
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The trailer's autopilot: follows the stage's route, stomping enemies and smashing crates on the way. */
+  private drive(dt: number) {
+    const p = this.p;
+    const ap = this.ap;
+    const route = this.data?.route;
+    ap.wish.set(0, 0, 0);
+    // Jump held: full-height jumps.
+    this.jumpHeld = true;
+    if (!route?.length || ap.i >= route.length) return;
+    if (ap.i !== ap.lastI) {
+      ap.lastI = ap.i;
+      ap.stuckT = 0;
+    } else ap.stuckT += dt;
+    const node = route[ap.i];
+    // Waiting for a slow platform and riding it take a while.
+    const patience = node.act === "ride" ? 6 + (this.movers[node.mover ?? -1]?.path.period ?? 4) * 2 : 8;
+    if (ap.stuckT > patience || (!p.grounded && p.vel.y < 0 && p.pos.y < Math.min(node.y, this.respawn.pos.y) - 7)) {
+      this.backOnRoute(true);
+      return;
+    }
+    if (!p.grounded) {
+      this.steerAir(dt);
+      return;
+    }
+    ap.aim = ap.aim?.kind === "spring" ? ap.aim : null;
+    const mover = node.act === "ride" ? this.movers[node.mover ?? -1] : undefined;
+    const d = Math.hypot(node.x - p.pos.x, node.z - p.pos.z);
+
+    if (mover && p.ground === mover.box) {
+      // Riding: stay in the middle until the platform reaches its far end (and the next one is ready).
+      ap.rideT += dt;
+      this.steerTo(mover.pos.x, mover.pos.z, true);
+      const next = route[ap.i + 1];
+      const nextMover = next?.act === "ride" ? this.movers[next.mover ?? -1] : undefined;
+      const exit = node.exit ?? node;
+      const atExit = Math.hypot(mover.pos.x - exit.x, mover.pos.y - exit.y, mover.pos.z - exit.z) < 0.9;
+      const ready = !nextMover || !next.enter || Math.hypot(nextMover.pos.x - next.enter.x, nextMover.pos.y - next.enter.y, nextMover.pos.z - next.enter.z) < 1.4;
+      if (ap.rideT > 0.5 && atExit && ready) {
+        ap.i++;
+        ap.rideT = 0;
+        this.jumpQueued = true;
+      }
+      return;
+    }
+    ap.rideT = 0;
+
+    switch (node.act) {
+      case "run":
+      case "jump": {
+        if (this.aimAhead(node.x, node.z)) {
+          this.jumpQueued = true;
+          return;
+        }
+        this.steerTo(node.x, node.z, node.act === "jump");
+        if (d < (node.act === "jump" ? 0.6 : 0.9)) {
+          ap.i++;
+          if (node.act === "jump") this.jumpQueued = true;
+        }
+        break;
+      }
+      case "spring": {
+        if (d > 3 && this.aimAhead(node.x, node.z)) {
+          this.jumpQueued = true;
+          return;
+        }
+        const spring = this.springs.find((s) => Math.hypot((s.box.minX + s.box.maxX) / 2 - node.x, (s.box.minZ + s.box.maxZ) / 2 - node.z) < 1);
+        this.steerTo(node.x, node.z, true);
+        if (spring && d < 2.6) {
+          ap.aim = { kind: "spring", spring };
+          this.jumpQueued = true;
+        } else if (!spring) ap.i++;
+        break;
+      }
+      case "ride": {
+        if (!mover) {
+          ap.i++;
+          break;
+        }
+        if (d > 1.5 && this.aimAhead(node.x, node.z)) {
+          this.jumpQueued = true;
+          return;
+        }
+        // Wait at the edge until the platform comes, then hop on.
+        this.steerTo(node.x, node.z, true);
+        const enter = node.enter ?? node;
+        const here = Math.hypot(mover.pos.x - enter.x, mover.pos.y - enter.y, mover.pos.z - enter.z) < 0.9;
+        if (here && d < 1.2) this.jumpQueued = true;
+        break;
+      }
+    }
+  }
+
+  /**
+   * Puts the hero back on the route (the autopilot fell or got stuck, or a trailer shot starts part-way):
+   * on the last route point that stands on solid ground, facing the next one.
+   */
+  private backOnRoute(rescue: boolean) {
+    const route = this.data?.route;
+    if (!route?.length) {
+      if (rescue) this.respawnPlayer();
+      return;
+    }
+    let i = Math.min(this.ap.i, route.length - 1);
+    while (i > 0 && (route[i].act === "ride" || (i > 0 && route[i - 1].act === "ride" && route[i].act !== "run"))) i--;
+    const at = route[i];
+    const next = route[Math.min(i + 1, route.length - 1)];
+    const yaw = Math.atan2(-(next.x - at.x), -(next.z - at.z)) || 0;
+    this.placePlayer(this.tmpS.set(at.x, at.y, at.z), next === at ? this.respawn.yaw : yaw);
+    this.p.hurtT = 0;
+    this.ap.i = i;
+    this.ap.aim = null;
+    this.ap.rideT = 0;
+    this.ap.stuckT = 0;
+    if (rescue) {
+      this.rescues++;
+      this.dust(10, 0.7);
+    }
+  }
+
   // --- HUD --------------------------------------------------------------------------------------
 
   private emitHud(force = false) {
     const next: Hud = {
       level: this.levelIndex,
       coins: this.coinCounter,
+      maxHp: this.maxHp,
       levelCoins: this.levelCoins,
       lives: this.lives,
       hp: this.hp,
@@ -2465,6 +3020,7 @@ export class SkyHopGame {
       h.coins === next.coins &&
       h.lives === next.lives &&
       h.hp === next.hp &&
+      h.maxHp === next.maxHp &&
       h.key === next.key &&
       h.level === next.level &&
       h.chest === next.chest

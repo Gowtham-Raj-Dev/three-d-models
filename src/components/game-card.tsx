@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { ArrowUpRight, Gamepad2, Hourglass, Play, Smartphone } from "lucide-react";
+import { GameCardPreview } from "@/components/game-card-preview";
 import { asset } from "@/lib/asset";
 import { gameDisplayClass } from "@/lib/game-fonts";
 import type { GameEntry } from "@/lib/games";
@@ -44,6 +45,7 @@ export function GameCard({ game, modelCount, priority = false, android = false }
               decoding="async"
               className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
             />
+            {game.preview && <GameCardPreview src={asset(game.preview)} />}
             <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent" />
           </>
         )}

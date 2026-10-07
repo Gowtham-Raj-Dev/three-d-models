@@ -5,10 +5,12 @@ import { disposeTree, loadModels, makeProto, Pool, type LoadedModel, type LoadPr
 import { music } from "../shared/music";
 import { CRYPT_EPIC } from "../shared/songs";
 import { Animator, angleDiff, damp, turnTowards, yawTo } from "./anim";
+import { applySkin, shaderTime } from "../skate-rush/looks";
 import { Sfx } from "./audio";
-import { Enemy, type AttackDef, type EnemyAssets, type EnemyCtx } from "./enemies";
+import { findItem, HEROES, SKINS, WORLDS, type HeroDef, type WorldDef } from "./content";
+import { ENEMIES, Enemy, type AttackDef, type EnemyAssets, type EnemyCtx } from "./enemies";
 import { Decal, Decals, Glows, Particles, Popups, Slashes } from "./fx";
-import { ROOMS, Room, type Breakable, type Chest, type EnemyKind } from "./level";
+import { Room, worldRooms, type Breakable, type Chest, type EnemyKind, type RoomPlan } from "./level";
 import { C, D, FIRST_MODELS, LATER_MODELS } from "./manifest";
 import { BASE_STATS, POTION_PRICE, POTION_PRICE_STEP, POWERS, rollPowers, type Power, type Stats } from "./powers";
 
@@ -75,6 +77,9 @@ export interface RunSummary {
   won: boolean;
   /** Room reached (1-based). */
   depth: number;
+  /** The stage played (0-based) and the stars earned (0 when lost). */
+  stage: number;
+  stars: number;
   cleared: number;
   kills: number;
   time: number;
@@ -97,6 +102,13 @@ export interface GameEvents {
 
 export type Action = "attack" | "roll" | "spin" | "potion";
 
+/** What the shop has equipped (ids from content.ts). */
+export interface Loadout {
+  hero: string;
+  skin: string;
+  world: string;
+}
+
 /** A power on offer, with how many times it was already taken this run. */
 export interface Offer {
   power: Power;
@@ -110,7 +122,6 @@ interface Knight {
   root: THREE.Group;
   anim: Animator;
   mats: THREE.MeshStandardMaterial[];
-  sword: THREE.Object3D | null;
   shield: THREE.Object3D | null;
   x: number;
   z: number;
@@ -134,6 +145,16 @@ interface Knight {
   healed: boolean;
   spinTicks: number;
   flash: number;
+}
+
+/** A hero's model, built once and swapped in and out of the knight's place. */
+interface Rig {
+  root: THREE.Group;
+  model: THREE.Object3D;
+  anim: Animator;
+  shield: THREE.Object3D | null;
+  /** Skin id it wears now. */
+  skin: string;
 }
 
 interface Bolt {
@@ -193,6 +214,7 @@ export class CryptKnightGame implements EnemyCtx {
   private resizeObserver: ResizeObserver | null = null;
   private envTexture: THREE.Texture | null = null;
   private readonly moon = new THREE.DirectionalLight("#9fb2ff", 0.75);
+  private readonly hemi = new THREE.HemisphereLight("#7d8fe0", "#2a1c17", 0.5);
   private readonly torchLights: THREE.PointLight[] = [];
   private readonly heroLight = new THREE.PointLight("#ffb27a", 10, 12, 2);
   private readonly fade: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -233,6 +255,29 @@ export class CryptKnightGame implements EnemyCtx {
   private levels: Record<string, number> = {};
   private boss: Enemy | null = null;
   private laterReady = false;
+
+  // Loadout
+  private world: WorldDef = WORLDS[0];
+  private plans: RoomPlan[] = worldRooms(WORLDS[0]);
+  private hero: HeroDef = HEROES[0];
+  private skin = SKINS[0].id;
+  private readonly rigs = new Map<string, Rig>();
+  private readonly heroModels = new Map<string, Promise<LoadedModel | null>>();
+  private heroTicket = 0;
+  private sizes: Record<string, number> = {};
+  /** Skin patterns move with the hero. */
+  private readonly skinOrigin = { value: new THREE.Vector3() };
+  /** Shop open: the hero turns to show off, and the picture slides clear of the panel (fractions of the view). */
+  private showcase = false;
+  private readonly shift = { x: 0, y: 0, cx: 0, cy: 0 };
+  private view = { w: 1, h: 1 };
+  /** Trailer only: the hero fights on its own and never falls. */
+  autopilot = false;
+  invincible = false;
+  /** Trailer only: brings the gameplay camera closer (1 = normal). */
+  cinema = 1;
+  /** Trailer only: a low camera in front of this enemy, slowly pushing in (the king's entrance). */
+  closeUp: { enemy: Enemy; t: number } | null = null;
 
   // Feel
   private hitStopT = 0;
@@ -315,7 +360,7 @@ export class CryptKnightGame implements EnemyCtx {
     scene.environment = this.envTexture;
     scene.environmentIntensity = 0.12;
 
-    scene.add(new THREE.HemisphereLight("#7d8fe0", "#2a1c17", 0.5));
+    scene.add(this.hemi);
     const { moon } = this;
     moon.position.set(-7, 22, 9);
     moon.castShadow = true;
@@ -334,11 +379,18 @@ export class CryptKnightGame implements EnemyCtx {
   }
 
   /** sizes: bytes per model (from the catalog) so the loading bar is exact. */
-  async load(sizes: Record<string, number>) {
+  async load(sizes: Record<string, number>, loadout: Loadout) {
+    this.sizes = sizes;
+    this.hero = findItem(HEROES, loadout.hero);
+    this.skin = findItem(SKINS, loadout.skin).id;
+    this.world = findItem(WORLDS, loadout.world);
+    this.plans = worldRooms(this.world);
     try {
-      const models = await loadModels(FIRST_MODELS, this.renderer, (p) => !this.disposed && this.events.progress(p), { sizes });
+      // The equipped hero loads in the knight's place.
+      const first = FIRST_MODELS.map((key) => (key === C.knight ? this.hero.key : key));
+      const models = await loadModels(first, this.renderer, (p) => !this.disposed && this.events.progress(p), { sizes });
       if (this.disposed) return;
-      const required = [C.knight, C.minion, D.floor, D.wall, D.doorway, D.torch];
+      const required = [this.hero.key, C.minion, D.floor, D.wall, D.doorway, D.torch];
       if (!required.every((k) => models.has(k))) throw new Error("Some game models could not be loaded. Check your connection and reload.");
 
       // Every dungeon piece embeds the same texture atlas: share one cheap Lambert material across all of
@@ -372,7 +424,10 @@ export class CryptKnightGame implements EnemyCtx {
       this.pickupPool = new Pool(this.protos, this.scene);
       this.room = new Room(this.protos, this.pool, this.decals, this.glows);
       this.scene.add(this.room.group);
-      this.buildKnight(models.get(C.knight)!);
+      const heroModel = models.get(this.hero.key)!;
+      this.heroModels.set(this.hero.key, Promise.resolve(heroModel));
+      this.buildKnight(this.buildRig(heroModel, this.hero));
+      this.applyWorld();
       this.assets.set("minion", this.enemyAssets(models.get(C.minion)!, models.get(C.blade)));
 
       // Warm the pools (and shaders) up front so the first fight doesn't hitch.
@@ -402,7 +457,12 @@ export class CryptKnightGame implements EnemyCtx {
       this.assets.set("boss", a);
     }
     if (mage) this.assets.set("mage", this.enemyAssets(mage, models.get(C.staff)));
-    for (const kind of ["warrior", "warrior", "mage", "mage"] as const) if (this.assets.has(kind)) this.makeEnemy(kind);
+    const rogue = models.get(C.rogue);
+    if (rogue) {
+      this.assets.set("rogue", this.enemyAssets(rogue, models.get(C.blade)));
+      this.assets.set("archer", this.enemyAssets(rogue, models.get(C.crossbow)));
+    }
+    for (const kind of ["warrior", "warrior", "mage", "mage", "rogue", "archer"] as const) if (this.assets.has(kind)) this.makeEnemy(kind);
     this.renderer.compile(this.scene, this.camera);
     this.laterReady = true;
     this.events.later(1);
@@ -412,31 +472,31 @@ export class CryptKnightGame implements EnemyCtx {
     return { scene: m.scene, clips: m.animations, right: right?.scene, left: left?.scene };
   }
 
-  private buildKnight(m: LoadedModel) {
+  private buildRig(m: LoadedModel, hero: HeroDef): Rig {
     const model = m.scene;
-    const hide = ["1H_Sword_Offhand", "2H_Sword", "Rectangle_Shield", "Round_Shield", "Spike_Shield"];
-    for (const name of hide) {
+    for (const name of hero.hide) {
       const o = model.getObjectByName(name);
       if (o) o.visible = false;
     }
-    const mats: THREE.MeshStandardMaterial[] = [];
     model.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.castShadow = true;
       mesh.frustumCulled = false;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      if ("emissive" in mat && !mats.includes(mat)) mats.push(mat);
     });
     const root = new THREE.Group();
     root.add(model);
-    this.scene.add(root);
+    const rig: Rig = { root, model, anim: new Animator(model, m.animations), shield: hero.shield ? (model.getObjectByName(hero.shield) ?? null) : null, skin: "classic" };
+    this.rigs.set(hero.id, rig);
+    return rig;
+  }
+
+  private buildKnight(rig: Rig) {
     this.k = {
-      root,
-      anim: new Animator(model, m.animations),
-      mats,
-      sword: model.getObjectByName("1H_Sword") ?? null,
-      shield: model.getObjectByName("Badge_Shield") ?? null,
+      root: rig.root,
+      anim: rig.anim,
+      mats: [],
+      shield: rig.shield,
       x: 0,
       z: 0,
       yaw: 0,
@@ -460,12 +520,58 @@ export class CryptKnightGame implements EnemyCtx {
       spinTicks: 0,
       flash: 0,
     };
+    this.useRig(rig);
+  }
+
+  /** Puts a hero's rig in the knight's place, wearing the equipped skin. */
+  private useRig(rig: Rig) {
+    const k = this.k;
+    if (k.root !== rig.root) k.root.removeFromParent();
+    this.scene.add(rig.root);
+    if (rig.skin !== this.skin) {
+      applySkin(rig.model, findItem(SKINS, this.skin).look, this.skinOrigin);
+      rig.skin = this.skin;
+    }
+    // Hurt flashes light up the (possibly new) materials.
+    const mats: THREE.MeshStandardMaterial[] = [];
+    rig.model.traverse((o) => {
+      const mat = (o as THREE.Mesh).isMesh ? ((o as THREE.Mesh).material as THREE.MeshStandardMaterial) : null;
+      if (mat && "emissive" in mat && !mats.includes(mat)) mats.push(mat);
+    });
+    k.root = rig.root;
+    k.anim = rig.anim;
+    k.mats = mats;
+    k.shield = rig.shield;
+    k.anim.play("Idle", { fade: 0 });
+    this.syncKnight();
+  }
+
+  /** Bones and eyes in the world's colours. */
+  private dress(e: Enemy) {
+    const look = this.world.look;
+    if (e.kind === "boss") e.dress(look.king, look.kingEyes);
+    else e.dress(look.bones);
+  }
+
+  /** Lights, fog, stone and torches in the world's colours. */
+  private applyWorld() {
+    const look = this.world.look;
+    (this.scene.background as THREE.Color).set(look.bg);
+    this.scene.fog?.color.set(look.bg);
+    this.hemi.color.set(look.sky);
+    this.hemi.groundColor.set(look.ground);
+    this.moon.color.set(look.moon);
+    for (const l of this.torchLights) l.color.set(look.torch);
+    this.roomMat?.color.set(look.tint);
+    this.room.flame = { flame: look.torch, core: look.core };
+    for (const e of this.enemyPool) this.dress(e);
   }
 
   private makeEnemy(kind: EnemyKind) {
     const assets = this.assets.get(kind) ?? this.assets.get("minion")!;
     const e = new Enemy(kind, assets, this.barMats);
     e.root.visible = false;
+    this.dress(e);
     this.scene.add(e.root, e.bar.group);
     this.enemyPool.push(e);
     return e;
@@ -519,14 +625,22 @@ export class CryptKnightGame implements EnemyCtx {
     if (this.phase !== "loading") this.setPhase("menu");
   }
 
-  /** Starts a run from the menu (or again after a game over). */
-  start() {
+  /** Starts stage `index` (0-based) of the current world: one room, blessed with a random power for every stage before it. */
+  start(index = 0) {
     audio.unlock();
     if (this.stage !== "menu") this.toMenu();
-    this.stats = { ...BASE_STATS };
+    this.setShowcase(false);
+    this.stats = { ...BASE_STATS, ...this.hero.stats };
     this.levels = {};
-    this.hp = this.stats.maxHp;
     this.potions = 2;
+    for (let i = 0; i < index; i++) {
+      const [p] = rollPowers(this.levels, 1);
+      if (!p) break;
+      const res = p.apply(this.stats) ?? {};
+      this.levels[p.id] = (this.levels[p.id] ?? 0) + 1;
+      if (res.potions) this.potions = Math.min(this.stats.maxPotions, this.potions + res.potions);
+    }
+    this.hp = this.stats.maxHp;
     this.coins = 0;
     this.potionsBought = 0;
     this.charge = 0;
@@ -541,15 +655,106 @@ export class CryptKnightGame implements EnemyCtx {
     k.rollCd = 0;
     k.iframes = 0;
     k.flash = 0;
-    this.stage = "intro";
-    this.stageT = 0;
-    this.stageFlag = false;
     this.sfx.start();
     music.play(CRYPT_EPIC, 1);
     music.duck(false);
-    this.events.banner("Room 1", "Wake the dead — then put them back");
+    if (index === 0) {
+      // Stage 1 is the title room: the camera swings round and the sleepers get up.
+      this.stage = "intro";
+      this.stageT = 0;
+      this.stageFlag = false;
+      this.events.banner(this.world.name, "Stage 1 · wake the dead, then put them back");
+    } else {
+      this.fade.material.opacity = 1;
+      this.enterRoom(index);
+    }
     this.setPhase("playing");
     this.emitHud(true);
+  }
+
+  /** Shop: swaps the hero, loading its model the first time. False if it could not be shown. */
+  async setHero(id: string, progress?: (ratio: number) => void) {
+    const hero = findItem(HEROES, id);
+    const ticket = ++this.heroTicket;
+    let rig = this.rigs.get(hero.id);
+    if (!rig) {
+      let model = this.heroModels.get(hero.key);
+      if (!model) {
+        model = loadModels([hero.key], this.renderer, (p) => progress?.(p.ratio), { sizes: this.sizes }).then(
+          (m) => m.get(hero.key) ?? null,
+          () => null,
+        );
+        this.heroModels.set(hero.key, model);
+      }
+      const m = await model;
+      if (!m || this.disposed) return false;
+      rig = this.rigs.get(hero.id) ?? this.buildRig(m, hero);
+    }
+    // Another hero was picked meanwhile, or a run started.
+    if (ticket !== this.heroTicket || this.stage !== "menu") return false;
+    this.hero = hero;
+    this.useRig(rig);
+    return true;
+  }
+
+  setSkin(id: string) {
+    this.skin = findItem(SKINS, id).id;
+    const rig = this.rigs.get(this.hero.id);
+    if (rig) this.useRig(rig);
+  }
+
+  /** Shop: moves to another world (rebuilds the title room in its colours). */
+  setWorld(id: string) {
+    const world = findItem(WORLDS, id);
+    if (world === this.world || this.stage !== "menu") return;
+    this.world = world;
+    this.plans = worldRooms(world);
+    this.applyWorld();
+    this.toMenu();
+  }
+
+  /** Shop open or closed; `shift` is how far to slide the picture (fractions of the view). */
+  setShowcase(on: boolean, shift = { x: 0, y: 0 }) {
+    this.showcase = on;
+    this.shift.x = on ? shift.x : 0;
+    this.shift.y = on ? shift.y : 0;
+    if (!on && this.stage === "menu") {
+      this.k.yaw = 0;
+      this.syncKnight();
+    }
+  }
+
+  /** The hero cheers (bought something). */
+  celebrate() {
+    if (this.stage !== "menu") return;
+    audio.unlock();
+    this.k.anim.play("Cheer", { once: true, fade: 0.15 });
+    this.sfx.powerUp();
+    this.sparks.burst(40, this.k.x, 1.4, this.k.z, { speed: 3.5, up: 4.5, life: 1, size: 0.4, color: "#fff3b0", endColor: "#f59e0b", gravity: 4 });
+  }
+
+  /** Trailer only: starts a run straight in room `index` of the current world. */
+  jumpTo(index: number) {
+    this.start(index);
+    this.camBlend = 1;
+    this.fade.material.opacity = 0;
+  }
+
+  /** Trailer only: runs the game ahead without drawing. */
+  warp(seconds: number) {
+    const dt = 1 / 60;
+    for (let t = 0; t < seconds; t += dt) {
+      if (this.phase === "playing") this.update(dt);
+      else if (this.phase === "menu") this.updateMenu(dt);
+      this.elapsed += dt;
+      this.room.update(dt, this.elapsed);
+      this.sparks.update(dt);
+      this.dust.update(dt);
+      this.decals.update(dt);
+      this.slashes.update(dt);
+      this.popups.update(dt);
+      this.updateCamera(dt);
+    }
   }
 
   pause() {
@@ -649,6 +854,7 @@ export class CryptKnightGame implements EnemyCtx {
     this.canvas.removeEventListener("pointerup", this.onPointerUp);
     music.stop();
     for (const e of this.enemyPool) e.dispose();
+    for (const rig of this.rigs.values()) disposeTree(rig.root);
     for (const proto of this.protos.values()) disposeTree(proto.object);
     this.sparks.dispose();
     this.dust.dispose();
@@ -784,6 +990,7 @@ export class CryptKnightGame implements EnemyCtx {
 
     if (live) {
       this.elapsed += dt;
+      shaderTime.value = this.elapsed;
       this.room.update(dt, this.elapsed);
       this.updateLights();
       this.sparks.update(dt);
@@ -804,7 +1011,13 @@ export class CryptKnightGame implements EnemyCtx {
   };
 
   private updateMenu(dt: number) {
-    this.k.anim.update(dt);
+    const k = this.k;
+    k.anim.update(dt);
+    if (k.anim.name === "Cheer" && k.anim.finished) k.anim.play("Idle", { fade: 0.3 });
+    if (this.showcase) {
+      k.yaw = Math.sin(this.elapsed * 0.6) * 0.65;
+      this.syncKnight();
+    }
     for (const e of this.enemies) e.update(this, dt);
   }
 
@@ -824,6 +1037,8 @@ export class CryptKnightGame implements EnemyCtx {
     this.rollBuf = Math.max(0, this.rollBuf - dt);
     this.spinBuf = Math.max(0, this.spinBuf - dt);
     this.potionBuf = Math.max(0, this.potionBuf - dt);
+    if (this.autopilot) this.drive();
+    if (this.invincible) this.hp = Math.max(this.hp, this.stats.maxHp * 0.9);
     this.updateStage(dt);
     this.updateKnight(dt);
     this.updateEnemies(dt);
@@ -858,7 +1073,7 @@ export class CryptKnightGame implements EnemyCtx {
 
   private buildRoom(index: number) {
     this.clearWorld();
-    const plan = ROOMS[index];
+    const plan = this.plans[index];
     this.room.build(plan);
     const { hw, hd } = this.room;
     // Shadow frustum fitted to the room.
@@ -885,9 +1100,9 @@ export class CryptKnightGame implements EnemyCtx {
       const spot = this.room.freeSpot(this.k.x, this.k.z, 5.5, taken);
       taken.push(spot);
       const e = this.acquireEnemy(kind);
-      e.spawn(spot.x, spot.z, yawTo(this.k.x - spot.x, this.k.z - spot.z), this.depth, "rise", delay);
+      e.spawn(spot.x, spot.z, yawTo(this.k.x - spot.x, this.k.z - spot.z), this.depth + this.world.tier, "rise", delay);
       e.wave = this.wave;
-      const rune = this.decals.get().set("rune", spot.x, spot.z, 1.5, kind === "mage" ? "#b46bff" : kind === "warrior" ? "#ffb347" : "#5fe3ff", { opacity: 1 });
+      const rune = this.decals.get().set("rune", spot.x, spot.z, 1.5, kind === "mage" ? "#b46bff" : kind === "warrior" ? "#ffb347" : kind === "archer" ? "#ffd27a" : "#5fe3ff", { opacity: 1 });
       this.decals.fade(rune, 2.4 + delay);
       delay += 0.28;
     }
@@ -906,7 +1121,7 @@ export class CryptKnightGame implements EnemyCtx {
   }
 
   private updateStage(dt: number) {
-    const plan = ROOMS[this.depth];
+    const plan = this.plans[this.depth];
     const k = this.k;
     switch (this.stage) {
       case "intro": {
@@ -944,7 +1159,7 @@ export class CryptKnightGame implements EnemyCtx {
         if (this.stageT > 0.8 && this.stageT - dt <= 0.8) {
           this.sfx.roar();
           this.shake(0.7);
-          this.events.banner("The Bone King", "Ruler of the crypt");
+          this.events.banner(this.world.boss, `Ruler of ${this.world.name}`);
           music.setIntensity(2);
         }
         if (this.stageT > 2.4) {
@@ -965,10 +1180,8 @@ export class CryptKnightGame implements EnemyCtx {
         break;
       }
       case "cleared": {
-        if (this.stageT > 1.5) {
-          this.setPhase("choosing");
-          this.events.choose(rollPowers(this.levels).map((power) => ({ power, level: this.levels[power.id] ?? 0 })));
-        }
+        // A stage is one room: once the loose coins are in, it's won.
+        if (this.stageT > 1.8) this.finish(true);
         break;
       }
       case "exit": {
@@ -1011,7 +1224,7 @@ export class CryptKnightGame implements EnemyCtx {
     this.sfx.roomClear();
     music.setIntensity(0);
     this.heal(this.stats.maxHp * 0.05);
-    this.events.banner("Room cleared", `${this.depth + 1} of ${ROOMS.length}`);
+    this.events.banner("Stage cleared", `${this.depth + 1} of ${this.plans.length}`);
     // Loose coins fly to the knight.
     for (const p of this.pickups) p.t = Math.max(p.t, 0.6);
   }
@@ -1028,10 +1241,12 @@ export class CryptKnightGame implements EnemyCtx {
     k.state = "idle";
     this.syncKnight();
     this.camPos.set(0, 0, 0);
-    const plan = ROOMS[index];
+    const plan = this.plans[index];
     if (plan.boss) {
       const b = this.acquireEnemy("boss");
+      b.def = { ...ENEMIES.boss, name: this.world.boss, hp: Math.round(ENEMIES.boss.hp * this.world.bossHp) };
       b.spawn(0, -this.room.hd + 4.5, 0, index, "dormant");
+      b.dmgMult = this.world.bossDamage;
       this.boss = b;
       this.refreshEnemies();
       music.setIntensity(1);
@@ -1039,16 +1254,20 @@ export class CryptKnightGame implements EnemyCtx {
     this.stage = "enter";
     this.stageT = 0;
     this.fadeTarget = 0;
-    this.events.banner(plan.boss ? "The Throne Room" : `Room ${index + 1}`, plan.boss ? "Final room" : index >= 7 ? "Deep in the crypt" : undefined);
+    const blessed = Object.values(this.levels).reduce((a, b) => a + b, 0);
+    this.events.banner(plan.boss ? "The Throne Room" : `Stage ${index + 1}`, blessed ? `Blessed with ${blessed} power${blessed > 1 ? "s" : ""}` : undefined);
     this.emitHud(true);
   }
 
   private finish(won: boolean) {
     if (this.stage === "done") return;
     this.stage = "done";
+    const health = this.hp / this.stats.maxHp;
     const summary: RunSummary = {
       won,
       depth: this.depth + 1,
+      stage: this.depth,
+      stars: won ? (health >= 0.7 ? 3 : health >= 0.35 ? 2 : 1) : 0,
       cleared: this.cleared,
       kills: this.kills,
       time: Math.round(this.runTime),
@@ -1071,6 +1290,7 @@ export class CryptKnightGame implements EnemyCtx {
     const k = this.k;
     k.root.position.set(k.x, 0, k.z);
     k.root.rotation.y = k.yaw;
+    this.skinOrigin.value.set(k.x, 0, k.z);
     this.heroLight.position.set(k.x, 3.6, k.z + 1.2);
   }
 
@@ -1504,7 +1724,7 @@ export class CryptKnightGame implements EnemyCtx {
     for (const o of this.enemies) if (o !== e && o.alive) this.killEnemy(o);
     for (const b of this.bolts) this.killBolt(b);
     this.cleared++;
-    this.events.banner("Victory!", "The Bone King falls");
+    this.events.banner("Victory!", `${this.world.boss} falls`);
     music.setIntensity(0);
   }
 
@@ -1727,8 +1947,8 @@ export class CryptKnightGame implements EnemyCtx {
     b.homing = e.kind === "mage" ? 1.1 : 0;
     b.mesh.visible = true;
     b.glow.visible = true;
-    (b.mesh.material as THREE.MeshBasicMaterial).color.set("#f3d6ff");
-    (b.glow.material as THREE.SpriteMaterial).color.set(e.kind === "boss" ? "#ff2d55" : "#a24dff");
+    (b.mesh.material as THREE.MeshBasicMaterial).color.set(e.kind === "archer" ? "#fff1c9" : "#f3d6ff");
+    (b.glow.material as THREE.SpriteMaterial).color.set(e.kind === "boss" ? "#ff2d55" : e.kind === "archer" ? "#ff9a1f" : "#a24dff");
   }
 
   summon(kinds: EnemyKind[], near: { x: number; z: number }) {
@@ -1751,7 +1971,7 @@ export class CryptKnightGame implements EnemyCtx {
       }
       taken.push(spot);
       const e = this.acquireEnemy(kind);
-      e.spawn(spot.x, spot.z, yawTo(this.k.x - spot.x, this.k.z - spot.z), this.depth - 2, "rise", delay);
+      e.spawn(spot.x, spot.z, yawTo(this.k.x - spot.x, this.k.z - spot.z), this.depth - 2 + this.world.tier, "rise", delay);
       const rune = this.decals.get().set("rune", spot.x, spot.z, 1.5, "#b46bff", { opacity: 1 });
       this.decals.fade(rune, 2.4 + delay);
       delay += 0.3;
@@ -1768,7 +1988,7 @@ export class CryptKnightGame implements EnemyCtx {
     this.sfx.roar();
     this.shake(0.8);
     this.decals.wave(e.x, e.z, 8, "#ff2346", 0.8);
-    this.events.banner("The Bone King is enraged!", "Watch for bone shards");
+    this.events.banner(`${this.world.boss} is enraged!`, "Watch for bone shards");
     const k = this.k;
     const dx = k.x - e.x;
     const dz = k.z - e.z;
@@ -2041,6 +2261,16 @@ export class CryptKnightGame implements EnemyCtx {
 
   private updateCamera(dt: number) {
     const k = this.k;
+    if (this.closeUp) {
+      const c = this.closeUp;
+      c.t += dt;
+      const d = 9.5 - Math.min(2.5, c.t * 0.7);
+      const s = this.shakeAmt * 0.5;
+      this.shakeAmt = damp(this.shakeAmt, 0, 7, dt);
+      this.camera.position.set(c.enemy.x + 2.2 + (Math.random() - 0.5) * s, 3.6 + (Math.random() - 0.5) * s, c.enemy.z + d);
+      this.camera.lookAt(c.enemy.x, 2.4, c.enemy.z);
+      return;
+    }
     const inRun = this.phase !== "menu";
     this.camBlend = THREE.MathUtils.clamp(this.camBlend + (inRun ? dt : -dt) * 0.9, 0, 1);
     const blend = ease(this.camBlend);
@@ -2088,8 +2318,8 @@ export class CryptKnightGame implements EnemyCtx {
     tx = THREE.MathUtils.clamp(tx, -mx, mx);
     // Keep the void beyond the near balustrade mostly out of shot.
     tz = THREE.MathUtils.clamp(tz, -hd + 1.5, Math.max(-hd + 1.5, hd - (this.portrait ? 5 : 3.2)));
-    const high = (this.portrait ? 21 : 15.5) + this.zoom * (this.portrait ? 4 : 4.5);
-    const back = (this.portrait ? 12.5 : 10.2) + this.zoom * 3;
+    const high = ((this.portrait ? 21 : 15.5) + this.zoom * (this.portrait ? 4 : 4.5)) * this.cinema;
+    const back = ((this.portrait ? 12.5 : 10.2) + this.zoom * 3) * this.cinema;
     const gx = tx;
     const gy = high;
     const gz = tz + back;
@@ -2136,6 +2366,54 @@ export class CryptKnightGame implements EnemyCtx {
       this.camera.updateProjectionMatrix();
       this.updatePointScale();
     }
+    // The shop covers part of the screen: slide the picture into the rest.
+    const sh = this.shift;
+    const menu = this.phase === "menu";
+    if (dt > 0) {
+      sh.cx = damp(sh.cx, menu ? sh.x : 0, 6, dt);
+      sh.cy = damp(sh.cy, menu ? sh.y : 0, 6, dt);
+    }
+    const { w, h } = this.view;
+    if (Math.abs(sh.cx) + Math.abs(sh.cy) > 1e-3) this.camera.setViewOffset(w, h, -sh.cx * w, sh.cy * h, w, h);
+    else if (this.camera.view) this.camera.clearViewOffset();
+  }
+
+  /** Trailer autopilot: run at the nearest skeleton and swing; spin when crowded, roll now and then. */
+  private drive() {
+    const k = this.k;
+    this.stick.x = this.stick.y = 0;
+    if (this.stage === "exit") {
+      const dx = -k.x;
+      const dz = -this.room.hd - 1.5 - k.z;
+      const l = Math.hypot(dx, dz) || 1;
+      this.stick.x = dx / l;
+      this.stick.y = -dz / l;
+      return;
+    }
+    let target: Enemy | null = null;
+    let best = Infinity;
+    let near = 0;
+    for (const e of this.enemies) {
+      if (!e.hittable) continue;
+      const d = Math.hypot(e.x - k.x, e.z - k.z);
+      if (d < 4) near++;
+      if (d < best) {
+        best = d;
+        target = e;
+      }
+    }
+    if (!target) return;
+    const dx = target.x - k.x;
+    const dz = target.z - k.z;
+    if (best > target.radius + 1.9) {
+      this.stick.x = dx / best;
+      this.stick.y = -dz / best;
+    } else {
+      this.attackBuf = 0.35;
+      this.aimYaw = yawTo(dx, dz);
+    }
+    if (this.charge >= 1 && near >= 2) this.spinBuf = 0.25;
+    else if (target.state === "windup" && best < 3.2 && k.rollCd <= 0 && Math.random() < 0.03) this.rollBuf = 0.25;
   }
 
   private adaptResolution(real: number) {
@@ -2175,6 +2453,7 @@ export class CryptKnightGame implements EnemyCtx {
     const w = Math.max(1, el.clientWidth);
     const h = Math.max(1, el.clientHeight);
     this.renderer.setSize(w, h, false);
+    this.view = { w, h };
     this.camera.aspect = w / h;
     this.portrait = w / h < 0.85;
     this.camera.updateProjectionMatrix();
@@ -2199,7 +2478,7 @@ export class CryptKnightGame implements EnemyCtx {
       charge: Math.round(this.charge * 50) / 50,
       roll: this.k.rollCd > 0 ? Math.round((1 - this.k.rollCd / this.stats.rollCooldown) * 20) / 20 : 1,
       room: this.depth + 1,
-      rooms: ROOMS.length,
+      rooms: this.plans.length,
       enemies: this.remainingEnemies(),
       boss: boss ? { name: boss.def.name, hp: Math.max(0, Math.ceil(boss.hp)), max: boss.maxHp, enraged: boss.phase2 } : null,
       doorOpen: this.stage === "exit",
@@ -2214,7 +2493,7 @@ export class CryptKnightGame implements EnemyCtx {
   /** Skeletons still standing plus the ones yet to rise this room. */
   private remainingEnemies() {
     if (this.stage === "menu" || this.stage === "cleared" || this.stage === "exit" || this.stage === "transition") return 0;
-    const plan = ROOMS[this.depth];
+    const plan = this.plans[this.depth];
     let n = this.aliveCount();
     for (let w = this.wave + 1; w < plan.waves.length; w++) n += plan.waves[w].length;
     return n;

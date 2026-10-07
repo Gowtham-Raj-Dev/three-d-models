@@ -101,10 +101,13 @@ for upload. Its `index.html` loads YouTube's SDK before the game, and the game f
 progress in YouTube's cloud save (never localStorage), best score with sendScore, no full-screen or rotate buttons.
 Test it with `npx serve dist-playables/skate-rush` (the SDK does nothing outside YouTube) and YouTube's Playables test suite.
 
-The trailer on its page (`public/games/skate-rush/trailer.mp4` + `trailer-poster.webp`) is recorded from the game:
-`node scripts/record-skate-trailer.mjs` with `npm run dev` running and ffmpeg installed (or `FFMPEG=path/to/ffmpeg`).
-It steps the game frame by frame on a virtual clock while the autopilot plays, draws the captions over it and renders
-the music offline, so re-run it whenever the game's look changes.
+The trailer on its page (`public/games/skate-rush/trailer-1080.mp4` 1080p 60 fps for desktops and full screen,
+`trailer.mp4` 720p for phones, `trailer-poster.webp`) is recorded from the game: `node scripts/record-skate-trailer.mjs`
+with `npm run dev` running, ffmpeg (`FFMPEG=path/to/ffmpeg`) and [kokoro-js](https://www.npmjs.com/package/kokoro-js)
+for the announcer (`npm i kokoro-js` in any folder, `KOKORO=that/node_modules/kokoro-js/dist/kokoro.js`; `VOICE=` picks
+another Kokoro voice). It steps the game frame by frame on a virtual clock while the autopilot plays, draws the captions,
+renders the game's music and every sound effect of the run offline, and mixes in the voice-over (music ducked under it,
+-14 LUFS) — re-run it whenever the game's look changes.
 
 ### Custom colors
 

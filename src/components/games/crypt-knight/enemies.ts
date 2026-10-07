@@ -122,6 +122,47 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
     blockChance: 0,
     attacks: [{ id: "bolt", kind: "bolt", clip: "Spellcasting", windup: 0.95, contact: 0.2, recover: 0.6, range: 14, arc: 0.3, damage: 1, knock: 3, blockable: true, cooldown: 2.6, weight: 1 }],
   },
+  rogue: {
+    kind: "rogue",
+    name: "Skeleton Rogue",
+    hp: 46,
+    speed: 6,
+    radius: 0.5,
+    damage: 11,
+    mass: 0.8,
+    scale: 0.96,
+    height: 2.4,
+    turn: 9,
+    coins: [2, 3],
+    run: "Running_A",
+    walk: "Walking_D_Skeletons",
+    idle: "Idle_Combat",
+    armored: false,
+    blockChance: 0,
+    attacks: [
+      { id: "stab", kind: "melee", clip: "1H_Melee_Attack_Stab", windup: 0.45, contact: 0.41, from: 0.08, recover: 0.4, range: 2.3, arc: 0.7, damage: 1, knock: 2.5, blockable: true, cooldown: 0.7, weight: 2 },
+      { id: "pounce", kind: "leap", clip: "1H_Melee_Attack_Jump_Chop", windup: 0.75, contact: 0.78, recover: 0.55, range: 2, arc: Math.PI, damage: 1.1, knock: 5, blockable: true, cooldown: 3.2, weight: 1, minDist: 3.5, maxDist: 7.5 },
+    ],
+  },
+  archer: {
+    kind: "archer",
+    name: "Skeleton Archer",
+    hp: 64,
+    speed: 3.4,
+    radius: 0.5,
+    damage: 15,
+    mass: 1,
+    scale: 0.96,
+    height: 2.4,
+    turn: 7,
+    coins: [2, 4],
+    run: "Running_A",
+    walk: "Walking_D_Skeletons",
+    idle: "Idle_Combat",
+    armored: false,
+    blockChance: 0,
+    attacks: [{ id: "shot", kind: "bolt", clip: "1H_Ranged_Shoot", windup: 0.8, contact: 0.2, recover: 0.5, range: 15, arc: 0.3, damage: 1, knock: 3, blockable: true, cooldown: 2.2, weight: 1 }],
+  },
   boss: {
     kind: "boss",
     name: "The Bone King",
@@ -181,7 +222,8 @@ export interface EnemyAssets {
 }
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
-const EYE = { minion: "#7cf7ff", warrior: "#ffcf5a", mage: "#c58bff", boss: "#ff2346" } as const;
+const EYE = { minion: "#7cf7ff", warrior: "#ffcf5a", mage: "#c58bff", boss: "#ff2346", rogue: "#5effa0", archer: "#ffb347" } as const;
+const TINT = new THREE.Color();
 
 export class Enemy {
   readonly root = new THREE.Group();
@@ -190,6 +232,8 @@ export class Enemy {
   readonly bar: HealthBar;
   private readonly mats: THREE.MeshStandardMaterial[] = [];
   private readonly eyes: THREE.MeshStandardMaterial[] = [];
+  /** Bone colours before any world tint. */
+  private readonly bone: THREE.Color[] = [];
   private readonly hand: THREE.Object3D | null;
   def: EnemyDef;
   active = false;
@@ -265,7 +309,7 @@ export class Enemy {
           this.eyes.push(m);
         } else if ("emissive" in m) {
           this.mats.push(m);
-          if (kind === "boss") m.color.multiplyScalar(0.92);
+          this.bone.push(m.color.clone());
         }
       }
       mesh.material = m;
@@ -274,6 +318,19 @@ export class Enemy {
     this.root.scale.setScalar(this.def.scale);
     this.anim = new Animator(this.model, assets.clips);
     this.bar = new HealthBar(kind === "warrior" ? 1.5 : 1.1, kind === "boss" ? "#ff2346" : "#f43f5e", barMats);
+  }
+
+  /** A world's look: tints the bones (null = natural bone) and recolours the eyes (null = this kind's own). */
+  dress(tint: string | null, eyes: string | null = null) {
+    this.mats.forEach((m, i) => {
+      m.color.copy(this.bone[i]);
+      if (tint) m.color.multiply(TINT.set(tint));
+    });
+    const c = eyes ?? EYE[this.kind];
+    for (const m of this.eyes) {
+      m.color.set(c);
+      m.emissive.set(c);
+    }
   }
 
   get radius() {
@@ -638,7 +695,7 @@ export class Enemy {
     }
     const speed = this.def.speed * (this.phase2 ? 1.2 : 1) * (1 + ctx.depth * 0.02);
 
-    if (this.kind === "mage") {
+    if (this.kind === "mage" || this.kind === "archer") {
       const want = this.cooldown <= 0 && ctx.tokens.cast > 0 && dist < 13;
       if (want) return this.begin(ctx, this.def.attacks[0]);
       let mx = 0;
@@ -738,7 +795,7 @@ export class Enemy {
     const windup = atk.windup * (this.phase2 ? 0.82 : 1);
     const from = atk.from ?? 0;
     if (atk.kind === "bolt") {
-      this.anim.play("Spellcasting", { fade: 0.15, speed: 1 });
+      this.anim.play(this.kind === "archer" ? "1H_Ranged_Aiming" : "Spellcasting", { fade: 0.15, speed: 1 });
       ctx.sfx.charge();
     } else if (atk.kind === "summon" || atk.kind === "nova") {
       this.anim.play(atk.clip, { once: true, fade: 0.2, speed: 1 });
@@ -788,7 +845,7 @@ export class Enemy {
         this.decal.holder.rotation.y = this.yaw;
       }
     }
-    if (atk.kind === "bolt") {
+    if (atk.kind === "bolt" && this.kind === "mage") {
       // A charging orb at the staff hand.
       const p = this.handPosition(TMP);
       if (Math.random() < dt * 40) ctx.sparks.emit({ x: p.x + rand(-0.3, 0.3), y: p.y + rand(-0.2, 0.4), z: p.z + rand(-0.3, 0.3), vx: 0, vy: 0.8, vz: 0, life: 0.35, size: 0.35 + k * 0.4, color: "#d8a6ff", endColor: "#6a2cff" });
@@ -849,15 +906,16 @@ export class Enemy {
       this.anim.play("2H_Melee_Attack_Spinning", { fade: 0.1, speed: 1.1 });
       ctx.sfx.spin();
     } else if (atk.kind === "bolt") {
-      this.anim.play("Spellcast_Shoot", { once: true, fade: 0.05, speed: 1.3, from: 0.12 });
+      const archer = this.kind === "archer";
+      this.anim.play(archer ? "1H_Ranged_Shoot" : "Spellcast_Shoot", { once: true, fade: 0.05, speed: 1.3, from: archer ? 0 : 0.12 });
       const p = this.handPosition(TMP);
       const dx = ctx.px - this.x;
       const dz = ctx.pz - this.z;
       const aim = yawTo(dx, dz);
       const dmg = this.def.damage * this.dmgMult;
-      const speed = 6.2 + ctx.depth * 0.15;
+      const speed = (archer ? 9 : 6.2) + ctx.depth * 0.15;
       ctx.spawnBolt(this, p.x, Math.max(1.2, p.y), p.z, aim, speed, dmg);
-      if (ctx.depth >= 6) {
+      if (ctx.depth >= 6 && !archer) {
         ctx.spawnBolt(this, p.x, Math.max(1.2, p.y), p.z, aim - 0.32, speed, dmg);
         ctx.spawnBolt(this, p.x, Math.max(1.2, p.y), p.z, aim + 0.32, speed, dmg);
       }

@@ -285,7 +285,7 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
       )}
       {phase === "playing" && saved.games < 3 && <ControlsHint key={runKey} />}
 
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div data-bleed className="pointer-events-none absolute inset-0 overflow-hidden">
         {popups.map((p) => (
           <PopupView key={p.id} popup={p} />
         ))}

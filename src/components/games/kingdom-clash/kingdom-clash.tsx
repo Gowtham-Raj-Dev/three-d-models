@@ -281,7 +281,7 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
   const buildingIcon = building && building.kind !== "obstacle" ? icons[`b:${building.kind}`] : undefined;
 
   return (
-    <GameRoot game={GAME} className="bg-[#8fc7e8]">
+    <GameRoot game={GAME} className="bg-[#8fc7e8]" safeArea="manual">
       <style>{`@keyframes kc-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}} @media (pointer:coarse){.kc-hide-sm{display:none}} ${MOBILE_CSS}`}</style>
       {/* The village fills the whole screen, under a notch too; the HUD stays in .g-safe beside it. */}
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Kingdom Clash village" />

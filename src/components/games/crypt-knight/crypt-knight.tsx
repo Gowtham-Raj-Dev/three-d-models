@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   CircleHelp,
   Coins,
@@ -16,8 +16,10 @@ import {
   Play,
   RotateCcw,
   Shield,
+  ShoppingBag,
   Skull,
   Sparkles,
+  Star,
   Sword,
   Swords,
   Tornado,
@@ -26,6 +28,9 @@ import {
   Zap,
 } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { audio } from "../shared/audio";
+import { music } from "../shared/music";
+import { CRYPT_EPIC } from "../shared/songs";
 import { ControlsButton } from "../shared/touch-layout";
 import {
   BigButton,
@@ -48,12 +53,47 @@ import {
   useStore,
   type Store,
 } from "../shared/ui";
-import { CryptKnightGame, type Hud, type Offer, type Phase, type RunSummary } from "./engine";
+import { findItem, HEROES, ROOMS_PER_WORLD, stageReward, WORLDS, type ShopItem, type ShopKind } from "./content";
+import { CryptKnightGame, type Hud, type Loadout, type Offer, type Phase, type RunSummary } from "./engine";
 import { GAME } from "./manifest";
 import type { PowerIcon } from "./powers";
+import { CoinIcon, isOwned, ownedKey, Shop } from "./shop";
+import { nextStage, StageMap, Stars } from "./stages";
 import { ControlsEditor, TouchControls } from "./touch";
 
-const records = createRecords("crypt-knight:v1", { bestDepth: 0, wins: 0, runs: 0, bestTime: 0, kills: 0 });
+/** `stars`: per world, the stars of each of its ten stages (0 = not cleared). bestDepth / wins / bestTime are from the old ten-room runs. */
+const records = createRecords("crypt-knight:v1", {
+  bestDepth: 0,
+  wins: 0,
+  runs: 0,
+  bestTime: 0,
+  kills: 0,
+  bank: 0,
+  owned: [] as string[],
+  hero: HEROES[0].id,
+  skin: "classic",
+  world: WORLDS[0].id,
+  worlds: {} as Record<string, { best: number; wins: number }>,
+  stars: {} as Record<string, number[]>,
+});
+
+type Save = ReturnType<typeof records.get>;
+
+const loadoutOf = (save: Loadout): Loadout => ({ hero: save.hero, skin: save.skin, world: save.world });
+
+/** A world's stars per stage. Old saves: the crypt rooms reached in a run count as cleared stages. */
+const starsOf = (save: Save, world: string): number[] => {
+  const saved = save.stars[world];
+  if (saved) return saved;
+  const legacy = world === WORLDS[0].id ? (save.wins > 0 ? ROOMS_PER_WORLD : Math.max(0, save.bestDepth - 1)) : 0;
+  return Array.from({ length: ROOMS_PER_WORLD }, (_, i) => (i < legacy ? 1 : 0));
+};
+
+/** Why a world can't be bought yet: every stage of the world before it must be cleared first. */
+const worldGate = (save: Save, id: string) => {
+  const i = WORLDS.findIndex((w) => w.id === id);
+  return i <= 0 || starsOf(save, WORLDS[i - 1].id).every((n) => n > 0) ? null : `Clear every stage of ${WORLDS[i - 1].name} first`;
+};
 
 const EMPTY_HUD: Hud = { hp: 100, maxHp: 100, potions: 2, maxPotions: 3, coins: 0, charge: 0, roll: 1, room: 1, rooms: 10, enemies: 0, boss: null, doorOpen: false, potionPrice: 30 };
 
@@ -97,7 +137,12 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
   const [later, setLater] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<Offer[] | null>(null);
-  const [summary, setSummary] = useState<(RunSummary & { newBest: boolean }) | null>(null);
+  const [summary, setSummary] = useState<(RunSummary & { newBest: boolean; saved: number }) | null>(null);
+  const [shop, setShop] = useState<{ tab: ShopKind; selected: string } | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [map, setMap] = useState(false);
+  /** The stage being played (0-based). */
+  const stageRef = useRef(0);
   const [banner, setBanner] = useState<{ title: string; sub?: string; id: number } | null>(null);
   const [hurtKey, setHurtKey] = useState(0);
   const [help, setHelp] = useState(false);
@@ -122,19 +167,18 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
       hurt: () => setHurtKey((k) => k + 1),
       over: (run) => {
         const before = records.get();
-        const newBest = run.depth > before.bestDepth || (run.won && (!before.bestTime || run.time < before.bestTime));
-        records.set({
-          bestDepth: Math.max(before.bestDepth, run.depth),
-          wins: before.wins + (run.won ? 1 : 0),
-          runs: before.runs + 1,
-          bestTime: run.won ? (before.bestTime ? Math.min(before.bestTime, run.time) : run.time) : before.bestTime,
-          kills: before.kills + run.kills,
-        });
-        setSummary({ ...run, newBest });
+        const world = findItem(WORLDS, before.world);
+        const saved = stageReward(run.coins, run.stars, run.won && run.stage === ROOMS_PER_WORLD - 1, world);
+        const stars = [...starsOf(before, world.id)];
+        const newBest = run.stars > stars[run.stage];
+        stars[run.stage] = Math.max(stars[run.stage], run.stars);
+        records.set({ stars: { ...before.stars, [world.id]: stars }, runs: before.runs + 1, kills: before.kills + run.kills, bank: before.bank + saved });
+        setSummary({ ...run, newBest, saved });
       },
     });
     gameRef.current = game;
-    void game.load(modelSizes);
+    void game.load(modelSizes, loadoutOf(records.get()));
+    if (process.env.NODE_ENV !== "production") Object.assign(window, { __cryptKnight: { game, records, audio, music, song: CRYPT_EPIC, ui: { map: setMap } } });
     return () => {
       gameRef.current = null;
       game.dispose();
@@ -157,16 +201,37 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
     };
   }, []);
 
-  const start = () => {
+  const start = (stage = stageRef.current) => {
     const game = gameRef.current;
     if (!game) return;
+    stageRef.current = stage;
+    setMap(false);
     (document.activeElement as HTMLElement | null)?.blur();
     setSummary(null);
     setOptions(null);
     setHelp(false);
     setEditing(false);
+    if (shop) closeShop();
     setRunKey((k) => k + 1);
-    game.start();
+    game.start(stage);
+  };
+
+  /** The stage map of the equipped world (from the title screen or the results). */
+  const openMap = () => {
+    if (phase === "over") toMenu();
+    setMap(true);
+  };
+
+  /** World chip on the stage map: owned worlds are entered, locked ones open in the shop. */
+  const pickWorld = (id: string) => {
+    const save = records.get();
+    if (isOwned(save, "world", findItem(WORLDS, id))) {
+      records.set({ world: id });
+      gameRef.current?.setWorld(id);
+    } else {
+      setMap(false);
+      openShop("world", id);
+    }
   };
 
   const toMenu = () => {
@@ -181,6 +246,71 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
     gameRef.current?.choosePower(id);
   };
 
+  // --- Shop: picking an item previews it on the hero; closing puts back what's equipped. ---
+  const shown = useRef<Loadout | null>(null);
+  const shift = useRef({ x: 0, y: 0 });
+
+  const preview = (kind: ShopKind, id: string) => {
+    const game = gameRef.current;
+    const now = (shown.current ??= loadoutOf(records.get()));
+    if (!game || now[kind] === id) return;
+    now[kind] = id;
+    if (kind === "hero") {
+      setBusy(0);
+      void game.setHero(id, setBusy).finally(() => setBusy(null));
+    } else if (kind === "skin") game.setSkin(id);
+    else game.setWorld(id);
+  };
+
+  const openShop = (tab: ShopKind = "hero", selected?: string) => {
+    if (phase === "over") toMenu();
+    else if (phase !== "menu") return;
+    const save = records.get();
+    shown.current = loadoutOf(save);
+    setMap(false);
+    setShop({ tab, selected: selected ?? save[tab] });
+    if (selected) preview(tab, selected);
+    gameRef.current?.setShowcase(true, shift.current);
+  };
+
+  function closeShop() {
+    const save = records.get();
+    setShop(null);
+    (["hero", "skin", "world"] as const).forEach((kind) => preview(kind, save[kind]));
+    gameRef.current?.setShowcase(false);
+  }
+
+  const pickTab = (tab: ShopKind) => {
+    if (!shop) return;
+    // Leaving a tab puts its equipped item back on.
+    preview(shop.tab, records.get()[shop.tab]);
+    setShop({ tab, selected: records.get()[tab] });
+  };
+
+  const pickItem = (id: string) => {
+    if (!shop) return;
+    setShop({ ...shop, selected: id });
+    preview(shop.tab, id);
+  };
+
+  const equip = (kind: ShopKind, id: string) => {
+    records.set({ [kind]: id });
+    preview(kind, id);
+  };
+
+  const buy = (kind: ShopKind, item: ShopItem) => {
+    const save = records.get();
+    if (save.bank < item.price || isOwned(save, kind, item) || (kind === "world" && worldGate(save, item.id))) return;
+    records.set({ bank: save.bank - item.price, owned: [...save.owned, ownedKey(kind, item.id)], [kind]: item.id });
+    preview(kind, item.id);
+    gameRef.current?.celebrate();
+  };
+
+  const onLayout = useCallback((s: { x: number; y: number }) => {
+    shift.current = s;
+    gameRef.current?.setShowcase(true, s);
+  }, []);
+
   const pauseOrResume = () => {
     const game = gameRef.current;
     (document.activeElement as HTMLElement | null)?.blur();
@@ -192,6 +322,7 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
       setEditing(false);
       return;
     }
+    if (shop) return;
     if (phase === "playing") game?.pause();
     else if (phase === "paused") game?.resume();
   };
@@ -207,12 +338,15 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const game = gameRef.current;
-      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || editing || e.repeat) return;
+      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || editing || shop || map || e.repeat) return;
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const confirm = e.key === "Enter" || (e.key === " " && !onButton);
       if (phase === "menu" && confirm && !onButton) {
         e.preventDefault();
-        start();
+        openMap();
+      } else if ((phase === "menu" || phase === "over") && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        openShop();
       } else if (phase === "paused" && confirm && !onButton) {
         e.preventDefault();
         game.resume();
@@ -223,8 +357,8 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
       } else if (phase === "over" && summary) {
         if (confirm && !onButton) {
           e.preventDefault();
-          start();
-        } else if (e.key === "Escape") toMenu();
+          start(summary.won && summary.stage < ROOMS_PER_WORLD - 1 ? summary.stage + 1 : summary.stage);
+        } else if (e.key === "Escape") openMap();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -252,8 +386,44 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
 
       <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && !editing && (
-        <MenuScreen best={saved.bestDepth} wins={saved.wins} bestTime={saved.bestTime} later={later} onPlay={start} onHelp={() => setHelp(true)} onControls={() => setEditing(true)} touch={touch} />
+      {phase === "menu" && !editing && !shop && !map && (
+        <MenuScreen
+          stars={starsOf(saved, saved.world)}
+          world={findItem(WORLDS, saved.world).name}
+          hero={findItem(HEROES, saved.hero).name}
+          bank={saved.bank}
+          later={later}
+          onPlay={openMap}
+          onShop={() => openShop()}
+          onHelp={() => setHelp(true)}
+          onControls={() => setEditing(true)}
+          touch={touch}
+        />
+      )}
+      {phase === "menu" && shop && (
+        <Shop
+          save={saved}
+          tab={shop.tab}
+          selected={shop.selected}
+          busy={busy}
+          gate={(kind, item) => (kind === "world" ? worldGate(saved, item.id) : null)}
+          onTab={pickTab}
+          onSelect={pickItem}
+          onBuy={buy}
+          onEquip={equip}
+          onClose={closeShop}
+          onLayout={onLayout}
+        />
+      )}
+      {phase === "menu" && map && !shop && (
+        <StageMap
+          world={saved.world}
+          stars={starsOf(saved, saved.world)}
+          owned={(id) => isOwned(saved, "world", findItem(WORLDS, id))}
+          onWorld={pickWorld}
+          onPlay={start}
+          onClose={() => setMap(false)}
+        />
       )}
       {phase === "menu" && editing && <HudOverlay store={menuHud} paused={false} onPause={() => {}} touch />}
 
@@ -278,7 +448,7 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
             Resume
           </BigButton>
           <div className="grid grid-cols-3 gap-2">
-            <SoftButton onClick={start} icon={<RotateCcw className="size-4" />}>
+            <SoftButton onClick={() => start()} icon={<RotateCcw className="size-4" />}>
               Restart
             </SoftButton>
             <SoftButton onClick={() => setHelp(true)} icon={<CircleHelp className="size-4" />}>
@@ -300,44 +470,16 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
       {phase === "choosing" && options && !help && <PowerChoice options={options} store={hud} onPick={pick} game={gameRef} />}
 
       {phase === "over" && summary && !help && (
-        <Modal title={summary.won ? "Victory" : "You fell"} wide>
-          <div className="text-center">
-            {(summary.won || summary.newBest) && (
-              <p className="g-display mx-auto mb-3 inline-flex items-center gap-1.5 border-y border-[#c9a24a]/70 px-3 py-1 text-xs tracking-[0.2em] text-[#f8e7c0] uppercase">
-                {summary.won ? <Crown className="size-3.5 text-amber-300" /> : <Trophy className="size-3.5 text-amber-300" />}
-                {summary.won ? "The Bone King is dust" : "New best"}
-              </p>
-            )}
-            <p className="g-muted text-xs font-bold tracking-[0.2em] uppercase">{summary.won ? "Crypt cleared in" : "Reached room"}</p>
-            <p className="g-display text-6xl tabular-nums">{summary.won ? formatTime(summary.time) : `${summary.depth}/10`}</p>
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            <Stat label="Cleared" value={summary.cleared} />
-            <Stat label="Kills" value={formatNumber(summary.kills)} />
-            <Stat label="Time" value={formatTime(summary.time)} />
-            <Stat label="Coins" value={formatNumber(summary.coins)} />
-          </div>
-          {summary.powers.length > 0 && (
-            <div className="flex flex-wrap justify-center gap-1.5">
-              {summary.powers.map((p) => (
-                <span key={p.name} className="g-tint g-display rounded-[var(--g-hud-radius)] px-2.5 py-1 text-xs">
-                  {p.name}
-                  {p.level > 1 ? ` ×${p.level}` : ""}
-                </span>
-              ))}
-            </div>
-          )}
-          <p className="g-muted text-center text-xs font-semibold">
-            Best: room {Math.max(saved.bestDepth, summary.depth)}/10 · Wins {saved.wins}
-            {saved.bestTime ? ` · Fastest win ${formatTime(saved.bestTime)}` : ""}
-          </p>
-          <BigButton onClick={start} icon={<RotateCcw className="size-5" />} autoFocus>
-            Play again
-          </BigButton>
-          <SoftButton onClick={toMenu} icon={<Home className="size-4" />}>
-            Menu
-          </SoftButton>
-        </Modal>
+        <ResultModal
+          summary={summary}
+          world={saved.world}
+          bank={saved.bank}
+          nextWorld={WORLDS[WORLDS.findIndex((w) => w.id === saved.world) + 1] ?? null}
+          nextOwned={(id) => isOwned(saved, "world", findItem(WORLDS, id))}
+          onPlay={start}
+          onStages={openMap}
+          onShop={openShop}
+        />
       )}
 
       {help && <HowToPlay game={GAME} onClose={() => setHelp(false)} />}
@@ -348,20 +490,24 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
 // --- Screens -----------------------------------------------------------------------------------------
 
 function MenuScreen({
-  best,
-  wins,
-  bestTime,
+  stars,
+  world,
+  hero,
+  bank,
   later,
   onPlay,
+  onShop,
   onHelp,
   onControls,
   touch,
 }: {
-  best: number;
-  wins: number;
-  bestTime: number;
+  stars: number[];
+  world: string;
+  hero: string;
+  bank: number;
   later: number;
   onPlay: () => void;
+  onShop: () => void;
   onHelp: () => void;
   onControls: () => void;
   touch: boolean;
@@ -376,22 +522,34 @@ function MenuScreen({
 
       <div className="px-4 pt-1 text-center sm:pt-3">
         <GameTitle game={GAME} />
-        <p className="g-display mt-3 text-sm text-[#efe6da] [text-shadow:0_2px_8px_#000] sm:text-base">Ten rooms. One knight. A crypt full of bones.</p>
+        <p className="g-display mt-3 text-sm text-[#efe6da] [text-shadow:0_2px_8px_#000] sm:text-base">Five worlds. Fifty stages. A crypt full of bones.</p>
       </div>
 
       <div className="flex-1" />
 
       <div className="pointer-events-auto mx-auto w-full max-w-md space-y-3 px-4 pb-[max(env(safe-area-inset-bottom),16px)] sm:pb-8">
-        <BigButton onClick={onPlay} icon={<Swords className="size-6" />} autoFocus>
-          Enter the crypt
-        </BigButton>
+        <p className="g-display text-center text-xs text-[#f8e7c0] [text-shadow:0_1px_4px_#000]">
+          {world} · {hero}
+        </p>
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <BigButton onClick={onPlay} icon={<Swords className="size-6" />} autoFocus>
+            <span data-ck-play>Play</span>
+          </BigButton>
+          <button type="button" onClick={onShop} className="g-soft g-display inline-flex items-center px-3 focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+            <span className="g-unskew gap-1.5 text-sm">
+              <ShoppingBag className="size-4" /> Shop
+              <span className="inline-flex items-center gap-1 text-xs tabular-nums">
+                <CoinIcon className="size-3" /> {formatNumber(bank)}
+              </span>
+            </span>
+          </button>
+        </div>
         <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-bold">
           <span className="g-hud g-display inline-flex items-center gap-1.5 px-3 py-1.5">
-            <Trophy className="size-3.5 text-amber-300" /> Best room {best}/10
+            <Star className="size-3.5 fill-amber-300 text-amber-300" /> {stars.reduce((a, b) => a + b, 0)}/{ROOMS_PER_WORLD * 3}
           </span>
           <span className="g-hud g-display inline-flex items-center gap-1.5 px-3 py-1.5">
-            <Crown className="size-3.5 text-[var(--accent)]" /> Wins {wins}
-            {bestTime ? ` · ${formatTime(bestTime)}` : ""}
+            <Crown className="size-3.5 text-[var(--accent)]" /> Stage {nextStage(stars) + 1}/{ROOMS_PER_WORLD}
           </span>
           <button type="button" onClick={onHelp} className="g-soft g-display inline-flex items-center px-3 py-1.5 focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
             <span className="g-unskew gap-1.5">
@@ -405,6 +563,98 @@ function MenuScreen({
         </p>
       </div>
     </div>
+  );
+}
+
+/** After a stage: the stars, the coins saved and where to go next. */
+function ResultModal({
+  summary,
+  world,
+  bank,
+  nextWorld,
+  nextOwned,
+  onPlay,
+  onStages,
+  onShop,
+}: {
+  summary: RunSummary & { newBest: boolean; saved: number };
+  world: string;
+  bank: number;
+  nextWorld: { id: string; name: string } | null;
+  nextOwned: (id: string) => boolean;
+  onPlay: (stage: number) => void;
+  onStages: () => void;
+  onShop: (tab?: ShopKind, selected?: string) => void;
+}) {
+  const king = summary.stage === ROOMS_PER_WORLD - 1;
+  const w = findItem(WORLDS, world);
+  return (
+    <Modal title={summary.won ? (king ? "World cleared!" : "Stage cleared") : "You fell"} wide>
+      <div className="text-center">
+        <p className="g-muted text-xs font-bold tracking-[0.2em] uppercase">
+          {w.name} · Stage {summary.stage + 1}
+        </p>
+        {summary.won ? (
+          <div className="mt-2 flex justify-center">
+            <Stars n={summary.stars} className="size-10 sm:size-12" />
+          </div>
+        ) : (
+          <p className="g-display mt-1 text-4xl">Try again</p>
+        )}
+        {summary.won && king && (
+          <p className="g-display mx-auto mt-2 inline-flex items-center gap-1.5 border-y border-[#c9a24a]/70 px-3 py-1 text-xs tracking-[0.2em] text-[#f8e7c0] uppercase">
+            <Crown className="size-3.5 text-amber-300" /> {w.boss} is dust
+          </p>
+        )}
+        {summary.newBest && !king && (
+          <p className="g-display mt-2 flex items-center justify-center gap-1.5 text-xs tracking-[0.2em] text-[#f8e7c0] uppercase">
+            <Trophy className="size-3.5 text-amber-300" /> New best
+          </p>
+        )}
+        <p className="g-display mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-400/15 px-3 py-1 text-sm text-amber-200 tabular-nums">
+          <CoinIcon /> +{formatNumber(summary.saved)} coins saved · {formatNumber(bank)} total
+        </p>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Stat label="Kills" value={formatNumber(summary.kills)} />
+        <Stat label="Time" value={formatTime(summary.time)} />
+        <Stat label="Coins" value={formatNumber(summary.coins)} />
+      </div>
+      {summary.powers.length > 0 && (
+        <div className="flex flex-wrap justify-center gap-1.5">
+          {summary.powers.map((p) => (
+            <span key={p.name} className="g-tint g-display rounded-[var(--g-hud-radius)] px-2.5 py-1 text-xs">
+              {p.name}
+              {p.level > 1 ? ` ×${p.level}` : ""}
+            </span>
+          ))}
+        </div>
+      )}
+      {summary.won && !king ? (
+        <BigButton onClick={() => onPlay(summary.stage + 1)} icon={<Play className="size-5 fill-current" />} autoFocus>
+          Next stage
+        </BigButton>
+      ) : summary.won && nextWorld && !nextOwned(nextWorld.id) ? (
+        <BigButton onClick={() => onShop("world", nextWorld.id)} icon={<ShoppingBag className="size-5" />} autoFocus>
+          Unlock {nextWorld.name}
+        </BigButton>
+      ) : (
+        <BigButton onClick={() => onPlay(summary.stage)} icon={<RotateCcw className="size-5" />} autoFocus>
+          {summary.won ? "Play again" : "Retry"}
+        </BigButton>
+      )}
+      <div className="grid grid-cols-3 gap-2">
+        <SoftButton onClick={() => onPlay(summary.stage)} icon={<RotateCcw className="size-4" />}>
+          Retry
+        </SoftButton>
+        <SoftButton onClick={onStages} icon={<Star className="size-4" />}>
+          Stages
+        </SoftButton>
+        <SoftButton onClick={() => onShop()} icon={<ShoppingBag className="size-4" />}>
+          Shop
+        </SoftButton>
+      </div>
+    </Modal>
   );
 }
 
@@ -444,7 +694,7 @@ function HudOverlay({ store, paused, onPause, touch }: { store: Store<Hud>; paus
 
         <div className="flex flex-1 flex-col items-center gap-2 pt-0.5">
           <div data-avoid className="g-hud px-4 py-1.5 text-center">
-            <p className="g-display text-[9px] tracking-[0.25em] text-[var(--accent)] uppercase">Room</p>
+            <p className="g-display text-[9px] tracking-[0.25em] text-[var(--accent)] uppercase">Stage</p>
             <p className="g-display text-lg leading-none tabular-nums">
               {hud.room}
               <span className="text-sm opacity-55">/{hud.rooms}</span>

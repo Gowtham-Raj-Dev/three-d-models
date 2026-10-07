@@ -40,6 +40,21 @@ export interface Path {
   phase: number;
 }
 
+/**
+ * The way through a stage, for the trailer's autopilot: walk to each point in turn, then do its act —
+ * `jump` to the next point, `spring` (bounce up to it), or `ride` a moving platform from `enter` to
+ * `exit` before jumping on. Only generated stages have one.
+ */
+export type RouteAct = "run" | "jump" | "spring" | "ride";
+
+export interface RouteNode extends V3 {
+  act: RouteAct;
+  /** `ride`: index in movers, and where the platform must be to get on and off. */
+  mover?: number;
+  enter?: V3;
+  exit?: V3;
+}
+
 export interface LevelData {
   theme: Theme;
   start: V3 & { yaw: number };
@@ -64,6 +79,7 @@ export interface LevelData {
   finish: V3;
   /** Forward distance (metres, -z) after which the music goes to full intensity. */
   finale: number;
+  route: RouteNode[];
 }
 
 export interface LevelDef {
@@ -127,6 +143,7 @@ export class Builder {
       checkpoints: [],
       finish: { x: 0, y: 0, z: 0 },
       finale: Infinity,
+      route: [],
     };
   }
 
@@ -358,6 +375,16 @@ export class Builder {
     this.data.finish = W(x, f, y);
   }
 
+  /** Route (autopilot): walk to this point, then `act`. */
+  go(x: number, f: number, y: number, act: RouteAct = "run") {
+    this.data.route.push({ ...W(x, f, y), act });
+  }
+
+  /** Route (autopilot): from this point, board the moving platform added last when it is at `enter`, and leave it at `exit` (cells). */
+  ride(x: number, f: number, y: number, enter: [number, number, number], exit: [number, number, number]) {
+    this.data.route.push({ ...W(x, f, y), act: "ride", mover: this.data.movers.length - 1, enter: W(...enter), exit: W(...exit) });
+  }
+
   /** Music turns up for the last stretch once the player passes this forward position. */
   finale(f: number) {
     this.data.finale = f * U;
@@ -394,7 +421,6 @@ export const MENU: LevelDef = {
     b.tree(2, 1, 0, "pine");
     b.tree(1.6, 2.2, 0, "pineSmall");
     b.prop("sign", -1.7, -1.4, 0, 30);
-    b.coins(-1, 1.6, 1, 1.6, 0.4, 3);
     // Islands in the distance.
     b.isle(-9, -6, 4, 7, 2, { decor: 0.6 });
     b.tree(-8, 6, 2);

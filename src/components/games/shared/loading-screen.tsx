@@ -134,7 +134,7 @@ export function LoadingScreen({ game, progress, error, ready = false }: { game: 
   const size = (text: string, base: number) => `${Math.min(base, FIT / (text.length * t.charW)).toFixed(2)}em`;
   const Emblem = t.emblem;
   return (
-    <div className={`g-loading lg ${ready ? "is-ready" : ""}`} style={look.ink ? { ...vars, color: look.ink } : vars} aria-busy={!ready}>
+    <div data-bleed className={`g-loading lg ${ready ? "is-ready" : ""}`} style={look.ink ? { ...vars, color: look.ink } : vars} aria-busy={!ready}>
       <style>{CSS}</style>
       {!game.comingSoon && <Backdrop game={game} />}
       <div className="lg-shade" />

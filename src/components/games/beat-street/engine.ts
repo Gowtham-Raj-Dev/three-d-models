@@ -763,15 +763,12 @@ export class BeatStreetGame {
     this.emitHud();
   }
 
-  /** Sets the music's intensity for the bar the sequencer schedules next (arrangement, or 2 in fever). */
+  /** Sets the music's intensity for the next bar it prepares (arrangement, or 2 in fever). */
   private updateMusicIntensity(run: Run) {
     const timing = run.timing;
     if (!timing) return;
     const barDur = timing.stepDur * timing.steps;
-    const frontier = (music.scheduledUntil() - timing.start) / barDur;
-    const inBar = frontier - Math.floor(frontier);
-    if (inBar < 0.15 || inBar > 0.85) return;
-    const next = Math.floor(frontier) + 1;
+    const next = Math.round((music.scheduledUntil() - timing.start) / barDur);
     const section = sectionAt(run.track, next);
     const fever = this.feverOn(run) && section.intensity > 0;
     music.setIntensity(fever ? Math.max(2, section.intensity) : section.intensity);

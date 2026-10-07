@@ -39,8 +39,13 @@ export interface GameEntry {
   accent: string;
   /** Cover image in /public (1200×630). */
   cover: string;
-  /** Gameplay trailer (16:9 MP4 in /public) shown in place of the cover on the game's page, with its poster frame. */
-  trailer?: { src: string; poster: string; seconds: number };
+  /**
+   * Gameplay trailer shown in place of the cover on the game's page: a 720p MP4 (phones), an optional
+   * 1080p one (desktops and full screen) and its poster frame, all in /public.
+   */
+  trailer?: { src: string; hd?: string; poster: string; seconds: number };
+  /** Short muted gameplay loop (MP4 in /public, 1200:630 like the cover) played over the cover in the /games grid. */
+  preview?: string;
   /** Library model keys the game loads ("mini-skate/skateboard" → /library/mini-skate/skateboard.glb). */
   models: readonly string[];
   /** Library collections those models come from. */

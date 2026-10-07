@@ -1,16 +1,23 @@
 #!/usr/bin/env node
 /**
- * Records Skate Rush's 36-second trailer from the game itself and saves it for the game's page:
- *   public/games/skate-rush/trailer.mp4          1280×720, 30 fps, H.264 + AAC (the game's "City Rush" music)
- *   public/games/skate-rush/trailer-poster.webp  its first frame
+ * Records Skate Rush's trailer from the game itself and saves it for the game's page:
+ *   public/games/skate-rush/trailer-1080.mp4     1920×1080, 60 fps — desktops and full screen
+ *   public/games/skate-rush/trailer.mp4          1280×720, 30 fps — phones (smaller download)
+ *   public/games/skate-rush/trailer-poster.webp  the title frame
  *
  *   npm run dev                                   (in another terminal)
- *   FFMPEG=path/to/ffmpeg node scripts/record-skate-trailer.mjs
+ *   FFMPEG=path/to/ffmpeg KOKORO=path/to/kokoro-js node scripts/record-skate-trailer.mjs
  *
- * The game runs in headless Chrome on a virtual clock: every frame is stepped by exactly 1/30 s and
- * captured, so slow frames never stutter the video. The autopilot plays (window.__skateRush on the dev
- * server), captions are drawn over the game in its own font, and the music is rendered offline by the
- * game's synthesizer. Env: BASE (default http://localhost:3000), CHROME, FFMPEG (default: ffmpeg on PATH).
+ * Picture: the game runs in headless Chrome on a virtual clock — every frame is stepped by exactly
+ * 1/60 s and captured, so slow frames never stutter the video — while the autopilot plays
+ * (window.__skateRush on the dev server) and captions are drawn over it in the game's own font.
+ * Sound: the game's music and sound effects, rendered offline by its own synthesizer (every effect the
+ * run triggers is logged with its time, plus whooshes and chimes for the cuts and price tags), and an
+ * announcer voice-over made with Kokoro (open-source neural TTS, Apache-2.0: `npm i kokoro-js` in any
+ * folder and point KOKORO at it). The music ducks under the voice; the mix is normalised to -14 LUFS.
+ *
+ * Env: BASE (default http://localhost:3000), CHROME, FFMPEG (default: ffmpeg on PATH), KOKORO (default:
+ * the kokoro-js package), VOICE (Kokoro voice, default af_bella).
  */
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -25,10 +32,14 @@ const OUT = path.join(ROOT, "public", "games", "skate-rush");
 const BASE = process.env.BASE ?? "http://localhost:3000";
 const CHROME = process.env.CHROME ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
+const KOKORO = process.env.KOKORO ?? "kokoro-js";
+const VOICE = process.env.VOICE ?? "af_bella";
 const PORT = 9353;
+/** Layout size (captions are designed for it) and the pixel ratio that makes the capture 1920×1080. */
 const W = 1280;
 const H = 720;
-const FPS = 30;
+const DPR = 1.5;
+const FPS = 60;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- Shop data (names and prices for the captions) --------------------------------------------------
@@ -50,41 +61,101 @@ const price = (item) => (item.price ? `${item.price.toLocaleString("en-US")} coi
 // --- Storyboard ------------------------------------------------------------------------------------
 
 /**
- * Each shot: seconds, what the game shows (`game`, run in the page at the shot's first frame), and the
- * captions: `head` (section badge), `tag` (item name + price + perk), `title` / `end` cards.
+ * Each shot: seconds, what the game shows (`game`, run in the page at the shot's first frame), the
+ * captions (`head` section badge, `tag` item name + price + perk, `title` / `end` cards), the
+ * announcer's lines (`vo`: [seconds into the shot, text]) and trailer sounds (`fx`).
  */
 const shots = [];
 const add = (shot) => shots.push(shot);
 
-add({ dur: 3.4, game: { run: "city", skater: "skate-boy", board: "classic", warp: 9 }, title: true });
-const stageClips = ["docks", "snow", "neon", "haunted", "pirate", "moon"];
+add({ dur: 3.4, game: { run: "city", skater: "skate-boy", board: "classic", warp: 9 }, title: true, vo: [[0.35, "Grab your board... it's Skate Rush!"]], fx: [[0.25, "impact"]] });
 const stageLoadout = { docks: ["officer", "street"], snow: ["dj-mia", "ocean"], neon: ["agent", "neon"], haunted: ["vampire", "galaxy"], pirate: ["elf", "tiger"], moon: ["knight", "hover"] };
-stageClips.forEach((id, i) => {
+const stageVo = { docks: "Sunset Docks!", snow: "Snow Village!", neon: "Neon Night!", haunted: "Haunted Hollow!", pirate: "Pirate Cove!", moon: "Even the Moon!" };
+["docks", "snow", "neon", "haunted", "pirate", "moon"].forEach((id, i) => {
   const st = byId(STAGES, id);
   const [skater, board] = stageLoadout[id];
-  add({ dur: 1.85, game: { run: id, skater, board, warp: 7 }, head: i === 0 ? ["7 Stages", "unlock new worlds with coins"] : null, tag: [st.name, price(st), st.perks[0]] });
+  add({
+    dur: i === 0 ? 3.2 : id === "moon" ? 1.9 : 1.7,
+    game: { run: id, skater, board, warp: 7 },
+    head: i === 0 ? ["7 Stages", "unlock new worlds with coins"] : null,
+    tag: [st.name, price(st), st.perks[0]],
+    vo: i === 0 ? [[0.1, "Seven stages to unlock!"], [2.0, stageVo[id]]] : [[0.12, stageVo[id]]],
+    fx: [[-0.08, "whoosh"]],
+  });
 });
 ["skate-girl", "pixel", "dj-mia", "officer", "knight", "orc", "vampire", "skeleton"].forEach((id, i) => {
   const sk = byId(SKATERS, id);
-  add({ dur: 0.75, game: { show: "skater", stage: "pirate", skater: id, skin: "classic", board: "classic", first: i === 0 }, head: ["18 Skaters", null], tag: [sk.name, price(sk), null] });
+  const vo = i === 0 ? [[0.1, "Unlock eighteen skaters!"]] : id === "vampire" ? [[0.05, "Even a vampire!"]] : [];
+  add({ dur: 0.75, game: { show: "skater", stage: "pirate", skater: id, skin: "classic", board: "classic", first: i === 0 }, head: ["18 Skaters", null], tag: [sk.name, price(sk), null], vo, fx: [i === 0 ? [-0.08, "whoosh"] : [0.02, "pop"]] });
 });
+const skinVo = { shadow: "Ten epic skins!", lava: "Lava!", gold: "Gold!", galaxy: "Galaxy!", rainbow: "Rainbow!" };
 ["shadow", "frost", "neon", "lava", "gold", "galaxy", "rainbow"].forEach((id, i) => {
   const s = byId(SKINS, id);
-  add({ dur: 0.8, game: { show: "skater", stage: "snow", skater: "skate-boy", skin: id, board: "classic", first: i === 0 }, head: ["10 Skins", "for every skater"], tag: [s.name, price(s), null] });
+  add({
+    dur: 0.8,
+    game: { show: "skater", stage: "snow", skater: "skate-boy", skin: id, board: "classic", first: i === 0 },
+    head: ["10 Skins", "for every skater"],
+    tag: [s.name, price(s), null],
+    vo: skinVo[id] ? [[i === 0 ? 0.1 : 0.06, skinVo[id]]] : [],
+    fx: [i === 0 ? [-0.08, "whoosh"] : [0.02, "sparkle"]],
+  });
 });
 // Boards: three close up (floating, turning), then three under a skater at night, kickflipping.
 ["checker", "flames", "galaxy"].forEach((id, i) => {
   const b = byId(BOARDS, id);
-  add({ dur: 0.85, game: { show: "board", stage: "neon", skater: "skate-girl", board: id, first: i === 0 }, head: ["13 Boards", "with glowing trails"], tag: [b.name, price(b), b.trail ? "Trail" : "Deck art"] });
+  add({
+    dur: 0.85,
+    game: { show: "board", stage: "neon", skater: "skate-girl", board: id, first: i === 0 },
+    head: ["13 Boards", "with glowing trails"],
+    tag: [b.name, price(b), b.trail ? "Trail" : "Deck art"],
+    vo: i === 0 ? [[0.1, "Thirteen boards, with glowing trails!"]] : [],
+    fx: [i === 0 ? [-0.08, "whoosh"] : [0.02, "pop"]],
+  });
 });
 ["neon", "rainbow", "hover"].forEach((id, i) => {
   const b = byId(BOARDS, id);
-  add({ dur: 0.95, game: { run: i === 0 ? "neon" : null, skater: "skate-girl", board: id, warp: 6, jump: 0.1 }, head: ["13 Boards", "with glowing trails"], tag: [b.name, price(b), b.art === "hover" ? "Floats!" : "Trail"] });
+  add({
+    dur: 0.95,
+    game: { run: i === 0 ? "neon" : null, skater: "skate-girl", board: id, warp: 6, jump: 0.1 },
+    head: ["13 Boards", "with glowing trails"],
+    tag: [b.name, price(b), b.art === "hover" ? "Floats!" : "Trail"],
+    vo: id === "hover" ? [[0.08, "Hoverboard!"]] : [],
+    fx: [i === 0 ? [-0.08, "whoosh"] : [0.02, "pop"]],
+  });
 });
-add({ dur: 4.5, game: { run: "moon", skater: "skate-boy", skin: "gold", board: "rainbow", warp: 8 }, end: true });
+add({ dur: 4.5, game: { run: "moon", skater: "skate-boy", skin: "gold", board: "rainbow", warp: 8 }, end: true, vo: [[0.35, "Skate Rush. Play now... it's free!"]], fx: [[-0.08, "whoosh"], [0.15, "jingle"]] });
 
+const starts = [];
+shots.reduce((t, s) => (starts.push(t), t + s.dur), 0);
 const total = shots.reduce((n, s) => n + s.dur, 0);
 const frames = Math.round(total * FPS);
+/** Every announcer line and trailer sound, at its time in the video. */
+const voiceLines = shots.flatMap((s, i) => (s.vo ?? []).map(([at, text]) => ({ t: starts[i] + at, text })));
+const trailerFx = shots.flatMap((s, i) => (s.fx ?? []).map(([at, name]) => [Math.max(0, starts[i] + at), name]));
+
+// --- Voice-over ------------------------------------------------------------------------------------
+
+/** Speaks every line with Kokoro in a child process (it needs ~350 MB; Chrome starts after it exits). */
+function speak(dir) {
+  const kokoro = fs.existsSync(KOKORO) ? pathToFileURL(path.resolve(KOKORO)).href : KOKORO;
+  const script = `
+    const { KokoroTTS } = await import(${JSON.stringify(kokoro)});
+    const tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" });
+    const lines = ${JSON.stringify(voiceLines.map((l) => l.text))};
+    for (let i = 0; i < lines.length; i++) {
+      const audio = await tts.generate(lines[i], { voice: ${JSON.stringify(VOICE)}, speed: 1.08 });
+      audio.save(${JSON.stringify(dir.split(path.sep).join("/"))} + "/vo-" + i + ".wav");
+    }`;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", script], { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`voice-over failed (is kokoro-js installed? set KOKORO):\n${r.stderr.split("\n").filter((l) => !/Warning/.test(l)).slice(-6).join("\n")}`);
+}
+
+/** Trims a clip's silent ends; returns the trimmed file and its length in seconds. */
+function trimVoice(file) {
+  const out = file.replace(/\.wav$/, "-trim.wav");
+  ffmpeg(["-i", file, "-af", "silenceremove=start_periods=1:start_threshold=-45dB,areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse", "-ar", "44100", "-ac", "1", "-c:a", "pcm_s16le", out]);
+  return { file: out, seconds: (fs.statSync(out).size - 44) / (44100 * 2) };
+}
 
 // --- Page side -------------------------------------------------------------------------------------
 
@@ -101,9 +172,9 @@ const VIRTUAL_TIME = `(() => {
   performance.now = () => (on ? now : realNow());
 })()`;
 
-/** The caption layer and the per-frame driver (shots come in as JSON). */
+/** The caption layer, the sound-effect log and the per-frame driver (shots come in as JSON). */
 const DIRECTOR = (data) => `(() => {
-  const { shots, fps } = ${JSON.stringify(data)};
+  const { shots, fps, frames } = ${JSON.stringify(data)};
   const sr = window.__skateRush, g = sr.game;
   const root = document.querySelector(".g-root");
   const css = document.createElement("style");
@@ -144,8 +215,21 @@ const DIRECTOR = (data) => `(() => {
   let current = -1;
   let jumpAt = -1;
 
+  // The game's sound effects are logged (time, name) instead of played, and the rolling-wheels level per frame.
+  const fxLog = [];
+  const roll = new Array(frames).fill(0);
+  let logging = false, tNow = 0, frameNow = 0;
+  const originals = {};
+  for (const name of ["coin", "jump", "land", "duck", "lane", "bump", "power", "shieldBreak", "crash", "go"]) {
+    originals[name] = g.sfx[name].bind(g.sfx);
+    g.sfx[name] = () => { if (logging) fxLog.push([tNow, name]); };
+  }
+  g.sfx.rolling = (level) => { if (logging) roll[frameNow] = level; };
+
   const setup = (s) => {
     const q = s.game;
+    // Setting a shot up (starting runs, skipping ahead) makes no sound.
+    logging = false;
     if (q.run) {
       g.toMenu();
       g.setShowcase("menu");
@@ -171,6 +255,7 @@ const DIRECTOR = (data) => `(() => {
       g.camPos.set(0, 0, 0);
     }
     jumpAt = q.jump != null ? q.jump : -1;
+    logging = true;
   };
 
   const caption = (s, t, i) => {
@@ -213,6 +298,8 @@ const DIRECTOR = (data) => `(() => {
   window.__trailer = {
     frame(n) {
       const t = n / fps;
+      tNow = t;
+      frameNow = n;
       let i = 0;
       while (i + 1 < shots.length && t >= starts[i + 1]) i++;
       if (i !== current) {
@@ -228,17 +315,16 @@ const DIRECTOR = (data) => `(() => {
       caption(shots[i], t, i);
       return true;
     },
+    fx: () => fxLog,
+    roll: () => roll,
+    originals,
   };
   return shots.length;
 })()`;
 
-/**
- * Renders the music offline with the game's own synthesizer: an OfflineAudioContext stands in for the
- * AudioContext, and rendering pauses every 50 ms so the scheduler (ticked by hand) only ever has the
- * next few notes queued — like in the game. Returns a 16-bit WAV (base64).
- */
-const MUSIC = (seconds) => `(async () => {
-  const { audio, music, song } = window.__skateRush;
+/** Builds the game's audio graph on an OfflineAudioContext (swapped in for the AudioContext while the hub unlocks). */
+const OFFLINE_HUB = (seconds) => `
+  const { audio, music } = window.__skateRush;
   music.stop();
   const rate = 44100;
   const ctx = new OfflineAudioContext(2, Math.ceil(rate * (${seconds} + 0.5)), rate);
@@ -247,18 +333,17 @@ const MUSIC = (seconds) => `(async () => {
   ctx.resume = () => Promise.resolve();
   let tick = null;
   const realSetInterval = window.setInterval;
-  window.setInterval = (fn, ms) => { tick = fn; return 1; };
+  window.setInterval = (fn) => { tick = fn; return 1; };
   audio.ctx = null;
   const Real = window.AudioContext;
   window.AudioContext = function () { return ctx; };
   audio.unlock();
   window.AudioContext = Real;
-  music.play(song, 2, { restart: true });
-  window.setInterval = realSetInterval;
-  for (let k = 1; k * 0.05 < ${seconds}; k++) ctx.suspend(k * 0.05).then(() => { tick && tick(); resume(); });
-  tick && tick();
-  const buf = await ctx.startRendering();
-  // The game goes back to silence (no AudioContext until a tap, which never comes here).
+`;
+
+/** 16-bit stereo WAV (base64) of the rendered buffer; the game goes back to silence afterwards. */
+const TO_WAV = (seconds) => `
+  // No AudioContext again until a tap, which never comes here.
   music.stop();
   audio.ctx = null;
   const n = Math.floor(${seconds} * rate);
@@ -275,9 +360,72 @@ const MUSIC = (seconds) => `(async () => {
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   return btoa(bin);
+`;
+
+/** The music, rendered in 50 ms steps so the scheduler (ticked by hand) only queues the next few notes, as in the game. */
+const MUSIC = (seconds) => `(async () => {
+  ${OFFLINE_HUB(seconds)}
+  music.play(window.__skateRush.song, 2, { restart: true });
+  window.setInterval = realSetInterval;
+  for (let k = 1; k * 0.05 < ${seconds}; k++) ctx.suspend(k * 0.05).then(() => { tick && tick(); resume(); });
+  tick && tick();
+  const buf = await ctx.startRendering();
+  ${TO_WAV(seconds)}
 })()`;
 
-// --- Chrome ----------------------------------------------------------------------------------------
+/**
+ * Sound effects: every effect the run logged, played at its time by the game's own Sfx, the rolling
+ * wheels as a filtered-noise bed following the logged level, and the trailer's whooshes and chimes.
+ */
+const EFFECTS = (seconds, extra) => `(async () => {
+  ${OFFLINE_HUB(seconds)}
+  window.setInterval = realSetInterval;
+  const t = window.__trailer, fps = ${FPS};
+  const fx = t.fx().concat(${JSON.stringify(extra)});
+  // Rolling wheels.
+  const src = ctx.createBufferSource();
+  src.buffer = audio.noiseBuffer;
+  src.loop = true;
+  const lp = ctx.createBiquadFilter();
+  lp.type = "lowpass";
+  const bed = ctx.createGain();
+  bed.gain.value = 0;
+  src.connect(lp).connect(bed).connect(audio.sfxBus);
+  src.start(0);
+  t.roll().forEach((level, i) => {
+    bed.gain.setTargetAtTime(level * 0.16, i / fps, 0.03);
+    lp.frequency.setTargetAtTime(350 + level * 700, i / fps, 0.03);
+  });
+  const trailer = {
+    whoosh: () => audio.noise(0.42, { volume: 0.32, freq: 350, type: "bandpass", slide: 3200, q: 1.1 }),
+    impact: () => { audio.tone(70, 0.9, { type: "sine", volume: 0.55, slide: -35 }); audio.noise(0.6, { volume: 0.35, freq: 1400, slide: -1200 }); },
+    pop: () => { audio.tone(1175, 0.08, { type: "square", volume: 0.05 }); audio.tone(1760, 0.14, { type: "square", volume: 0.045, delay: 0.05 }); },
+    sparkle: () => { audio.tone(1568, 0.12, { type: "triangle", volume: 0.09 }); audio.tone(2093, 0.18, { type: "triangle", volume: 0.07, delay: 0.06 }); },
+    jingle: () => audio.jingle([72, 76, 79, 84, 88], { volume: 0.17, step: 0.08 }),
+  };
+  // Effects grouped by render quantum; rendering pauses at each group to start them right on time.
+  const q = 128 / rate;
+  const groups = new Map();
+  for (const [time, name] of fx) {
+    const at = Math.max(q, Math.round(time / q) * q);
+    if (!groups.has(at)) groups.set(at, []);
+    groups.get(at).push(name);
+  }
+  const realNow = performance.now;
+  for (const [at, names] of groups) {
+    ctx.suspend(at).then(() => {
+      // Coins pitch up when collected in quick succession: give the Sfx the effect's own time.
+      performance.now = () => at * 1000;
+      for (const name of names) (trailer[name] ?? t.originals[name])?.();
+      performance.now = realNow;
+      resume();
+    });
+  }
+  const buf = await ctx.startRendering();
+  ${TO_WAV(seconds)}
+})()`;
+
+// --- Chrome & ffmpeg -------------------------------------------------------------------------------
 
 async function connect(url) {
   const ws = new WebSocket(url);
@@ -309,6 +457,11 @@ async function connect(url) {
   return { send, evaluate, close: () => ws.close() };
 }
 
+function ffmpeg(args) {
+  const r = spawnSync(FFMPEG, ["-y", "-loglevel", "error", ...args], { stdio: "inherit" });
+  if (r.status !== 0) throw new Error("ffmpeg failed");
+}
+
 if (spawnSync(FFMPEG, ["-version"]).status !== 0) {
   console.error(`ffmpeg not found (${FFMPEG}) — install it or set FFMPEG=path/to/ffmpeg`);
   process.exit(1);
@@ -318,8 +471,23 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), "skate-trailer-"));
 const profile = path.join(work, "profile");
 const framesDir = path.join(work, "frames");
 fs.mkdirSync(framesDir);
-const chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", "--no-first-run", "--hide-scrollbars", "--mute-audio", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+let chrome = null;
 try {
+  // 1. Voice-over: each line, trimmed, and fitted into the time before the next line (or the end).
+  console.log(`Voice-over: ${voiceLines.length} lines, Kokoro voice "${VOICE}"…`);
+  speak(work);
+  const voice = voiceLines.map((line, i) => {
+    const { file, seconds } = trimVoice(path.join(work, `vo-${i}.wav`));
+    const room = (voiceLines[i + 1]?.t ?? total) - line.t - 0.05;
+    // Too long for its slot: speed it up a little (never more than 25%).
+    const tempo = seconds > room ? Math.min(1.25, seconds / room) : 1;
+    console.log(`  ${line.t.toFixed(2)} s  "${line.text}"  ${seconds.toFixed(2)} s${tempo > 1 ? ` → ×${tempo.toFixed(2)}` : ""}`);
+    if (seconds / tempo > room + 0.01) console.warn(`    runs ${(seconds / tempo - room).toFixed(2)} s into the next line`);
+    return { ...line, file, tempo };
+  });
+
+  // 2. Picture.
+  chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", "--no-first-run", "--hide-scrollbars", "--mute-audio", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
   let targets;
   for (let i = 0; i < 100 && !targets; i++) {
     await sleep(200);
@@ -330,7 +498,7 @@ try {
   await page.send("Page.enable");
   await page.send("Runtime.enable");
   await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-  await page.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
+  await page.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: DPR, mobile: false });
   await page.send("Page.addScriptToEvaluateOnNewDocument", { source: VIRTUAL_TIME });
   await page.send("Page.navigate", { url: `${BASE}/games/skate-rush/play/` });
   const deadline = Date.now() + 240_000;
@@ -339,9 +507,9 @@ try {
     await sleep(500);
   }
 
-  console.log("Rendering the music…");
-  const wav = path.join(work, "music.wav");
-  fs.writeFileSync(wav, Buffer.from(await page.evaluate(MUSIC(total + 0.5)), "base64"));
+  console.log("Music…");
+  const musicWav = path.join(work, "music.wav");
+  fs.writeFileSync(musicWav, Buffer.from(await page.evaluate(MUSIC(total + 0.5)), "base64"));
 
   console.log("Loading every stage and skater…");
   await page.evaluate(`(async () => {
@@ -356,44 +524,51 @@ try {
   })()`);
   await sleep(1500);
   await page.evaluate("__vt.start()");
-  const count = await page.evaluate(DIRECTOR({ shots, fps: FPS }));
-  console.log(`Recording ${count} shots, ${frames} frames (${total.toFixed(1)} s)…`);
+  const count = await page.evaluate(DIRECTOR({ shots, fps: FPS, frames }));
+  console.log(`Recording ${count} shots, ${frames} frames (${total.toFixed(1)} s at ${FPS} fps, ${W * DPR}×${H * DPR})…`);
   const t0 = Date.now();
   for (let n = 0; n < frames; n++) {
     await page.evaluate(`__trailer.frame(${n})`);
-    const { data } = await page.send("Page.captureScreenshot", { format: "jpeg", quality: 92, fromSurface: true });
+    const { data } = await page.send("Page.captureScreenshot", { format: "jpeg", quality: 95, fromSurface: true });
     fs.writeFileSync(path.join(framesDir, `${String(n).padStart(5, "0")}.jpg`), Buffer.from(data, "base64"));
-    if (n % 90 === 0) console.log(`  ${n}/${frames} frames, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+    if (n % 300 === 0) console.log(`  ${n}/${frames} frames, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
   }
+
+  console.log("Sound effects…");
+  const fxWav = path.join(work, "fx.wav");
+  fs.writeFileSync(fxWav, Buffer.from(await page.evaluate(EFFECTS(total + 0.5, trailerFx)), "base64"));
   page.close();
 
+  // 3. Mix: the voice on top (cleaned up and compressed), the music ducking under it, the effects; -14 LUFS.
+  console.log("Mixing…");
+  const mixWav = path.join(work, "mix.wav");
+  const graph = [
+    ...voice.map((v, i) => `[${i + 2}:a]${v.tempo > 1 ? `atempo=${v.tempo.toFixed(3)},` : ""}adelay=${Math.round(v.t * 1000)}:all=1[v${i}]`),
+    `${voice.map((_, i) => `[v${i}]`).join("")}amix=inputs=${voice.length}:normalize=0,highpass=f=90,acompressor=threshold=0.08:ratio=4:attack=5:release=120:makeup=2,volume=1.5,aformat=channel_layouts=stereo,apad[voice]`,
+    `[voice]asplit=2[voice1][voice2]`,
+    `[0:a]volume=0.9[music]`,
+    `[music][voice1]sidechaincompress=threshold=0.03:ratio=6:attack=15:release=350[ducked]`,
+    `[1:a]volume=1.1[fx]`,
+    `[ducked][fx][voice2]amix=inputs=3:normalize=0:duration=first,afade=t=in:d=0.25,afade=t=out:st=${(total - 1.0).toFixed(2)}:d=1.0,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[mix]`,
+  ].join(";");
+  ffmpeg(["-i", musicWav, "-i", fxWav, ...voice.flatMap((v) => ["-i", v.file]), "-filter_complex", graph, "-map", "[mix]", "-t", total.toFixed(3), mixWav]);
+
+  // 4. Video: Full HD 60 fps for desktops and full screen, 720p 30 fps for phones.
   console.log("Encoding…");
-  const mp4 = path.join(OUT, "trailer.mp4");
-  const enc = spawnSync(
-    FFMPEG,
-    [
-      "-y",
-      "-loglevel", "error",
-      "-framerate", String(FPS),
-      "-i", path.join(framesDir, "%05d.jpg"),
-      "-i", wav,
-      "-filter_complex", `[1:a]afade=t=in:d=0.3,afade=t=out:st=${(total - 1.2).toFixed(2)}:d=1.2[a]`,
-      "-map", "0:v", "-map", "[a]",
-      "-c:v", "libx264", "-preset", "slow", "-crf", "28", "-pix_fmt", "yuv420p", "-profile:v", "high", "-movflags", "+faststart",
-      "-c:a", "aac", "-b:a", "128k",
-      "-shortest",
-      mp4,
-    ],
-    { stdio: "inherit" },
-  );
-  if (enc.status !== 0) throw new Error("ffmpeg failed");
+  const input = ["-framerate", String(FPS), "-i", path.join(framesDir, "%05d.jpg"), "-i", mixWav];
+  const common = ["-map", "0:v", "-map", "1:a", "-pix_fmt", "yuv420p", "-profile:v", "high", "-movflags", "+faststart", "-shortest"];
+  const hd = path.join(OUT, "trailer-1080.mp4");
+  const sd = path.join(OUT, "trailer.mp4");
+  ffmpeg([...input, ...common, "-c:v", "libx264", "-preset", "slow", "-crf", "22", "-g", String(FPS * 2), "-c:a", "aac", "-b:a", "192k", hd]);
+  ffmpeg([...input, ...common, "-vf", "fps=30,scale=1280:720:flags=lanczos", "-c:v", "libx264", "-preset", "slow", "-crf", "25", "-c:a", "aac", "-b:a", "128k", sd]);
   // Poster: the title frame, once the title is fully up.
   await sharp(path.join(framesDir, `${String(Math.round(1.2 * FPS)).padStart(5, "0")}.jpg`))
-    .webp({ quality: 82, effort: 6 })
+    .resize(1280)
+    .webp({ quality: 84, effort: 6 })
     .toFile(path.join(OUT, "trailer-poster.webp"));
-  console.log(`${path.relative(ROOT, mp4)}  ${(fs.statSync(mp4).size / 1024 / 1024).toFixed(2)} MB`);
+  for (const f of [hd, sd]) console.log(`${path.relative(ROOT, f)}  ${(fs.statSync(f).size / 1024 / 1024).toFixed(2)} MB`);
 } finally {
-  chrome.kill();
+  chrome?.kill();
   await sleep(500);
   fs.rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 }

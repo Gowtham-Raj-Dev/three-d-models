@@ -2,6 +2,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { Gamepad2, Minus, Plus, RotateCcw } from "lucide-react";
+import { inPlayables } from "./playables";
 import { createRecords, useRecords, useTouchScreen } from "./ui";
 
 /**
@@ -57,7 +58,9 @@ const PANEL = { w: 244, h: 112 };
 export function createControls<Id extends string>(key: string, defs: Record<Id, ControlDef>) {
   const order = Object.keys(defs) as Id[];
   const defaults = Object.fromEntries(order.map((id) => [id, { x: defs[id].x, y: defs[id].y, s: 1, ...(defs[id].center ? { c: 1 } : {}) }])) as Record<Id, Spot>;
-  return { defs, order, defaults, records: createRecords<Record<Orient, Partial<Record<Id, Spot>> | null>>(key, { portrait: null, landscape: null }) };
+  // YouTube Playables: nothing in the browser's storage, so a moved layout lasts for the session only.
+  const cloud = inPlayables() ? () => {} : undefined;
+  return { defs, order, defaults, records: createRecords<Record<Orient, Partial<Record<Id, Spot>> | null>>(key, { portrait: null, landscape: null }, { cloud }) };
 }
 
 export type Controls<Id extends string> = ReturnType<typeof createControls<Id>>;
@@ -244,7 +247,7 @@ export function ControlLayer<Id extends string>({
       </div>
     );
   return (
-    <div ref={layerRef} className={`pointer-events-none absolute inset-0 touch-none select-none ${hidden ? "invisible" : ""}`}>
+    <div ref={layerRef} data-bleed className={`pointer-events-none absolute inset-0 touch-none select-none ${hidden ? "invisible" : ""}`}>
       <div data-safe className="g-safe" />
       {frame && placed && children(placed, frame, fit)}
     </div>
@@ -386,6 +389,7 @@ export function ControlsEditor<Id extends string>({
   return (
     <div
       ref={layerRef}
+      data-bleed
       className="absolute inset-0 z-30 touch-none bg-black/35 select-none"
       onPointerDown={(e) => {
         e.stopPropagation();

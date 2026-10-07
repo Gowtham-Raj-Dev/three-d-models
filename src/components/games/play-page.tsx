@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import type { ComponentType } from "react";
 import { Hourglass } from "lucide-react";
@@ -13,6 +13,18 @@ import { absoluteUrl, GAME_CREDIT, SITE } from "@/lib/site";
  * Server side of a game's full-screen player route (/games/<slug>/play/). Each game has its own
  * route file, so a page only bundles its own game.
  */
+
+/**
+ * Every play route: on phones the game fills the screen beside a notch / camera cutout too — without
+ * `cover`, full screen leaves a black bar there. HUDs keep clear of it (.g-root in globals.css).
+ */
+export const playViewport: Viewport = {
+  themeColor: SITE.themeColor,
+  colorScheme: "dark",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export function playMetadata(game: GameEntry): Metadata {
   const credits = { authors: [{ name: SITE.author }], creator: SITE.author, publisher: SITE.brand };

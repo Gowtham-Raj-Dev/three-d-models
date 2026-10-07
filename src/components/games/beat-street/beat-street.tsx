@@ -298,7 +298,8 @@ export function BeatStreet({ sizes }: { sizes: Record<string, number> }) {
 
       {phase === "calibrate" && <CalibrationScreen game={gameRef} saved={saved} onClose={() => gameRef.current?.stopCalibration()} />}
 
-      {inRun && <HudOverlay store={hud} lanes={lanes} paused={phase === "paused"} hint={saved.plays < 3} onPause={pauseOrResume} />}
+      {inRun && <LaneMarks lanes={lanes} />}
+      {inRun && <HudOverlay store={hud} paused={phase === "paused"} hint={saved.plays < 3} onPause={pauseOrResume} />}
 
       {phase === "paused" && !help && (
         <Modal title="Paused">
@@ -640,19 +641,16 @@ const JUDGE_TEXT: Record<NonNullable<Hud["judge"]>["kind"], { text: string; colo
 
 function HudOverlay({
   store,
-  lanes,
   paused,
   hint,
   onPause,
 }: {
   store: Store<Hud>;
-  lanes: Store<LaneSpot[]>;
   paused: boolean;
   hint: boolean;
   onPause: () => void;
 }) {
   const hud = useStore(store);
-  const spots = useStore(lanes);
   const settings = useAudioSettings();
   const t = TRACKS[hud.track] ?? TRACKS[0];
   const difficulty = hud.difficulty;
@@ -754,28 +752,37 @@ function HudOverlay({
         </div>
       )}
 
-      {/* Lane labels (keys) or big touch pads under the receptors. */}
-      {spots.length === 4 &&
-        spots.map((s, i) =>
-          coarse ? (
-            <div
-              key={i}
-              className="absolute bottom-0 rounded-t-2xl border-x border-t"
-              style={{
-                left: s.x - s.w / 2 + 3,
-                width: s.w - 6,
-                top: s.y + 18,
-                borderColor: `${LANE_TINTS[i]}66`,
-                background: `linear-gradient(${LANE_TINTS[i]}26, transparent)`,
-              }}
-            />
-          ) : (
-            <span key={i} className="absolute -translate-x-1/2" style={{ left: s.x, top: s.y + 16 }}>
-              <Kbd>{LANE_KEYS[i]}</Kbd>
-            </span>
-          ),
-        )}
       <style>{KEYFRAMES}</style>
+    </div>
+  );
+}
+
+/** Lane labels (keys) or big touch pads under the receptors — placed in screen pixels, so full width (data-bleed). */
+function LaneMarks({ lanes }: { lanes: Store<LaneSpot[]> }) {
+  const spots = useStore(lanes);
+  const [coarse] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  if (spots.length !== 4) return null;
+  return (
+    <div data-bleed className="pointer-events-none absolute inset-0">
+      {spots.map((s, i) =>
+        coarse ? (
+          <div
+            key={i}
+            className="absolute bottom-0 rounded-t-2xl border-x border-t"
+            style={{
+              left: s.x - s.w / 2 + 3,
+              width: s.w - 6,
+              top: s.y + 18,
+              borderColor: `${LANE_TINTS[i]}66`,
+              background: `linear-gradient(${LANE_TINTS[i]}26, transparent)`,
+            }}
+          />
+        ) : (
+          <span key={i} className="absolute -translate-x-1/2" style={{ left: s.x, top: s.y + 16 }}>
+            <Kbd>{LANE_KEYS[i]}</Kbd>
+          </span>
+        ),
+      )}
     </div>
   );
 }

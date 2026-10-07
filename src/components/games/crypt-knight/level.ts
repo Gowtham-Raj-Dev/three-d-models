@@ -1,13 +1,14 @@
 import * as THREE from "three";
 import type { Pool, Proto } from "../shared/assets";
 import type { Decal, Decals, Glows } from "./fx";
+import type { WorldDef } from "./content";
 import { D } from "./manifest";
 
 /** Rooms of the crypt, built from Dungeon Remastered pieces (4 × 4 m tiles). */
 
 export const TILE = 4;
 
-export type EnemyKind = "minion" | "warrior" | "mage" | "boss";
+export type EnemyKind = "minion" | "warrior" | "mage" | "boss" | "rogue" | "archer";
 export type Layout = "plain" | "pillars" | "hall" | "rubble" | "cross" | "throne";
 
 export interface RoomPlan {
@@ -87,6 +88,24 @@ export const ROOMS: RoomPlan[] = [
   { w: 7, d: 6, layout: "throne", waves: [["boss"]], chest: false, spikes: 0, boss: true },
 ];
 
+/** A world's ten rooms: the crypt's rooms with some skeletons swapped for the world's rogues and archers. */
+export function worldRooms(world: WorldDef): RoomPlan[] {
+  return ROOMS.map((room, r) => ({
+    ...room,
+    waves: room.waves.map((wave, w) => {
+      let minions = r;
+      let mages = r;
+      const out = wave.map((kind): EnemyKind => {
+        if (kind === "minion" && world.rogues && ++minions % world.rogues === 0) return "rogue";
+        if (kind === "mage" && world.archers && ++mages % world.archers === 0) return "archer";
+        return kind;
+      });
+      if (world.extra && r >= 2 && !room.boss && w === room.waves.length - 1) out.push(world.extra);
+      return out;
+    }),
+  }));
+}
+
 export interface Collider {
   x: number;
   z: number;
@@ -154,6 +173,8 @@ export class Room {
   lightSpots: THREE.Vector3[] = [];
   doorOpen = 0;
   doorTarget = 0;
+  /** Torch colours of the current world (flame, core). */
+  flame = { flame: "#ff8a3d", core: "#ffd38a" };
   private parts: Part[] = [];
   private decals: Decal[] = [];
   private readonly doorway: THREE.Object3D;
@@ -445,14 +466,14 @@ export class Room {
     const fx = x + nx * 0.55;
     const fz = z + nz * 0.55;
     const fy = 1.7 + ts.y + 0.12;
-    const flame = this.glows.make("#ff8a3d", 1.6, 0.85);
-    const core = this.glows.make("#ffd38a", 0.55, 1);
+    const flame = this.glows.make(this.flame.flame, 1.6, 0.85);
+    const core = this.glows.make(this.flame.core, 0.55, 1);
     flame.position.set(fx, fy, fz);
     core.position.set(fx, fy - 0.05, fz);
     this.group.add(flame, core);
     this.torches.push({ x: fx, y: fy, z: fz, flame, core, seed: Math.random() * 100, light });
     if (light >= 0) this.lightSpots[light] = new THREE.Vector3(fx + nx * 0.4, fy + 0.2, fz + nz * 0.4);
-    const pool = this.fxDecals.get().set("pool", x + nx * 1.6, z + nz * 1.6, 3.8, "#ff7a2e", { opacity: 0.22, y: 0.02 });
+    const pool = this.fxDecals.get().set("pool", x + nx * 1.6, z + nz * 1.6, 3.8, this.flame.flame, { opacity: 0.22, y: 0.02 });
     this.decals.push(pool);
   }
 

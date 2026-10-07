@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 /**
- * Builds Skate Rush for YouTube Playables (https://developers.google.com/youtube/gaming/playables):
+ * Builds a game for YouTube Playables (https://developers.google.com/youtube/gaming/playables):
  *
- *   npm run playables:build
- *     → dist-playables/skate-rush/              index.html, game.js, game.css, fonts, models, pictures
- *     → dist-playables/skate-rush-playables.zip the same, zipped for upload
+ *   npm run playables:build                 Skate Rush
+ *   npm run playables:build -- sky-hop      Sky Hop
+ *     → dist-playables/<slug>/              index.html, game.js, game.css, fonts, models, pictures
+ *     → dist-playables/<slug>-playables.zip the same, zipped for upload
  *
  * A stand-alone page (no Next.js): every path is relative and nothing is fetched from outside the
  * bundle except YouTube's SDK, which index.html loads before the game. The game itself follows the
  * SDK's rules (src/components/games/shared/playables.ts): cloud saves instead of localStorage,
  * pause / resume and mute from YouTube, firstFrameReady / gameReady, sendScore for the best score.
  *
- * Test it locally with `npx serve dist-playables/skate-rush` (the SDK does nothing outside
- * YouTube), then with YouTube's Playables test suite before submitting.
+ * Test it locally with `npx serve dist-playables/<slug>` (the SDK does nothing outside
+ * YouTube), then with YouTube's Playables test suite before submitting. Each game needs an entry
+ * (scripts/playables/<slug>.tsx), a stylesheet with its fonts (<slug>.css, fonts in ./fonts) and a
+ * line in GAMES below.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -22,7 +25,26 @@ import postcss from "postcss";
 import tailwind from "@tailwindcss/postcss";
 import { zipSync } from "fflate";
 
-const SLUG = "skate-rush";
+/**
+ * Per game: what to read from its code (the manifest's GAME and the models loaded before the menu,
+ * plus its shop lists) and the pictures its menus show.
+ */
+const GAMES = {
+  "skate-rush": {
+    data: `export { GAME, BASE_MODELS } from "./src/components/games/skate-rush/manifest";\nexport { SKATERS, STAGES } from "./src/components/games/skate-rush/content";`,
+    pictures: ({ SKATERS, STAGES }) => [...SKATERS.map((s) => `library/${s.key}.webp`), ...STAGES.map((st) => `games/skate-rush/stages/${st.id}.webp`)],
+  },
+  "sky-hop": {
+    data: `export { GAME, MODELS as BASE_MODELS } from "./src/components/games/sky-hop/manifest";\nexport { HEROES } from "./src/components/games/sky-hop/content";`,
+    pictures: ({ HEROES }) => HEROES.map((h) => `library/${h.key}.webp`),
+  },
+};
+
+const SLUG = process.argv[2] ?? "skate-rush";
+if (!GAMES[SLUG]) {
+  console.error(`build-playables: no Playables setup for "${SLUG}" (have: ${Object.keys(GAMES).join(", ")})`);
+  process.exit(1);
+}
 const ROOT = path.resolve(import.meta.dirname, "..");
 const PUBLIC = path.join(ROOT, "public");
 const SRC = path.join(ROOT, "scripts", "playables");
@@ -51,7 +73,7 @@ function copy(from, to) {
 async function gameData() {
   const result = await esbuild.build({
     stdin: {
-      contents: `export { GAME, BASE_MODELS } from "./src/components/games/${SLUG}/manifest";\nexport { SKATERS, STAGES } from "./src/components/games/${SLUG}/content";`,
+      contents: GAMES[SLUG].data,
       resolveDir: ROOT,
       loader: "ts",
     },
@@ -78,11 +100,12 @@ function glbExtensions(file) {
   return JSON.parse(buf.subarray(20, 20 + len).toString("utf8")).extensionsUsed ?? [];
 }
 
-const { GAME, BASE_MODELS, SKATERS, STAGES } = await gameData();
+const data = await gameData();
+const { GAME, BASE_MODELS } = data;
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 
-// 1. Models (and the shop's pictures of the skaters).
+// 1. Models (and the pictures the menus show).
 const models = [...new Set(GAME.models)];
 const sizes = {};
 const extensions = new Set();
@@ -95,8 +118,7 @@ for (const key of models) {
   for (const ext of glbExtensions(path.join(PUBLIC, rel))) extensions.add(ext);
 }
 let pictureBytes = 0;
-for (const s of SKATERS) pictureBytes += copy(path.join(PUBLIC, "library", `${s.key}.webp`), path.join(OUT, "library", `${s.key}.webp`));
-for (const st of STAGES) pictureBytes += copy(path.join(PUBLIC, "games", SLUG, "stages", `${st.id}.webp`), path.join(OUT, "games", SLUG, "stages", `${st.id}.webp`));
+for (const rel of new Set(GAMES[SLUG].pictures(data))) pictureBytes += copy(path.join(PUBLIC, rel), path.join(OUT, rel));
 // The loading screen: the game's backdrops (if captured) over its cover.
 for (const f of fs.readdirSync(path.join(PUBLIC, "games", SLUG))) {
   if (/^(cover|backdrop-.*)\.webp$/.test(f)) pictureBytes += copy(path.join(PUBLIC, "games", SLUG, f), path.join(OUT, "games", SLUG, f));
@@ -146,6 +168,7 @@ fs.writeFileSync(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>${GAME.title}</title>
+<link rel="icon" href="data:,">
 <script src="${SDK}"></script>
 <link rel="stylesheet" href="./game.css">
 </head>

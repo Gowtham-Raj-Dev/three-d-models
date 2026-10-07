@@ -34,7 +34,8 @@ export const GAME: GameEntry = {
   genre: "Endless runner",
   accent: "#f59e0b",
   cover: "/games/skate-rush/cover.webp",
-  trailer: { src: "/games/skate-rush/trailer.mp4", poster: "/games/skate-rush/trailer-poster.webp", seconds: 36 },
+  trailer: { src: "/games/skate-rush/trailer.mp4", hd: "/games/skate-rush/trailer-1080.mp4", poster: "/games/skate-rush/trailer-poster.webp", seconds: 37 },
+  preview: "/games/skate-rush/card-loop.mp4",
   models: MODELS,
   collections: [
     "Mini Skate",

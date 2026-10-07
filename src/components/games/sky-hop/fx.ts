@@ -388,11 +388,20 @@ export class Particles {
   }
 }
 
-// --- Snowfall ---------------------------------------------------------------------------------------
+// --- Weather ----------------------------------------------------------------------------------------
 
+/** Falling bits around the camera: snow, autumn leaves, blowing sand, candy petals or rising embers. */
 export class Snow {
   readonly points: THREE.Points;
-  private readonly uniforms = { time: { value: 0 }, center: { value: new THREE.Vector3() }, scale: { value: 600 } };
+  private readonly uniforms = {
+    time: { value: 0 },
+    center: { value: new THREE.Vector3() },
+    scale: { value: 600 },
+    color: { value: new THREE.Color("#ffffff") },
+    fall: { value: 1 },
+    size: { value: 1 },
+    wind: { value: 1.2 },
+  };
 
   constructor(count = 700) {
     const geo = new THREE.BufferGeometry();
@@ -408,26 +417,40 @@ export class Snow {
         depthWrite: false,
         uniforms: this.uniforms,
         vertexShader: `
-          attribute vec4 seed; uniform float time; uniform vec3 center; uniform float scale; varying float vA;
+          attribute vec4 seed; uniform float time; uniform vec3 center; uniform float scale; uniform float fall; uniform float size; uniform float wind; varying float vA;
           void main() {
             vec3 box = vec3(60.0, 36.0, 60.0);
             vec3 p = seed.xyz * box;
-            p.y -= time * (1.6 + seed.w * 1.4);
-            p.x += sin(time * 0.7 + seed.w * 20.0) * 1.5 + time * 1.2;
+            p.y -= time * (1.6 + seed.w * 1.4) * fall;
+            p.x += sin(time * 0.7 + seed.w * 20.0) * 1.5 + time * wind;
             p.z += cos(time * 0.5 + seed.x * 20.0) * 1.2;
             p = mod(p - center + box * 0.5, box) + center - box * 0.5;
             vec4 mv = modelViewMatrix * vec4(p, 1.0);
-            gl_PointSize = (0.12 + seed.w * 0.14) * scale / max(0.1, -mv.z);
+            gl_PointSize = (0.12 + seed.w * 0.14) * size * scale / max(0.1, -mv.z);
             vA = smoothstep(55.0, 20.0, -mv.z);
             gl_Position = projectionMatrix * mv;
           }`,
         fragmentShader: `
-          varying float vA;
-          void main() { float a = smoothstep(0.5, 0.1, length(gl_PointCoord - 0.5)); gl_FragColor = vec4(1.0, 1.0, 1.0, a * vA * 0.9); }`,
+          uniform vec3 color; varying float vA;
+          void main() { float a = smoothstep(0.5, 0.1, length(gl_PointCoord - 0.5)); gl_FragColor = vec4(color, a * vA * 0.9); }`,
       }),
     );
     this.points.frustumCulled = false;
     this.points.renderOrder = 4;
+  }
+
+  setStyle({ color, fall, size, wind, glow = false }: { color: string; fall: number; size: number; wind: number; glow?: boolean }) {
+    // The shader writes the colour straight out: keep the sRGB values as they are.
+    this.uniforms.color.value.setStyle(color, THREE.LinearSRGBColorSpace);
+    this.uniforms.fall.value = fall;
+    this.uniforms.size.value = size;
+    this.uniforms.wind.value = wind;
+    const material = this.points.material as THREE.ShaderMaterial;
+    const blending = glow ? THREE.AdditiveBlending : THREE.NormalBlending;
+    if (material.blending !== blending) {
+      material.blending = blending;
+      material.needsUpdate = true;
+    }
   }
 
   update(t: number, center: THREE.Vector3, scale: number) {

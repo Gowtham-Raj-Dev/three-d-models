@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { ArrowDownToLine, ChevronLeft, ChevronRight, CircleHelp, Clock, Flag, Gamepad2, Heart, Home, KeyRound, Lock, Pause, Play, RotateCcw, Snowflake, Star, Sun, Trophy } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ArrowDownToLine, ChevronLeft, ChevronRight, CircleHelp, Clock, Flag, Gamepad2, Heart, KeyRound, Map as MapIcon, Pause, Play, RotateCcw, ShoppingBag, Star, Trophy } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { audio } from "../shared/audio";
+import { music } from "../shared/music";
+import { inPlayables, playablesFirstFrame, playablesLifecycle, playablesLoad, playablesReady, playablesSave, playablesScore } from "../shared/playables";
+import { SKY_HOP } from "../shared/songs";
 import { box, ControlLayer, ControlsButton, ControlsEditor, createControls, type Placed } from "../shared/touch-layout";
 import {
   BigButton,
   createRecords,
   createStore,
+  formatNumber,
   GameRoot,
   GameTitle,
   HowToPlay,
@@ -22,9 +27,11 @@ import {
   useStore,
   type Store,
 } from "../shared/ui";
-import { SkyHopGame, START_LIVES, type Hud, type LevelResult, type Phase, type ToastKind } from "./engine";
-import { buildLevel, coinTotal, LEVELS } from "./levels";
-import { CHARACTERS, GAME } from "./manifest";
+import { findItem, HEROES, LEGACY_STAGE, perksOf, stageReward, STAGES_PER_WORLD, WORLDS, type ShopItem, type ShopKind } from "./content";
+import { SkyHopGame, START_LIVES, type Hud, type LevelResult, type Loadout, type Phase, type StageRef, type ToastKind } from "./engine";
+import { GAME } from "./manifest";
+import { CoinIcon, isOwned, ownedKey, Shop } from "./shop";
+import { nextStage, StageMap, type StageInfo } from "./stages";
 
 interface LevelRecord {
   /** Bit mask of the stars found. */
@@ -34,12 +41,64 @@ interface LevelRecord {
   time: number;
 }
 
-const records = createRecords("sky-hop:v1", { character: 0, unlocked: 1, levels: {} as Record<string, LevelRecord> });
+/**
+ * `stages`: per "world:stage", the best run. `levels` / `unlocked` / `character` are from the old
+ * five-level game (read once by migrate()). `bank`, `owned`, `hero`, `skin`, `world`: the shop.
+ */
+const DEFAULTS = {
+  character: 0,
+  unlocked: 1,
+  levels: {} as Record<string, LevelRecord>,
+  stages: {} as Record<string, LevelRecord>,
+  bank: 0,
+  owned: [] as string[],
+  hero: "",
+  skin: "classic",
+  world: WORLDS[0].id,
+  migrated: false,
+};
 
-const EMPTY_HUD: Hud = { level: 0, coins: 0, levelCoins: 0, lives: START_LIVES, hp: 3, stars: [false, false, false], key: false, chest: false, time: 0 };
+type Save = typeof DEFAULTS;
 
-/** Body colours of the five characters, for the lives badge and the picker. */
-const CHARACTER_TINT = ["#a78bfa", "#f472b6", "#facc15", "#34d399", "#fdba74"];
+// In YouTube Playables progress goes to YouTube's cloud save instead of this browser.
+const records = createRecords("sky-hop:v1", DEFAULTS, { cloud: inPlayables() ? playablesSave : undefined });
+
+/** Brings an old save (five levels, five free characters) into worlds and stages. */
+function migrate() {
+  const save = records.get();
+  if (save.migrated) return;
+  const stages = { ...save.stages };
+  LEGACY_STAGE.forEach(([world, stage], old) => {
+    const rec = save.levels[String(old)];
+    if (rec && !stages[`${world}:${stage}`]) stages[`${world}:${stage}`] = rec;
+  });
+  // Players who had reached the snowy levels keep Frosty Peaks.
+  const owned = save.unlocked >= 4 && !save.owned.includes(ownedKey("world", "frost")) ? [...save.owned, ownedKey("world", "frost")] : save.owned;
+  records.set({ stages, owned, hero: save.hero || HEROES[save.character]?.id || HEROES[0].id, migrated: true });
+}
+
+const loadoutOf = (save: Save): Loadout => ({ hero: findItem(HEROES, save.hero).id, skin: save.skin, world: save.world });
+
+const countStars = (mask: number) => (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1);
+const recordOf = (save: Save, world: string, stage: number) => save.stages[`${world}:${stage}`];
+const stagesOf = (save: Save, world: string): StageInfo[] =>
+  Array.from({ length: STAGES_PER_WORLD }, (_, i) => {
+    const r = recordOf(save, world, i);
+    return { stars: r ? countStars(r.stars) : 0, done: !!r?.time };
+  });
+const totalStars = (save: Save) => Object.values(save.stages).reduce((n, r) => n + countStars(r.stars), 0);
+const starsFound = (ref: StageRef) => {
+  const mask = recordOf(records.get(), ref.world, ref.stage)?.stars ?? 0;
+  return [0, 1, 2].map((i) => (mask & (1 << i)) !== 0);
+};
+
+/** Why a world can't be bought yet: every stage of the world before it must be finished first. */
+const worldGate = (save: Save, id: string) => {
+  const i = WORLDS.findIndex((w) => w.id === id);
+  return i <= 0 || stagesOf(save, WORLDS[i - 1].id).every((s) => s.done) ? null : `Finish every stage of ${WORLDS[i - 1].name} first`;
+};
+
+const EMPTY_HUD: Hud = { level: 0, coins: 0, maxHp: 3, levelCoins: 0, lives: START_LIVES, hp: 3, stars: [false, false, false], key: false, chest: false, time: 0 };
 
 const GAME_KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "ShiftLeft", "ShiftRight", "KeyQ", "KeyE", "KeyR"]);
 
@@ -49,19 +108,13 @@ const formatTime = (t: number) => {
   return `${m}:${s.toFixed(1).padStart(4, "0")}`;
 };
 
-const countStars = (mask: number) => (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1);
-const starsFound = (index: number) => {
-  const mask = records.get().levels[String(index)]?.stars ?? 0;
-  return [0, 1, 2].map((i) => (mask & (1 << i)) !== 0);
-};
-
 interface Toast {
   id: number;
   text: string;
   kind: ToastKind;
 }
 
-type Screen = "title" | "levels";
+type Result = LevelResult & { best: number; newBest: boolean; record: LevelRecord; saved: number };
 
 export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
   // A page re-render passes a new object: keep the first one so the game isn't rebuilt.
@@ -72,72 +125,204 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
   const [hud] = useState(() => createStore<Hud>(EMPTY_HUD));
   const [toasts] = useState(() => createStore<Toast | null>(null));
   const [phase, setPhase] = useState<Phase>("loading");
-  const [screen, setScreen] = useState<Screen>("title");
+  const [map, setMap] = useState(false);
+  const [shop, setShop] = useState<{ tab: ShopKind; selected: string } | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<(LevelResult & { best: number; newBest: boolean; record: LevelRecord }) | null>(null);
-  const [overLevel, setOverLevel] = useState<number | null>(null);
-  const [current, setCurrent] = useState(0);
+  const [result, setResult] = useState<Result | null>(null);
+  const [over, setOver] = useState<{ ref: StageRef; saved: number } | null>(null);
+  const [current, setCurrent] = useState<StageRef>({ world: WORLDS[0].id, stage: 0 });
   const [help, setHelp] = useState(false);
   // Only read after loading (nothing touch-specific renders before), so SSR markup still matches.
   const [touch, setTouch] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
   const [editing, setEditing] = useState(false);
   const [runKey, setRunKey] = useState(0);
   const saved = useRecords(records);
-  const totals = useMemo(() => LEVELS.map((def, i) => coinTotal(buildLevel(def, 1234 + i * 77))), []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const youtube = inPlayables();
     let toastId = 0;
-    const game = new SkyHopGame(canvas, {
-      progress: setProgress,
-      phase: setPhase,
-      hud: hud.set,
-      error: setError,
-      toast: (text, kind) => toasts.set({ id: ++toastId, text, kind }),
-      fade: (alpha) => {
-        if (fadeRef.current) fadeRef.current.style.opacity = String(alpha);
+    const game = new SkyHopGame(
+      canvas,
+      {
+        progress: setProgress,
+        phase: setPhase,
+        hud: hud.set,
+        error: setError,
+        busy: setBusy,
+        toast: (text, kind) => toasts.set({ id: ++toastId, text, kind }),
+        fade: (alpha) => {
+          if (fadeRef.current) fadeRef.current.style.opacity = String(alpha);
+        },
+        complete: (run) => {
+          const before = records.get();
+          const key = `${run.world}:${run.stage}`;
+          const prev = before.stages[key] ?? { stars: 0, coins: 0, time: 0 };
+          const mask = run.stars.reduce((m, s, i) => (s ? m | (1 << i) : m), 0);
+          const newBest = !prev.time || run.time < prev.time;
+          const record: LevelRecord = { stars: prev.stars | mask, coins: Math.max(prev.coins, run.coins), time: newBest ? run.time : prev.time };
+          const world = findItem(WORLDS, run.world);
+          const reward = stageReward(run.coins, countStars(mask), run.stage === STAGES_PER_WORLD - 1, world, findItem(HEROES, before.hero));
+          records.set({ stages: { ...before.stages, [key]: record }, bank: before.bank + reward });
+          const stars = totalStars(records.get());
+          if (stars > totalStars(before)) playablesScore(stars);
+          setResult({ ...run, best: record.time, newBest: newBest && !!prev.time, record, saved: reward });
+        },
+        over: (ref, coins) => {
+          const before = records.get();
+          const reward = stageReward(coins, 0, false, findItem(WORLDS, ref.world), findItem(HEROES, before.hero));
+          records.set({ bank: before.bank + reward });
+          setOver({ ref, saved: reward });
+        },
       },
-      complete: (run) => {
-        const before = records.get();
-        const key = String(run.level);
-        const prev = before.levels[key] ?? { stars: 0, coins: 0, time: 0 };
-        const mask = run.stars.reduce((m, s, i) => (s ? m | (1 << i) : m), 0);
-        const newBest = !prev.time || run.time < prev.time;
-        const record: LevelRecord = { stars: prev.stars | mask, coins: Math.max(prev.coins, run.coins), time: newBest ? run.time : prev.time };
-        records.set({ levels: { ...before.levels, [key]: record }, unlocked: Math.max(before.unlocked, Math.min(LEVELS.length, run.level + 2)) });
-        setResult({ ...run, best: record.time, newBest: newBest && !!prev.time, record });
-      },
-      over: (level) => setOverLevel(level),
-    });
+      { visibility: !youtube },
+    );
     gameRef.current = game;
-    game.selectCharacter(records.get().character);
-    void game.load(modelSizes);
+    // Dev server only: scripts/record-sky-trailer.mjs drives the game (and renders its music) through this.
+    if (process.env.NODE_ENV !== "production") Object.assign(window, { __skyHop: { game, records, audio, music, song: SKY_HOP, ui: { map: setMap } } });
+    playablesFirstFrame();
+    const stopLifecycle = playablesLifecycle(
+      () => {
+        game.pause();
+        game.setSuspended(true);
+      },
+      () => game.setSuspended(false),
+    );
+    void (async () => {
+      // YouTube: wait for the cloud save before anything can be saved over it.
+      const cloud = await playablesLoad();
+      if (cloud) records.hydrate(cloud as Partial<Save>);
+      migrate();
+      if (gameRef.current === game) void game.load(modelSizes, loadoutOf(records.get()));
+    })();
     return () => {
+      stopLifecycle();
       gameRef.current = null;
       game.dispose();
     };
   }, [hud, toasts, modelSizes]);
 
-  const startLevel = (index: number, fresh: boolean) => {
+  useEffect(() => {
+    if (phase === "menu") playablesReady();
+  }, [phase]);
+
+  const startStage = (ref: StageRef, fresh: boolean) => {
     const game = gameRef.current;
     if (!game) return;
     (document.activeElement as HTMLElement | null)?.blur();
     setResult(null);
-    setOverLevel(null);
+    setOver(null);
     setHelp(false);
-    setCurrent(index);
+    setMap(false);
+    setEditing(false);
+    if (shop) closeShop();
+    setCurrent(ref);
     setRunKey((k) => k + 1);
     toasts.set(null);
-    game.startLevel(index, fresh, starsFound(index));
+    game.startStage(ref, fresh, starsFound(ref));
   };
 
-  const toLevels = () => {
+  /** Back to the menu with the stage map open (from a result, game over or the pause menu). */
+  const toStages = () => {
     setResult(null);
-    setOverLevel(null);
-    setScreen("levels");
+    setOver(null);
     gameRef.current?.toMenu();
+    setMap(true);
+  };
+
+  const toTitle = () => {
+    setResult(null);
+    setOver(null);
+    setMap(false);
+    gameRef.current?.toMenu();
+  };
+
+  /** World tab on the stage map: owned worlds are shown, locked ones open in the shop. */
+  const pickWorld = (id: string) => {
+    const save = records.get();
+    if (isOwned(save, "world", findItem(WORLDS, id))) {
+      records.set({ world: id });
+      gameRef.current?.setWorld(id);
+    } else {
+      setMap(false);
+      openShop("world", id);
+    }
+  };
+
+  // --- Shop: picking an item previews it on the hero; closing puts back what's equipped. ---
+  const shown = useRef<Loadout | null>(null);
+  const shift = useRef({ x: 0, y: 0 });
+
+  const preview = (kind: ShopKind, id: string) => {
+    const game = gameRef.current;
+    const now = (shown.current ??= loadoutOf(records.get()));
+    if (!game || now[kind] === id) return;
+    now[kind] = id;
+    if (kind === "hero") void game.setHero(id);
+    else if (kind === "skin") game.setSkin(id);
+    else game.setWorld(id);
+  };
+
+  const openShop = (tab: ShopKind = "hero", selected?: string) => {
+    if (phase === "over" || phase === "complete") toTitle();
+    else if (phase !== "menu") return;
+    const save = records.get();
+    shown.current = loadoutOf(save);
+    setMap(false);
+    setShop({ tab, selected: selected ?? loadoutOf(save)[tab] });
+    if (selected) preview(tab, selected);
+    gameRef.current?.setShowcase(true, shift.current);
+  };
+
+  function closeShop() {
+    const save = loadoutOf(records.get());
+    setShop(null);
+    (["hero", "skin", "world"] as const).forEach((kind) => preview(kind, save[kind]));
+    gameRef.current?.setShowcase(false);
+  }
+
+  const pickTab = (tab: ShopKind) => {
+    if (!shop) return;
+    // Leaving a tab puts its equipped item back on.
+    preview(shop.tab, loadoutOf(records.get())[shop.tab]);
+    setShop({ tab, selected: loadoutOf(records.get())[tab] });
+  };
+
+  const pickItem = (id: string) => {
+    if (!shop) return;
+    setShop({ ...shop, selected: id });
+    preview(shop.tab, id);
+  };
+
+  const equip = (kind: ShopKind, id: string) => {
+    records.set({ [kind]: id });
+    preview(kind, id);
+  };
+
+  const buy = (kind: ShopKind, item: ShopItem) => {
+    const save = records.get();
+    if (save.bank < item.price || isOwned(save, kind, item) || (kind === "world" && worldGate(save, item.id))) return;
+    records.set({ bank: save.bank - item.price, owned: [...save.owned, ownedKey(kind, item.id)], [kind]: item.id });
+    preview(kind, item.id);
+    gameRef.current?.celebrate();
+  };
+
+  const onLayout = useCallback((s: { x: number; y: number }) => {
+    shift.current = s;
+    gameRef.current?.setShowcase(true, s);
+  }, []);
+
+  /** Title screen arrows: the heroes you own, one after another. */
+  const cycleHero = (dir: number) => {
+    const save = records.get();
+    const mine = HEROES.filter((h) => isOwned(save, "hero", h));
+    const i = mine.findIndex((h) => h.id === loadoutOf(save).hero);
+    const next = mine[(i + dir + mine.length) % mine.length];
+    records.set({ hero: next.id });
+    void gameRef.current?.setHero(next.id);
   };
 
   const pauseOrResume = () => {
@@ -151,9 +336,9 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
       setEditing(false);
       return;
     }
+    if (shop || map) return;
     if (phase === "playing") game?.pause();
     else if (phase === "paused") game?.resume();
-    else if (phase === "menu" && screen === "levels") setScreen("title");
   };
 
   const openHelp = () => {
@@ -163,20 +348,20 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
 
   useShortcuts({ onPause: pauseOrResume, onHelp: openHelp });
 
-  const changeCharacter = (dir: number) => {
-    const next = (saved.character + dir + CHARACTERS.length) % CHARACTERS.length;
-    records.set({ character: next });
-    gameRef.current?.selectCharacter(next);
-  };
+  const worldStages = stagesOf(saved, saved.world);
+  const resultWorld = result ? findItem(WORLDS, result.world) : null;
+  const nextRef: StageRef | null = result && result.stage + 1 < STAGES_PER_WORLD ? { world: result.world, stage: result.stage + 1 } : null;
+  const nextWorld = resultWorld && !nextRef ? (WORLDS[WORLDS.indexOf(resultWorld) + 1] ?? null) : null;
 
-  const nextLevel = result && result.level + 1 < LEVELS.length ? result.level + 1 : null;
+  /** The map's Play: the next stage of the shown world. */
+  const playMap = (stage = nextStage(worldStages)) => startStage({ world: saved.world, stage }, true);
 
-  // Keyboard: game controls while playing, Enter / arrows on the menus.
+  // Keyboard: game controls while playing, Enter / arrows / S on the menus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const game = gameRef.current;
       if (!game || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (help || editing) return;
+      if (help || editing || shop || map) return;
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       if (phase === "playing") {
         if (GAME_KEYS.has(e.code)) {
@@ -190,26 +375,24 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
       if (phase === "paused" && confirm && !onButton) {
         e.preventDefault();
         game.resume();
-      } else if (phase === "menu" && screen === "title") {
+      } else if (phase === "menu") {
         if (confirm && !onButton) {
           e.preventDefault();
-          setScreen("levels");
+          setMap(true);
         } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
           e.preventDefault();
-          changeCharacter(e.key === "ArrowLeft" ? -1 : 1);
-        }
-      } else if (phase === "menu" && screen === "levels") {
-        if (confirm && !onButton) {
+          cycleHero(e.key === "ArrowLeft" ? -1 : 1);
+        } else if (e.key === "s" || e.key === "S") {
           e.preventDefault();
-          startLevel(Math.min(saved.unlocked, LEVELS.length) - 1, true);
+          openShop();
         }
       } else if (phase === "complete" && result && confirm && !onButton) {
         e.preventDefault();
-        if (nextLevel !== null) startLevel(nextLevel, false);
-        else toLevels();
-      } else if (phase === "over" && confirm && !onButton) {
+        if (nextRef) startStage(nextRef, false);
+        else toStages();
+      } else if (phase === "over" && over && confirm && !onButton) {
         e.preventDefault();
-        startLevel(overLevel ?? current, true);
+        startStage(over.ref, true);
       }
     };
     const onKeyUp = (e: KeyboardEvent) => gameRef.current?.setKey(e.code, false);
@@ -221,8 +404,9 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
     };
   });
 
-  // Leaving the tab or window pauses the game.
+  // Leaving the tab or window pauses the game (YouTube pauses through its own SDK instead).
   useEffect(() => {
+    if (inPlayables()) return;
     const pause = () => gameRef.current?.pause();
     const onVisibility = () => document.hidden && pause();
     document.addEventListener("visibilitychange", onVisibility);
@@ -234,7 +418,8 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
   }, []);
 
   const inLevel = phase === "playing" || phase === "paused" || phase === "dying" || phase === "complete";
-  const totalStars = Object.values(saved.levels).reduce((n, r) => n + countStars(r.stars), 0);
+  const hero = findItem(HEROES, saved.hero);
+  const world = findItem(WORLDS, saved.world);
 
   return (
     <GameRoot game={GAME} className="bg-[#9fd3f7]">
@@ -244,38 +429,51 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
 
       <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && screen === "title" && !editing && (
+      {phase === "menu" && !editing && !shop && !map && (
         <TitleScreen
-          character={saved.character}
-          stars={totalStars}
-          onCharacter={changeCharacter}
-          onPlay={() => setScreen("levels")}
+          hero={hero.name}
+          heroTint={hero.tint}
+          perk={hero.perk}
+          world={world.name}
+          stars={totalStars(saved)}
+          bank={saved.bank}
+          stage={nextStage(worldStages)}
+          busy={busy}
+          onHero={cycleHero}
+          onPlay={() => setMap(true)}
+          onShop={() => openShop()}
           onHelp={() => setHelp(true)}
           onControls={() => setEditing(true)}
           touch={touch}
         />
       )}
-      {/* Controls editor from the title screen: the HUD shows behind it so controls keep clear of it. */}
-      {phase === "menu" && editing && <HudOverlay store={hud} character={saved.character} found={0} paused={false} onPause={() => {}} />}
-
-      {phase === "menu" && screen === "levels" && (
-        <LevelSelect levels={saved.levels} unlocked={saved.unlocked} totals={totals} onPick={(i) => startLevel(i, true)} onHelp={() => setHelp(true)} />
+      {phase === "menu" && shop && (
+        <Shop
+          save={{ ...saved, hero: loadoutOf(saved).hero }}
+          tab={shop.tab}
+          selected={shop.selected}
+          busy={busy}
+          gate={(kind, item) => (kind === "world" ? worldGate(saved, item.id) : null)}
+          onTab={pickTab}
+          onSelect={pickItem}
+          onBuy={buy}
+          onEquip={equip}
+          onClose={closeShop}
+          onLayout={onLayout}
+        />
       )}
+      {phase === "menu" && map && !shop && (
+        <StageMap world={saved.world} stages={worldStages} owned={(id) => isOwned(saved, "world", findItem(WORLDS, id))} onWorld={pickWorld} onPlay={playMap} onClose={() => setMap(false)} />
+      )}
+      {/* Controls editor from the title screen: the HUD shows behind it so controls keep clear of it. */}
+      {phase === "menu" && editing && <HudOverlay store={hud} tint={hero.tint} found={0} paused={false} onPause={() => {}} />}
 
       {phase === "playing" && <Controls key={runKey} game={gameRef} touch={touch} onTouch={() => setTouch(true)} />}
 
-      {inLevel && (
-        <HudOverlay
-          store={hud}
-          character={saved.character}
-          found={saved.levels[String(current)]?.stars ?? 0}
-          paused={phase === "paused"}
-          onPause={pauseOrResume}
-        />
-      )}
+      {inLevel && <HudOverlay store={hud} tint={hero.tint} found={recordOf(saved, current.world, current.stage)?.stars ?? 0} paused={phase === "paused"} onPause={pauseOrResume} />}
       {inLevel && <ToastLayer store={toasts} />}
-      {phase === "playing" && <LevelBanner key={`banner-${runKey}`} index={current} />}
-      {phase === "playing" && current === 0 && <ControlsHint key={`hint-${runKey}`} touch={touch} />}
+      {phase === "playing" && <LevelBanner key={`banner-${runKey}`} stage={current} />}
+      {phase === "playing" && current.world === WORLDS[0].id && current.stage === 0 && <ControlsHint key={`hint-${runKey}`} touch={touch} />}
 
       {phase === "paused" && !help && !editing && (
         <Modal title="Paused">
@@ -286,14 +484,14 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
             <SoftButton onClick={() => gameRef.current?.toCheckpoint()} icon={<Flag className="size-4" />}>
               Checkpoint
             </SoftButton>
-            <SoftButton onClick={() => startLevel(current, false)} icon={<RotateCcw className="size-4" />}>
-              Restart level
+            <SoftButton onClick={() => startStage(current, false)} icon={<RotateCcw className="size-4" />}>
+              Restart
             </SoftButton>
             <SoftButton onClick={() => setHelp(true)} icon={<CircleHelp className="size-4" />}>
               How to play
             </SoftButton>
-            <SoftButton onClick={toLevels} icon={<Home className="size-4" />}>
-              Levels
+            <SoftButton onClick={toStages} icon={<MapIcon className="size-4" />}>
+              Stages
             </SoftButton>
           </div>
           {touch && (
@@ -305,16 +503,16 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
       )}
       {(phase === "paused" || phase === "menu") && editing && <ControlsEditor controls={touchControls} face={(id, p) => <HopFace id={id} at={p} />} onClose={() => setEditing(false)} />}
 
-      {phase === "complete" && result && !help && (
-        <Modal title="Level clear!" wide>
+      {phase === "complete" && result && resultWorld && !help && (
+        <Modal title={nextRef ? "Stage clear!" : "World clear!"} wide>
           <p className="g-display -mt-2 text-center text-sm text-[var(--accent)] [text-shadow:1px_1px_0_#1c1917]">
-            {result.level + 1}. {LEVELS[result.level].name}
+            {resultWorld.name} · {result.stage + 1}. {resultWorld.stages[result.stage]}
           </p>
           <div className="flex justify-center gap-3">
             {[0, 1, 2].map((i) => (
               <span key={i} style={{ animationDelay: `${0.2 + i * 0.18}s` }} className="animate-[skyhop-pop_0.5s_ease_both]">
                 <Star
-                  className={`size-12 stroke-[2.5] ${result.stars[i] ? "fill-[var(--accent)] text-[#1c1917]" : result.record.stars & (1 << i) ? "fill-[#fde68a] text-[#1c1917] opacity-60" : "fill-transparent text-[#1c1917] opacity-30"}`}
+                  className={`size-11 stroke-[2.5] sm:size-12 ${result.stars[i] ? "fill-[var(--accent)] text-[#1c1917]" : result.record.stars & (1 << i) ? "fill-[#fde68a] text-[#1c1917] opacity-60" : "fill-transparent text-[#1c1917] opacity-30"}`}
                 />
               </span>
             ))}
@@ -324,45 +522,62 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
             <Stat label="Coins" value={`${result.coins}/${result.totalCoins}`} />
             <Stat label="Best" value={formatTime(result.best)} />
           </div>
+          <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full border-[3px] border-[#1c1917] bg-white px-3 py-1 text-xs font-black tabular-nums">
+            <CoinIcon /> +{formatNumber(result.saved)} saved · {formatNumber(saved.bank)} in the bank
+          </p>
           {result.newBest && (
             <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full border-2 border-[#1c1917] bg-[var(--accent)] px-3 py-1 text-xs font-black tracking-wider text-[#1c1917] uppercase">
               <Trophy className="size-3.5" /> New best time
             </p>
           )}
-          {nextLevel !== null ? (
-            <BigButton onClick={() => startLevel(nextLevel, false)} icon={<Play className="size-6 fill-current" />} autoFocus>
-              Next level
+          {nextRef ? (
+            <BigButton onClick={() => startStage(nextRef, false)} icon={<Play className="size-6 fill-current" />} autoFocus>
+              Next stage
+            </BigButton>
+          ) : nextWorld && !isOwned(saved, "world", nextWorld) ? (
+            <BigButton onClick={() => openShop("world", nextWorld.id)} icon={<ShoppingBag className="size-6" />} autoFocus>
+              Unlock {nextWorld.name}
             </BigButton>
           ) : (
-            <div className="space-y-3 text-center">
-              <p className="g-display text-lg">You conquered every island!</p>
-              <BigButton onClick={toLevels} icon={<Trophy className="size-6" />} autoFocus>
-                All levels
-              </BigButton>
-            </div>
+            <BigButton onClick={toStages} icon={<Trophy className="size-6" />} autoFocus>
+              {nextWorld ? `On to ${nextWorld.name}` : "All stages"}
+            </BigButton>
           )}
-          <div className="grid grid-cols-2 gap-2">
-            <SoftButton onClick={() => startLevel(result.level, false)} icon={<RotateCcw className="size-4" />}>
-              Play again
+          <div className="grid grid-cols-3 gap-2">
+            <SoftButton onClick={() => startStage({ world: result.world, stage: result.stage }, false)} icon={<RotateCcw className="size-4" />}>
+              Again
             </SoftButton>
-            <SoftButton onClick={toLevels} icon={<Home className="size-4" />}>
-              Levels
+            <SoftButton onClick={toStages} icon={<MapIcon className="size-4" />}>
+              Stages
+            </SoftButton>
+            <SoftButton onClick={() => openShop()} icon={<ShoppingBag className="size-4" />}>
+              Shop
             </SoftButton>
           </div>
         </Modal>
       )}
 
-      {phase === "over" && overLevel !== null && !help && (
+      {phase === "over" && over && !help && (
         <Modal title="Game over">
           <p className="text-center text-sm">
-            Out of lives on <span className="font-bold">{LEVELS[overLevel].name}</span>. Stars and coins you found are kept — try again with {START_LIVES} fresh lives!
+            Out of lives on <span className="font-bold">{findItem(WORLDS, over.ref.world).stages[over.ref.stage]}</span>. Try again with {START_LIVES + perksOf(hero).lives} fresh lives!
           </p>
-          <BigButton onClick={() => startLevel(overLevel, true)} icon={<RotateCcw className="size-5" />} autoFocus>
+          {over.saved > 0 && (
+            <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full border-[3px] border-[#1c1917] bg-white px-3 py-1 text-xs font-black tabular-nums">
+              <CoinIcon /> +{formatNumber(over.saved)} coins saved
+            </p>
+          )}
+          <BigButton onClick={() => startStage(over.ref, true)} icon={<RotateCcw className="size-5" />} autoFocus>
             Try again
           </BigButton>
-          <SoftButton onClick={toLevels} icon={<Home className="size-4" />}>
-            Levels
-          </SoftButton>
+          <div className="grid grid-cols-2 gap-2">
+            <SoftButton onClick={toStages} icon={<MapIcon className="size-4" />}>
+              Stages
+            </SoftButton>
+            <SoftButton onClick={() => openShop()} icon={<ShoppingBag className="size-4" />}>
+              Shop
+            </SoftButton>
+          </div>
         </Modal>
       )}
 
@@ -376,24 +591,39 @@ const KEYFRAMES = `
 @keyframes skyhop-toast { 0% { opacity: 0; transform: translateY(-12px) scale(0.8); } 12% { opacity: 1; transform: translateY(0) scale(1.06); } 18% { transform: scale(1); } 80% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-8px); } }
 @keyframes skyhop-banner { 0% { opacity: 0; transform: translateY(16px) scale(0.9); } 12%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-10px); } }
 @keyframes skyhop-hint { 0% { opacity: 0; } 8%, 85% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes skyhop-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes skyhop-bob { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(-5px); } }
+@media (prefers-reduced-motion: reduce) { [class*="skyhop-bob"] { animation: none !important; } }
 `;
 
 // --- Screens -------------------------------------------------------------------------------------
 
 function TitleScreen({
-  character,
+  hero,
+  heroTint,
+  perk,
+  world,
   stars,
-  onCharacter,
+  bank,
+  stage,
+  busy,
+  onHero,
   onPlay,
+  onShop,
   onHelp,
   onControls,
   touch,
 }: {
-  character: number;
+  hero: string;
+  heroTint: string;
+  perk: string;
+  world: string;
   stars: number;
-  onCharacter: (dir: number) => void;
+  bank: number;
+  stage: number;
+  busy: number | null;
+  onHero: (dir: number) => void;
   onPlay: () => void;
+  onShop: () => void;
   onHelp: () => void;
   onControls: () => void;
   touch: boolean;
@@ -409,33 +639,46 @@ function TitleScreen({
       <div className="flex flex-1 flex-col justify-between px-4 pb-[max(env(safe-area-inset-bottom),16px)] sm:justify-center sm:px-10 sm:pb-10 lg:px-16 [@media(max-height:480px)]:pb-3">
         <div className="text-center sm:max-w-md sm:text-left [@media(max-height:480px)]:origin-top-left [@media(max-height:480px)]:scale-75">
           <GameTitle game={GAME} />
-          <p className="g-display mt-3 text-sm text-white [text-shadow:2px_2px_0_#1c1917] sm:text-lg [@media(max-height:480px)]:hidden">Hop · stomp · find the stars</p>
+          <p className="g-display mt-3 text-sm text-white [text-shadow:2px_2px_0_#1c1917] sm:text-lg [@media(max-height:480px)]:hidden">6 worlds · 60 stages · 15 heroes</p>
         </div>
 
         <div className="mt-6 w-full max-w-sm space-y-3 self-center sm:self-start [@media(max-height:480px)]:-mt-4 [@media(max-height:480px)]:space-y-2">
           <div className="g-panel flex items-center justify-between p-1.5">
-            <IconButton onClick={() => onCharacter(-1)} label="Previous character" plain>
+            <IconButton onClick={() => onHero(-1)} label="Previous hero" plain>
               <ChevronLeft className="size-6" />
             </IconButton>
-            <div className="flex items-center gap-2.5">
-              <span className="size-5 rounded-full border-[3px] border-[#1c1917]" style={{ background: CHARACTER_TINT[character] }} />
-              <div className="text-center">
-                <p className="g-muted text-[10px] font-bold tracking-[0.2em] uppercase">Hero</p>
-                <p className="g-display text-xl leading-none">{CHARACTERS[character]?.name ?? CHARACTERS[0].name}</p>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="size-5 shrink-0 rounded-full border-[3px] border-[#1c1917]" style={{ background: heroTint }} />
+              <div className="min-w-0 text-center">
+                <p className="g-muted truncate text-[10px] font-bold tracking-[0.12em] uppercase">{busy !== null ? `Hopping in… ${Math.round(busy * 100)}%` : perk}</p>
+                <p className="g-display truncate text-xl leading-none">{hero}</p>
               </div>
             </div>
-            <IconButton onClick={() => onCharacter(1)} label="Next character" plain>
+            <IconButton onClick={() => onHero(1)} label="Next hero" plain>
               <ChevronRight className="size-6" />
             </IconButton>
           </div>
 
-          <BigButton onClick={onPlay} icon={<Play className="size-6 fill-current" />} autoFocus>
-            Play
-          </BigButton>
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <BigButton onClick={onPlay} icon={<Play className="size-6 fill-current" />} autoFocus>
+              <span data-sh-play>Play</span>
+            </BigButton>
+            <button type="button" onClick={onShop} className="g-soft g-display inline-flex items-center px-3 focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+              <span className="g-unskew gap-1.5 text-sm">
+                <ShoppingBag className="size-4" /> Shop
+                <span className="inline-flex items-center gap-1 text-xs tabular-nums">
+                  <CoinIcon className="size-3" /> {formatNumber(bank)}
+                </span>
+              </span>
+            </button>
+          </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-bold sm:justify-start">
             <span className="g-hud inline-flex items-center gap-1.5 px-3 py-1.5">
-              <Star className="size-3.5 fill-[var(--accent)] stroke-[#1c1917] stroke-[2.5]" /> {stars} / {LEVELS.length * 3} stars
+              <Star className="size-3.5 fill-[var(--accent)] stroke-[#1c1917] stroke-[2.5]" /> {stars}/{WORLDS.length * STAGES_PER_WORLD * 3}
+            </span>
+            <span className="g-hud inline-flex max-w-[60vw] items-center gap-1.5 truncate px-3 py-1.5">
+              <MapIcon className="size-3.5 shrink-0" /> <span className="truncate">{world}</span> · {stage + 1}/{STAGES_PER_WORLD}
             </span>
             <button
               type="button"
@@ -447,7 +690,7 @@ function TitleScreen({
           </div>
           {!touch && (
             <p className="hidden text-center text-xs font-bold text-white [text-shadow:1px_1px_0_#1c1917,0_0_6px_rgb(0_0_0/0.4)] sm:block sm:text-left [@media(max-height:480px)]:!hidden">
-              WASD move · Space jump · Shift ground pound · Q/E or drag to look
+              WASD move · Space jump · Shift ground pound · Q/E look · S shop
             </p>
           )}
         </div>
@@ -456,107 +699,25 @@ function TitleScreen({
   );
 }
 
-function LevelSelect({
-  levels,
-  unlocked,
-  totals,
-  onPick,
-  onHelp,
-}: {
-  levels: Record<string, LevelRecord>;
-  unlocked: number;
-  totals: number[];
-  onPick: (index: number) => void;
-  onHelp: () => void;
-}) {
-  return (
-    <div className="absolute inset-0 overflow-y-auto">
-      <div className="flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <SystemButtons onHelp={onHelp} />
-      </div>
-      <div className="mx-auto w-full max-w-3xl px-4 pb-10">
-        <h2 className="g-title text-center text-4xl sm:text-6xl">Pick an island</h2>
-        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {LEVELS.map((def, i) => {
-            const rec = levels[String(i)];
-            const open = i < unlocked;
-            return (
-              <button
-                key={def.name}
-                type="button"
-                disabled={!open}
-                onClick={() => onPick(i)}
-                autoFocus={i === Math.min(unlocked, LEVELS.length) - 1}
-                className="g-panel group relative flex flex-col gap-2 p-4 text-left transition enabled:hover:-translate-y-0.5 enabled:hover:brightness-105 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-70"
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className="g-display grid size-11 shrink-0 place-items-center rounded-full border-[3px] border-[#1c1917] text-xl"
-                    style={{ background: def.theme === "snow" ? "#bfdbfe" : i === 2 ? "#fdba74" : "#86efac" }}
-                  >
-                    {open ? i + 1 : <Lock className="size-5" />}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="g-display truncate text-lg leading-tight">{def.name}</p>
-                    <p className="g-muted flex items-center gap-1 text-xs font-bold">
-                      {def.theme === "snow" ? <Snowflake className="size-3.5" /> : <Sun className="size-3.5" />}
-                      {def.theme === "snow" ? "Snow" : "Grassland"} · {["Easy", "Easy", "Medium", "Medium", "Hard"][i]}
-                    </p>
-                  </div>
-                </div>
-                {open ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex gap-0.5">
-                      {[0, 1, 2].map((s) => (
-                        <Star
-                          key={s}
-                          className={`size-6 stroke-[#1c1917] stroke-[2.5] ${rec && rec.stars & (1 << s) ? "fill-[var(--accent)]" : "fill-transparent opacity-35"}`}
-                        />
-                      ))}
-                    </span>
-                    <span className="flex flex-col items-end text-xs font-bold tabular-nums">
-                      <span className="inline-flex items-center gap-1">
-                        <CoinIcon /> {rec?.coins ?? 0}/{totals[i]}
-                      </span>
-                      <span className="g-muted inline-flex items-center gap-1">
-                        <Clock className="size-3" /> {rec?.time ? formatTime(rec.time) : "--:--"}
-                      </span>
-                    </span>
-                  </div>
-                ) : (
-                  <p className="g-muted text-xs font-bold">Finish level {i} to unlock</p>
-                )}
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-6 text-center text-xs font-bold text-white [text-shadow:1px_1px_0_#1c1917,0_0_6px_rgb(0_0_0/0.4)]">
-          You start each visit with {START_LIVES} lives · 100 coins = 1-UP
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function HudOverlay({ store, character, found, paused, onPause }: { store: Store<Hud>; character: number; found: number; paused: boolean; onPause: () => void }) {
+function HudOverlay({ store, tint, found, paused, onPause }: { store: Store<Hud>; tint: string; found: number; paused: boolean; onPause: () => void }) {
   const hud = useStore(store);
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
       {/* `data-avoid`: touch controls keep clear of these (shared/touch-layout.tsx). */}
       <div data-avoid className="flex flex-col items-start gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="g-hud inline-flex items-center gap-1 px-2 py-1.5" aria-label={`${hud.hp} hearts`}>
-            {[0, 1, 2].map((i) => (
+          <div className="g-hud inline-flex items-center gap-1 px-2 py-1.5" aria-label={`${hud.hp} of ${hud.maxHp} hearts`}>
+            {Array.from({ length: hud.maxHp }, (_, i) => (
               <Heart key={i} className={`size-5 stroke-[#1c1917] stroke-[2.5] sm:size-6 ${i < hud.hp ? "fill-[#f43f5e]" : "fill-transparent opacity-30"}`} />
             ))}
           </div>
           <div className="g-hud inline-flex items-center gap-1.5 py-1 pr-3 pl-1.5" aria-label={`${hud.lives} lives`}>
-            <span className="size-6 rounded-full border-[3px] border-[#1c1917]" style={{ background: CHARACTER_TINT[character] }} />
+            <span className="size-6 rounded-full border-[3px] border-[#1c1917]" style={{ background: tint }} />
             <span className="g-display text-lg tabular-nums">×{hud.lives}</span>
           </div>
         </div>
         <div className="g-hud inline-flex items-center gap-2 py-1 pr-3 pl-1.5">
-          <CoinIcon large />
+          <BigCoin />
           <span key={hud.coins} className="g-display text-xl tabular-nums sm:text-2xl">
             {hud.coins}
           </span>
@@ -612,12 +773,14 @@ function ToastLayer({ store }: { store: Store<Toast | null> }) {
   );
 }
 
-function LevelBanner({ index }: { index: number }) {
-  const def = LEVELS[index];
+function LevelBanner({ stage }: { stage: StageRef }) {
+  const world = findItem(WORLDS, stage.world);
   return (
     <div className="pointer-events-none absolute inset-x-0 top-[30%] flex animate-[skyhop-banner_2.6s_ease_forwards] flex-col items-center px-4 text-center">
-      <p className="g-display text-lg text-white [text-shadow:2px_2px_0_#1c1917]">Level {index + 1}</p>
-      <h2 className="g-title text-5xl sm:text-7xl">{def.name}</h2>
+      <p className="g-display text-lg text-white [text-shadow:2px_2px_0_#1c1917]">
+        {world.name} · Stage {stage.stage + 1}
+      </p>
+      <h2 className="g-title text-5xl sm:text-7xl">{world.stages[stage.stage]}</h2>
     </div>
   );
 }
@@ -793,13 +956,11 @@ function TouchButton({ id, at, onDown, onUp }: { id: TouchId; at: Placed; onDown
   );
 }
 
-function CoinIcon({ large = false }: { large?: boolean }) {
+function BigCoin() {
   return (
-    <span
-      aria-hidden
-      className={`inline-grid shrink-0 place-items-center rounded-full border-[#1c1917] bg-gradient-to-br from-yellow-200 via-amber-400 to-orange-500 ${large ? "size-7 border-[3px]" : "size-3.5 border-2"}`}
-    >
-      {large && <span className="h-3 w-1 rounded-full bg-amber-100/80" />}
+    <span aria-hidden className="inline-grid size-7 shrink-0 place-items-center rounded-full border-[3px] border-[#1c1917] bg-gradient-to-br from-yellow-200 via-amber-400 to-orange-500">
+      <span className="h-3 w-1 rounded-full bg-amber-100/80" />
     </span>
   );
 }
+

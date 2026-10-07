@@ -478,7 +478,7 @@ function MenuScreen({
 
 function CrateLabels({ labels }: { labels: Label[] }) {
   return (
-    <div className="pointer-events-none absolute inset-0 z-[1]">
+    <div data-bleed className="pointer-events-none absolute inset-0 z-[1]">
       {labels.map((l) => (
         <div
           key={l.id}

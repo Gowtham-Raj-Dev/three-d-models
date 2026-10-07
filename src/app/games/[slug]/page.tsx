@@ -137,7 +137,7 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
                   name: `${game.title} — gameplay trailer`,
                   description: `${game.tagline} ${game.description}`,
                   thumbnailUrl: absoluteUrl(trailer.poster),
-                  contentUrl: absoluteUrl(trailer.src),
+                  contentUrl: absoluteUrl(trailer.hd ?? trailer.src),
                   uploadDate: "2026-10-07",
                   duration: `PT${trailer.seconds}S`,
                   author: { "@type": "Person", name: SITE.author },

@@ -15,7 +15,11 @@ const DEFAULTS: AudioSettings = { music: true, sfx: true };
 const MUSIC_LEVEL = 0.42;
 const SFX_LEVEL = 0.7;
 
+/** YouTube Playables (its SDK is on the page): nothing may go in the browser's storage there. */
+const inYouTube = () => typeof window !== "undefined" && "ytgame" in window;
+
 function readSettings(): AudioSettings {
+  if (inYouTube()) return DEFAULTS;
   try {
     return { ...DEFAULTS, ...JSON.parse(window.localStorage.getItem(KEY) ?? "{}") };
   } catch {
@@ -74,7 +78,7 @@ class AudioHub {
   set(patch: Partial<AudioSettings>) {
     this.settings = { ...this.getSettings(), ...patch };
     try {
-      window.localStorage.setItem(KEY, JSON.stringify(this.settings));
+      if (!inYouTube()) window.localStorage.setItem(KEY, JSON.stringify(this.settings));
     } catch {
       // Storage blocked: keep the setting for this session only.
     }
@@ -137,8 +141,19 @@ class AudioHub {
       const data = this.noiseBuffer.getChannelData(0);
       for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
       this.applyLevels(true);
+
+      // The system can stop audio (a call, another app, the phone locked, a tab in the background):
+      // start it again as soon as the game is back on screen.
+      ctx.addEventListener("statechange", () => this.wake());
+      document.addEventListener("visibilitychange", () => this.wake());
+      window.addEventListener("pageshow", () => this.wake());
     }
     if (!this.held) this.resume();
+  }
+
+  /** Restarts audio the system stopped, once the page is visible again (not while a game holds it). */
+  private wake() {
+    if (this.ctx && this.ctx.state !== "running" && !this.held && !document.hidden) this.resume();
   }
 
   /** Resumes the context (also from "interrupted", after a phone call on iOS), then starts what waited for it. */

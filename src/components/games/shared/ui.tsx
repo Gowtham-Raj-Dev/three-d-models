@@ -226,20 +226,24 @@ export function GameRoot({
   game,
   children,
   className = "",
+  safeArea = "auto",
   ...handlers
 }: {
   game: GameEntry;
   children: ReactNode;
   className?: string;
+  /** "manual": the game keeps its HUD clear of a camera cutout itself (see .g-root in globals.css). */
+  safeArea?: "auto" | "manual";
 } & Pick<HTMLAttributes<HTMLDivElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onPointerLeave" | "onWheel" | "onClick">) {
-  // Browsers only start audio after a gesture: the first tap or key press anywhere unlocks it.
+  // Browsers only start audio after a gesture: the first tap or key press anywhere unlocks it. Every
+  // later one resumes it too, in case the phone stopped it and couldn't start it again by itself.
   useEffect(() => {
     const unlock = () => audio.unlock();
     const touched = (e: PointerEvent) => {
       if (e.pointerType === "touch" && !touchUsed.get()) touchUsed.set(true);
     };
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
     window.addEventListener("pointerdown", touched);
     return () => {
       window.removeEventListener("pointerdown", unlock);
@@ -251,6 +255,7 @@ export function GameRoot({
     <div
       className={`g-root fixed inset-0 z-40 touch-none overflow-hidden bg-[#0b1220] select-none [&_canvas]:cursor-default ${className}`}
       style={themeVars(game.slug, game.accent)}
+      data-safe-area={safeArea}
       onContextMenu={(e) => e.preventDefault()}
       {...handlers}
     >

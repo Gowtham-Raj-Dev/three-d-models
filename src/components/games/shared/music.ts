@@ -474,14 +474,128 @@ const VOICES: Record<Instrument, Voice> = {
 
 const DRUMS = new Set<Instrument>(["kick", "snare", "clap", "hat", "openhat", "shaker"]);
 
+// --- Playing a step -------------------------------------------------------------------------------
+
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+
+/** Bars until the song repeats exactly: the chords and every layer's bars line up again. */
+function cycleOf(song: Song) {
+  return song.layers.reduce((c, l) => (c * l.bars.length) / gcd(c, l.bars.length), song.chords.length);
+}
+
+const stepSeconds = (song: Song) => ((60 / song.bpm) * (song.beats ?? 4)) / (song.steps ?? 16);
+
+const playsAt = (layer: Layer, intensity: number) => intensity >= (layer.from ?? 0) && intensity <= (layer.to ?? 9);
+
+/** Plays every note that starts on `step` of `bar`, at time `t`. */
+function playStep(out: Out, song: Song, layers: ParsedLayer[], bar: number, step: number, intensity: number, t: number, stepDur: number) {
+  const chordRoot = song.chords[bar % song.chords.length];
+  for (const { layer, bars } of layers) {
+    if (!playsAt(layer, intensity)) continue;
+    const notes = bars[bar % bars.length];
+    for (const note of notes) {
+      if (note.step !== step) continue;
+      const vel = (layer.gain ?? 1) * (note.accent ? 1.25 : 1);
+      const len = note.len * stepDur;
+      const voice = VOICES[layer.inst];
+      if (DRUMS.has(layer.inst)) {
+        voice(out, t, 0, len, vel);
+        continue;
+      }
+      const octave = 12 * (layer.octave ?? DEFAULT_OCTAVE[layer.inst] ?? 0);
+      if (layer.mode === "chord") {
+        const degrees = [0, 2, 4, ...(song.sevenths ? [6] : [])];
+        for (const d of degrees) voice(out, t, degreeToMidi(song, chordRoot + d) + octave, len, vel);
+      } else if (note.degree !== null) {
+        const base = layer.mode === "rel" ? chordRoot + note.degree : note.degree;
+        voice(out, t, degreeToMidi(song, base) + note.semis + octave, len, vel);
+      } else if (layer.inst === "tom") voice(out, t, 0, len, vel);
+    }
+  }
+}
+
+/**
+ * A song's buses on `ctx`: voices play into `out`; the dry signal and the echo go to `dest`, the
+ * reverb send to `reverbDest`. Each song has its own echo timed to its tempo, so a cross-fade never
+ * retimes (and glitches) the tail of the song fading out.
+ */
+function buses(ctx: BaseAudioContext, song: Song, noise: AudioBuffer, dest: AudioNode, reverbDest: AudioNode) {
+  const dry = ctx.createGain();
+  dry.connect(dest);
+  const reverb = ctx.createGain();
+  reverb.connect(reverbDest);
+  const echo = ctx.createGain();
+  const echoIn = ctx.createGain();
+  echoIn.gain.value = 0.55;
+  const delay = ctx.createDelay(2);
+  delay.delayTime.value = Math.min(1.9, stepSeconds(song) * (song.echoSteps ?? 3));
+  const tone = ctx.createBiquadFilter();
+  tone.type = "lowpass";
+  tone.frequency.value = 2600;
+  const feedback = ctx.createGain();
+  feedback.gain.value = 0.32;
+  echo.connect(echoIn).connect(delay).connect(tone).connect(feedback).connect(delay);
+  tone.connect(dest);
+  const out: Out = { ctx, dry, reverb, echo, noise, sends: new Map() };
+  return { out, faders: [dry, reverb, echo], nodes: [dry, reverb, echo, echoIn, delay, tone, feedback] };
+}
+
+// --- Bars rendered ahead ----------------------------------------------------------------------------
+
+/**
+ * In a game, music is rendered a bar at a time on an OfflineAudioContext — its own thread, with no
+ * real-time deadline — and each bar plays as one buffer. Synthesizing every note live (dozens of
+ * oscillators and filters a second) overloaded the audio thread of phones busy drawing 3D, and the
+ * music stuttered or stuck. A bar is rendered with its tail (releases, echo), which overlaps the next
+ * bars exactly as live notes would: channel 0 is the dry sound and the echo, channel 1 the reverb send.
+ * The reverb itself stays live (audio.ts): a convolver runs most of its work on a background thread
+ * in real time, but would make rendering ten times slower.
+ */
+const TAIL = 2;
+/** The very end of a tail fades out (it is far below the music by then), so a buffer never ends on a click. */
+const TAIL_FADE = 0.4;
+/**
+ * Bars are rendered this many seconds before they play — more after the game stalled (see `jank`).
+ * A bar takes ~0.3 s to render on a laptop, a few times that on a phone.
+ */
+const LEAD_MIN = 2;
+const LEAD_MAX = 4;
+const LEAD_HIDDEN = 4;
+/** Rendered bars kept for reuse, by memory: enough for a whole loop of most songs, which then cost nothing to play. */
+const CACHE_BYTES = 32e6;
+
+async function renderBar(song: Song, layers: ParsedLayer[], bar: number, intensity: number) {
+  const rate = audio.ctx!.sampleRate;
+  const dur = stepSeconds(song);
+  const steps = song.steps ?? 16;
+  const length = Math.ceil((dur * steps + TAIL) * rate);
+  const ctx = new OfflineAudioContext(2, length, rate);
+  const merger = ctx.createChannelMerger(2);
+  merger.connect(ctx.destination);
+  const dry = ctx.createGain();
+  dry.connect(merger, 0, 0);
+  const reverb = ctx.createGain();
+  reverb.connect(merger, 0, 1);
+  const { out } = buses(ctx, song, audio.noiseBuffer, dry, reverb);
+  const swing = (song.swing ?? 0) * dur;
+  for (let step = 0; step < steps; step++) playStep(out, song, layers, bar, step, intensity, step * dur + (step % 2 ? swing : 0), dur);
+  const buf = await ctx.startRendering();
+  const fadeLen = Math.floor(TAIL_FADE * rate);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const data = buf.getChannelData(c);
+    for (let i = 1; i <= fadeLen; i++) data[length - i] *= (i - 1) / fadeLen;
+  }
+  return buf;
+}
+
 // --- Player ---------------------------------------------------------------------------------------
 
 /**
- * How far ahead notes are scheduled (seconds). Games stall the main thread now and then (loading a
- * model, compiling shaders, a slow frame), and a scheduler that runs dry during a stall leaves a
- * gap in the music. But every queued note is live audio nodes, and the browser's audio thread
- * slows down sharply as they pile up — so the queue follows the game: short while it runs
- * smoothly, longer after stalls (a bit over the longest recent one).
+ * Recordings and tests render into an OfflineAudioContext, where notes go straight into the context:
+ * this is how far ahead they are scheduled (seconds). Games stall the main thread now and then
+ * (loading a model, compiling shaders, a slow frame), and a scheduler that runs dry during a stall
+ * leaves a gap; but every queued note is live audio nodes, which slow the audio thread down — so the
+ * queue follows the game: short while it runs smoothly, longer after stalls.
  */
 const AHEAD_MIN = 0.2;
 const AHEAD_MAX = 0.8;
@@ -506,26 +620,62 @@ export interface SongTiming {
   swing: number;
 }
 
-/** A playing song's output: its voices, and the faders (dry, reverb, echo) that move together. */
+/** A playing song's output: the faders that move together, and what to stop once it has faded out. */
 interface Channel {
-  out: Out;
+  ctx: BaseAudioContext;
   faders: GainNode[];
-  /** Everything to disconnect once the song has faded out. */
   nodes: AudioNode[];
+  /** Live notes: the song's buses. */
+  out?: Out;
+  /** Rendered bars waiting or playing. */
+  sources: Set<AudioBufferSourceNode>;
+  /** Seconds the output rings on after the faders close (the reverb; live notes: the echo too). */
+  ring: number;
+  stopped: boolean;
 }
 
-/** Moves the faders to `level` in `seconds`, smoothly from wherever they are now. */
+/**
+ * Moves the faders to `level` in `seconds`, smoothly from wherever they are now. The ramp starts from
+ * an explicit point: a ramp runs from the event before it, and cancelAndHoldAtTime() adds none once
+ * the last fade has finished, so a duck a minute later would start from that old fade — the level
+ * jumped almost all the way at once.
+ */
 function fade(ch: Channel, level: number, seconds: number) {
-  const t = ch.out.ctx.currentTime;
+  const t = ch.ctx.currentTime;
   for (const { gain } of ch.faders) {
-    if (typeof gain.cancelAndHoldAtTime === "function") gain.cancelAndHoldAtTime(t);
-    else {
-      const now = gain.value;
-      gain.cancelScheduledValues(t);
-      gain.setValueAtTime(now, t);
-    }
+    const now = gain.value;
+    gain.cancelScheduledValues(t);
+    gain.setValueAtTime(now, t);
     gain.linearRampToValueAtTime(level, t + Math.max(0.02, seconds));
   }
+}
+
+/**
+ * Fades a channel out, then stops and disconnects it once it is silent — judged on the audio clock:
+ * it stands still while audio is held, and a fade cut off half-way would click.
+ */
+function release(ch: Channel, fadeOut: number) {
+  ch.stopped = true;
+  fade(ch, 0, fadeOut);
+  const { ctx } = ch;
+  const silentAt = ctx.currentTime + fadeOut + ch.ring;
+  const end = () => {
+    if (ctx.currentTime < silentAt) {
+      setTimeout(end, 500);
+      return;
+    }
+    for (const src of ch.sources) {
+      try {
+        src.stop();
+      } catch {
+        // Never started.
+      }
+      src.disconnect();
+    }
+    ch.sources.clear();
+    ch.nodes.forEach((n) => n.disconnect());
+  };
+  setTimeout(end, (fadeOut + ch.ring) * 1000);
 }
 
 class MusicPlayer {
@@ -533,17 +683,25 @@ class MusicPlayer {
   private timingInfo: SongTiming | null = null;
   private readonly startListeners = new Set<(t: SongTiming) => void>();
   private layers: ParsedLayer[] = [];
+  private cycle = 1;
   private timer: ReturnType<typeof setInterval> | null = null;
   private channel: Channel | null = null;
-  private nextTime = 0;
-  private step = 0;
-  private bar = 0;
+  /** Songs being replaced: they play on until the next one starts, then fade out under it. */
+  private readonly outgoing = new Set<Channel>();
   private intensity = 1;
-  private barIntensity = 1;
   private ducked = false;
   /** Longest recent gap between scheduler ticks (seconds), fading over time. */
   private jank = START_JANK;
   private lastTick = 0;
+  // Live notes: the next step to schedule.
+  private nextTime = 0;
+  private step = 0;
+  private bar = 0;
+  private barIntensity = 1;
+  // Rendered bars: the next bar to render, and bars kept for reuse (by bar in the cycle + layers playing).
+  private nextBar = 0;
+  private readonly cache = new Map<string, Promise<AudioBuffer | null>>();
+  private cacheSong: Song | null = null;
 
   /**
    * Starts a song (cross-fading from the current one). Re-playing the same song only sets the
@@ -552,16 +710,17 @@ class MusicPlayer {
   play(song: Song, intensity = this.intensity, { restart = false }: { restart?: boolean } = {}) {
     this.intensity = intensity;
     if (this.song === song && !restart) return;
-    this.stop(0.6);
+    this.detach();
     this.song = song;
     const steps = song.steps ?? 16;
     this.layers = song.layers.map((layer) => ({ layer, bars: layer.bars.map((b) => parseBar(b, steps)) }));
+    this.cycle = cycleOf(song);
     audio.onUnlock(() => {
       if (this.song === song && !this.channel) this.begin();
     });
   }
 
-  /** 0 = calm (menus), 1 = playing, 2+ = intense. Takes effect on the next bar. */
+  /** 0 = calm (menus), 1 = playing, 2+ = intense. Takes effect from the bar at scheduledUntil(). */
   setIntensity(intensity: number) {
     this.intensity = intensity;
   }
@@ -579,9 +738,12 @@ class MusicPlayer {
     return this.timingInfo;
   }
 
-  /** AudioContext time up to which notes are already scheduled: an intensity change lands on the first bar after it. */
+  /** AudioContext time of the first bar whose intensity is still open: setIntensity() takes effect there. */
   scheduledUntil() {
-    return this.nextTime;
+    const timing = this.timingInfo;
+    if (!timing) return this.channel?.ctx.currentTime ?? 0;
+    const bar = this.channel?.out ? this.bar + 1 : this.nextBar;
+    return timing.start + bar * timing.stepDur * timing.steps;
   }
 
   /** Called with the timing each time a song actually starts playing. Returns an unsubscribe function. */
@@ -591,92 +753,181 @@ class MusicPlayer {
   }
 
   stop(fadeOut = 0.5) {
+    this.detach();
+    this.outgoing.forEach((ch) => release(ch, fadeOut));
+    this.outgoing.clear();
+  }
+
+  /** Stops scheduling the current song; what it has scheduled plays on until it is released. */
+  private detach() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.song = null;
     this.timingInfo = null;
-    const ch = this.channel;
+    if (this.channel) this.outgoing.add(this.channel);
     this.channel = null;
-    if (!ch) return;
-    fade(ch, 0, fadeOut);
-    // Disconnect once it is silent (the fade, then the echo's tail), judged on the audio clock: it
-    // stands still while audio is held, and a fade cut off half-way would click.
-    const { ctx } = ch.out;
-    const silentAt = ctx.currentTime + fadeOut + 3;
-    const release = () => {
-      if (ctx.currentTime < silentAt) setTimeout(release, 1000);
-      else ch.nodes.forEach((n) => n.disconnect());
-    };
-    setTimeout(release, (fadeOut + 3) * 1000);
-  }
-
-  private stepDur(song: Song) {
-    return ((60 / song.bpm) * (song.beats ?? 4)) / (song.steps ?? 16);
   }
 
   private begin() {
     const { ctx } = audio;
     const song = this.song;
     if (!ctx || !song) return;
-    const dry = ctx.createGain();
-    dry.connect(audio.musicBus);
-    const reverb = ctx.createGain();
-    reverb.connect(audio.reverb);
-    // Each song has its own echo timed to its tempo, so a cross-fade never retimes (and glitches)
-    // the tail of the song fading out.
-    const echo = ctx.createGain();
-    const echoIn = ctx.createGain();
-    echoIn.gain.value = 0.55;
-    const delay = ctx.createDelay(2);
-    delay.delayTime.value = Math.min(1.9, this.stepDur(song) * (song.echoSteps ?? 3));
-    const tone = ctx.createBiquadFilter();
-    tone.type = "lowpass";
-    tone.frequency.value = 2600;
-    const feedback = ctx.createGain();
-    feedback.gain.value = 0.32;
-    echo.connect(echoIn).connect(delay).connect(tone).connect(feedback).connect(delay);
-    tone.connect(audio.musicBus);
-    const faders = [dry, reverb, echo];
-    for (const { gain } of faders) {
-      gain.setValueAtTime(0, ctx.currentTime);
-      gain.linearRampToValueAtTime(this.ducked ? DUCKED : 1, ctx.currentTime + 0.8);
-    }
-    this.channel = {
-      out: { ctx, dry, reverb, echo, noise: audio.noiseBuffer, sends: new Map() },
-      faders,
-      nodes: [dry, reverb, echo, echoIn, delay, tone, feedback],
-    };
-    this.nextTime = ctx.currentTime + 0.1;
-    this.step = 0;
-    this.bar = 0;
-    this.barIntensity = this.intensity;
     this.jank = Math.max(this.jank, START_JANK);
     this.lastTick = performance.now();
-    this.timer = setInterval(() => this.tick(), 25);
-    this.timingInfo = { song, start: this.nextTime, stepDur: this.stepDur(song), steps: song.steps ?? 16, swing: (song.swing ?? 0) * this.stepDur(song) };
-    const timing = this.timingInfo;
-    this.startListeners.forEach((fn) => fn(timing));
-    this.tick();
+    // An offline render (a recording) has no deadline, so its notes go straight into it.
+    if (typeof OfflineAudioContext === "undefined" || ctx instanceof OfflineAudioContext) this.beginLive(ctx, song);
+    else this.beginBars(ctx, song);
   }
 
-  private tick() {
-    const ch = this.channel;
-    const song = this.song;
-    if (!ch || !song) return;
-    const { ctx } = ch.out;
-    const dur = this.stepDur(song);
-    // A stall longer than the lookahead (a frozen tab, a long load) left steps behind: skip them
-    // whole, so the song stays on its beat grid instead of firing notes late with clipped attacks.
-    while (this.nextTime < ctx.currentTime + 0.005) this.advance(song, dur);
+  private fadeIn(ch: Channel, at: number) {
+    for (const { gain } of ch.faders) {
+      gain.setValueAtTime(0, at);
+      gain.linearRampToValueAtTime(this.ducked ? DUCKED : 1, at + 0.8);
+    }
+  }
+
+  private started(song: Song, start: number) {
+    // The cross-fade: the song this one replaces fades out as it comes in.
+    this.outgoing.forEach((ch) => release(ch, 0.6));
+    this.outgoing.clear();
+    const stepDur = stepSeconds(song);
+    const timing = { song, start, stepDur, steps: song.steps ?? 16, swing: (song.swing ?? 0) * stepDur };
+    this.timingInfo = timing;
+    this.startListeners.forEach((fn) => fn(timing));
+  }
+
+  /** Seconds to schedule ahead: a bit over the game's longest recent stall, between min and max. */
+  private ahead(min: number, max: number, hidden: number) {
     const now = performance.now();
     const gap = (now - this.lastTick) / 1000;
     this.lastTick = now;
     this.jank = Math.max(gap, this.jank * Math.pow(0.5, gap / JANK_HALF_LIFE));
-    const hidden = typeof document !== "undefined" && document.hidden;
-    const ahead = hidden ? AHEAD_HIDDEN : Math.min(AHEAD_MAX, Math.max(AHEAD_MIN, this.jank * 1.4 + 0.08));
+    if (typeof document !== "undefined" && document.hidden) return hidden;
+    return Math.min(max, Math.max(min, this.jank * 1.4 + 0.08));
+  }
+
+  // --- Rendered bars ---
+
+  private beginBars(ctx: AudioContext, song: Song) {
+    // Bars play into the splitter: channel 0 to the dry fader, channel 1 to the reverb's.
+    const split = ctx.createChannelSplitter(2);
+    const dry = ctx.createGain();
+    const reverb = ctx.createGain();
+    split.connect(dry, 0).connect(audio.musicBus);
+    split.connect(reverb, 1).connect(audio.reverb);
+    const faders = [dry, reverb];
+    for (const { gain } of faders) gain.value = 0;
+    const ch: Channel = { ctx, faders, nodes: [split, dry, reverb], sources: new Set(), ring: 3, stopped: false };
+    this.channel = ch;
+    if (this.cacheSong !== song) {
+      this.cache.clear();
+      this.cacheSong = song;
+    }
+    // The song starts as soon as its first bar is ready.
+    this.nextBar = 1;
+    void this.render(song, 0, this.intensity).then((buf) => {
+      if (this.channel !== ch) return;
+      if (!buf) {
+        // Rendering failed: synthesize the notes live instead.
+        ch.nodes.forEach((n) => n.disconnect());
+        this.beginLive(ctx, song);
+        return;
+      }
+      const start = ctx.currentTime + 0.05;
+      this.fadeIn(ch, start);
+      this.started(song, start);
+      this.playBar(ch, buf, start);
+      this.timer = setInterval(() => this.tickBars(), 100);
+      this.tickBars();
+    });
+  }
+
+  private tickBars() {
+    const ch = this.channel;
+    const song = this.song;
+    const timing = this.timingInfo;
+    if (!ch || !song || !timing) return;
+    const { ctx } = ch;
+    const barDur = timing.stepDur * timing.steps;
+    const lead = this.ahead(LEAD_MIN, LEAD_MAX, LEAD_HIDDEN);
+    // A long stall (a frozen tab) left bars behind: carry on from the bar playing now.
+    this.nextBar = Math.max(this.nextBar, Math.floor((ctx.currentTime - timing.start) / barDur));
+    while (timing.start + this.nextBar * barDur < ctx.currentTime + lead) {
+      const at = timing.start + this.nextBar * barDur;
+      void this.render(song, this.nextBar++, this.intensity).then((buf) => buf && !ch.stopped && this.playBar(ch, buf, at));
+    }
+  }
+
+  /** A bar's buffer, rendered once and reused while the song loops (the most recent ones are kept). */
+  private render(song: Song, bar: number, intensity: number) {
+    const key = `${bar % this.cycle}:${this.layers.map(({ layer }) => (playsAt(layer, intensity) ? 1 : 0)).join("")}`;
+    let job = this.cache.get(key);
+    if (job) this.cache.delete(key);
+    else job = renderBar(song, this.layers, bar, intensity).catch(() => null);
+    this.cache.set(key, job);
+    const barBytes = (stepSeconds(song) * (song.steps ?? 16) + TAIL) * audio.ctx!.sampleRate * 2 * 4;
+    const keep = Math.max(4, Math.floor(CACHE_BYTES / barBytes));
+    for (const old of this.cache.keys()) {
+      if (this.cache.size <= keep) break;
+      this.cache.delete(old);
+    }
+    return job;
+  }
+
+  private playBar(ch: Channel, buf: AudioBuffer, at: number) {
+    const { ctx } = ch;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    let node: AudioNode = src;
+    const now = ctx.currentTime + 0.01;
+    if (at >= now) src.start(at);
+    else {
+      // Rendered too late (the game stalled): join the bar part-way, faded in instead of a click.
+      if (now - at >= buf.duration) return;
+      const join = ctx.createGain();
+      join.gain.setValueAtTime(0, now);
+      join.gain.linearRampToValueAtTime(1, now + 0.03);
+      node = src.connect(join);
+      src.start(now, now - at);
+    }
+    node.connect(ch.nodes[0]);
+    ch.sources.add(src);
+    src.onended = () => {
+      ch.sources.delete(src);
+      src.disconnect();
+      node.disconnect();
+    };
+  }
+
+  // --- Live notes (recordings) ---
+
+  private beginLive(ctx: BaseAudioContext, song: Song) {
+    const { out, faders, nodes } = buses(ctx, song, audio.noiseBuffer, audio.musicBus, audio.reverb);
+    const ch: Channel = { ctx, faders, nodes, out, sources: new Set(), ring: 3, stopped: false };
+    this.channel = ch;
+    this.nextTime = ctx.currentTime + 0.1;
+    this.step = 0;
+    this.bar = 0;
+    this.barIntensity = this.intensity;
+    this.fadeIn(ch, ctx.currentTime);
+    this.timer = setInterval(() => this.tickLive(), 25);
+    this.started(song, this.nextTime);
+    this.tickLive();
+  }
+
+  private tickLive() {
+    const ch = this.channel;
+    const song = this.song;
+    if (!ch?.out || !song) return;
+    const { ctx } = ch;
+    const dur = stepSeconds(song);
+    // A stall longer than the lookahead (a frozen tab, a long load) left steps behind: skip them
+    // whole, so the song stays on its beat grid instead of firing notes late with clipped attacks.
+    while (this.nextTime < ctx.currentTime + 0.005) this.advance(song, dur);
+    const ahead = this.ahead(AHEAD_MIN, AHEAD_MAX, AHEAD_HIDDEN);
     while (this.nextTime < ctx.currentTime + ahead) {
       const swing = this.step % 2 === 1 ? (song.swing ?? 0) * dur : 0;
-      this.scheduleStep(ch.out, song, this.nextTime + swing, dur);
+      playStep(ch.out, song, this.layers, this.bar, this.step, this.barIntensity, this.nextTime + swing, dur);
       this.advance(song, dur);
     }
   }
@@ -687,32 +938,6 @@ class MusicPlayer {
       this.step = 0;
       this.bar++;
       this.barIntensity = this.intensity;
-    }
-  }
-
-  private scheduleStep(out: Out, song: Song, t: number, stepDur: number) {
-    const chordRoot = song.chords[this.bar % song.chords.length];
-    for (const { layer, bars } of this.layers) {
-      if (this.barIntensity < (layer.from ?? 0) || this.barIntensity > (layer.to ?? 9)) continue;
-      const notes = bars[this.bar % bars.length];
-      for (const note of notes) {
-        if (note.step !== this.step) continue;
-        const vel = (layer.gain ?? 1) * (note.accent ? 1.25 : 1);
-        const len = note.len * stepDur;
-        const voice = VOICES[layer.inst];
-        if (DRUMS.has(layer.inst)) {
-          voice(out, t, 0, len, vel);
-          continue;
-        }
-        const octave = 12 * (layer.octave ?? DEFAULT_OCTAVE[layer.inst] ?? 0);
-        if (layer.mode === "chord") {
-          const degrees = [0, 2, 4, ...(song.sevenths ? [6] : [])];
-          for (const d of degrees) voice(out, t, degreeToMidi(song, chordRoot + d) + octave, len, vel);
-        } else if (note.degree !== null) {
-          const base = layer.mode === "rel" ? chordRoot + note.degree : note.degree;
-          voice(out, t, degreeToMidi(song, base) + note.semis + octave, len, vel);
-        } else if (layer.inst === "tom") voice(out, t, 0, len, vel);
-      }
     }
   }
 }
