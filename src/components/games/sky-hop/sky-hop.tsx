@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowDownToLine, ChevronLeft, ChevronRight, CircleHelp, Clock, Flag, Heart, Home, KeyRound, Lock, Pause, Play, RotateCcw, Snowflake, Star, Sun, Trophy } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ArrowDownToLine, ChevronLeft, ChevronRight, CircleHelp, Clock, Flag, Gamepad2, Heart, Home, KeyRound, Lock, Pause, Play, RotateCcw, Snowflake, Star, Sun, Trophy } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { box, ControlLayer, ControlsButton, ControlsEditor, createControls, type Placed } from "../shared/touch-layout";
 import {
   BigButton,
   createRecords,
@@ -80,6 +81,7 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
   const [help, setHelp] = useState(false);
   // Only read after loading (nothing touch-specific renders before), so SSR markup still matches.
   const [touch, setTouch] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  const [editing, setEditing] = useState(false);
   const [runKey, setRunKey] = useState(0);
   const saved = useRecords(records);
   const totals = useMemo(() => LEVELS.map((def, i) => coinTotal(buildLevel(def, 1234 + i * 77))), []);
@@ -145,6 +147,10 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
       setHelp(false);
       return;
     }
+    if (editing) {
+      setEditing(false);
+      return;
+    }
     if (phase === "playing") game?.pause();
     else if (phase === "paused") game?.resume();
     else if (phase === "menu" && screen === "levels") setScreen("title");
@@ -170,7 +176,7 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
     const onKey = (e: KeyboardEvent) => {
       const game = gameRef.current;
       if (!game || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (help) return;
+      if (help || editing) return;
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       if (phase === "playing") {
         if (GAME_KEYS.has(e.code)) {
@@ -236,21 +242,24 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Sky Hop game" />
       <div ref={fadeRef} className="pointer-events-none absolute inset-0 bg-[#1c1917]" style={{ opacity: 0 }} />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && screen === "title" && (
+      {phase === "menu" && screen === "title" && !editing && (
         <TitleScreen
           character={saved.character}
           stars={totalStars}
           onCharacter={changeCharacter}
           onPlay={() => setScreen("levels")}
           onHelp={() => setHelp(true)}
+          onControls={() => setEditing(true)}
           touch={touch}
         />
       )}
+      {/* Controls editor from the title screen: the HUD shows behind it so controls keep clear of it. */}
+      {phase === "menu" && editing && <HudOverlay store={hud} character={saved.character} found={0} paused={false} onPause={() => {}} />}
 
       {phase === "menu" && screen === "levels" && (
-        <LevelSelect levels={saved.levels} unlocked={saved.unlocked} totals={totals} onPick={(i) => startLevel(i, true)} onBack={() => setScreen("title")} onHelp={() => setHelp(true)} />
+        <LevelSelect levels={saved.levels} unlocked={saved.unlocked} totals={totals} onPick={(i) => startLevel(i, true)} onHelp={() => setHelp(true)} />
       )}
 
       {phase === "playing" && <Controls key={runKey} game={gameRef} touch={touch} onTouch={() => setTouch(true)} />}
@@ -268,7 +277,7 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
       {phase === "playing" && <LevelBanner key={`banner-${runKey}`} index={current} />}
       {phase === "playing" && current === 0 && <ControlsHint key={`hint-${runKey}`} touch={touch} />}
 
-      {phase === "paused" && !help && (
+      {phase === "paused" && !help && !editing && (
         <Modal title="Paused">
           <BigButton onClick={pauseOrResume} icon={<Play className="size-5 fill-current" />} autoFocus>
             Resume
@@ -287,8 +296,14 @@ export function SkyHop({ sizes }: { sizes: Record<string, number> }) {
               Levels
             </SoftButton>
           </div>
+          {touch && (
+            <SoftButton onClick={() => setEditing(true)} icon={<Gamepad2 className="size-4" />}>
+              Edit controls
+            </SoftButton>
+          )}
         </Modal>
       )}
+      {(phase === "paused" || phase === "menu") && editing && <ControlsEditor controls={touchControls} face={(id, p) => <HopFace id={id} at={p} />} onClose={() => setEditing(false)} />}
 
       {phase === "complete" && result && !help && (
         <Modal title="Level clear!" wide>
@@ -372,6 +387,7 @@ function TitleScreen({
   onCharacter,
   onPlay,
   onHelp,
+  onControls,
   touch,
 }: {
   character: number;
@@ -379,12 +395,15 @@ function TitleScreen({
   onCharacter: (dir: number) => void;
   onPlay: () => void;
   onHelp: () => void;
+  onControls: () => void;
   touch: boolean;
 }) {
   return (
     <div className="absolute inset-0 flex flex-col overflow-y-auto">
       <div className="flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5 [@media(max-height:480px)]:py-2">
-        <SystemButtons onHelp={onHelp} />
+        <SystemButtons onHelp={onHelp}>
+          <ControlsButton onClick={onControls} />
+        </SystemButtons>
       </div>
 
       <div className="flex flex-1 flex-col justify-between px-4 pb-[max(env(safe-area-inset-bottom),16px)] sm:justify-center sm:px-10 sm:pb-10 lg:px-16 [@media(max-height:480px)]:pb-3">
@@ -442,26 +461,17 @@ function LevelSelect({
   unlocked,
   totals,
   onPick,
-  onBack,
   onHelp,
 }: {
   levels: Record<string, LevelRecord>;
   unlocked: number;
   totals: number[];
   onPick: (index: number) => void;
-  onBack: () => void;
   onHelp: () => void;
 }) {
   return (
     <div className="absolute inset-0 overflow-y-auto">
-      <div className="flex items-center justify-between p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <button
-          type="button"
-          onClick={onBack}
-          className="g-hud g-display inline-flex items-center gap-1.5 px-3.5 py-2 text-sm transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-        >
-          <ChevronLeft className="size-4" /> Back
-        </button>
+      <div className="flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <SystemButtons onHelp={onHelp} />
       </div>
       <div className="mx-auto w-full max-w-3xl px-4 pb-10">
@@ -532,7 +542,8 @@ function HudOverlay({ store, character, found, paused, onPause }: { store: Store
   const hud = useStore(store);
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-      <div className="flex flex-col items-start gap-2">
+      {/* `data-avoid`: touch controls keep clear of these (shared/touch-layout.tsx). */}
+      <div data-avoid className="flex flex-col items-start gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="g-hud inline-flex items-center gap-1 px-2 py-1.5" aria-label={`${hud.hp} hearts`}>
             {[0, 1, 2].map((i) => (
@@ -552,7 +563,7 @@ function HudOverlay({ store, character, found, paused, onPause }: { store: Store
         </div>
       </div>
 
-      <div className="flex items-start gap-2">
+      <div data-avoid className="flex items-start gap-2">
         <div className="flex flex-col items-end gap-2">
           <div className="g-hud inline-flex items-center gap-1 px-2 py-1.5" aria-label="Stars">
             {hud.stars.map((s, i) => (
@@ -631,7 +642,8 @@ function Controls({ game, touch, onTouch }: { game: React.RefObject<SkyHopGame |
   const stickBase = useRef<HTMLDivElement>(null);
   const stickKnob = useRef<HTMLDivElement>(null);
   const pointers = useRef(new Map<number, { kind: "stick" | "look"; x: number; y: number; ox: number; oy: number }>());
-  const RADIUS = 56;
+  // Half the stick base (size-22).
+  const RADIUS = 44;
 
   const showStick = (x: number, y: number, kx: number, ky: number, visible: boolean) => {
     const base = stickBase.current;
@@ -699,38 +711,66 @@ function Controls({ game, touch, onTouch }: { game: React.RefObject<SkyHopGame |
       <div className="absolute inset-0 touch-none" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} />
       <div
         ref={stickBase}
-        className="pointer-events-none absolute top-0 left-0 grid size-28 place-items-center rounded-full border-4 border-[#1c1917]/70 bg-white/35 opacity-0 transition-opacity duration-150"
+        className="pointer-events-none absolute top-0 left-0 grid size-22 place-items-center rounded-full border-4 border-[#1c1917]/70 bg-white/35 opacity-0 transition-opacity duration-150"
       >
-        <div ref={stickKnob} className="size-12 rounded-full border-4 border-[#1c1917] bg-[var(--accent)] shadow-[0_4px_0_#1c1917]" />
+        <div ref={stickKnob} className="size-9 rounded-full border-4 border-[#1c1917] bg-[var(--accent)] shadow-[0_4px_0_#1c1917]" />
       </div>
       {touch && (
         <>
           <p className="pointer-events-none absolute bottom-[max(env(safe-area-inset-bottom),18px)] left-5 text-xs font-bold text-white/90 [text-shadow:1px_1px_0_#1c1917]">
             Touch &amp; drag to run
           </p>
-          <div className="absolute right-4 bottom-[max(env(safe-area-inset-bottom),18px)] flex items-end gap-3">
-            <TouchButton label="Ground pound" size="size-16" onDown={() => game.current?.touchPound()}>
-              <ArrowDownToLine className="size-7" />
-            </TouchButton>
-            <TouchButton label="Jump" size="size-24" onDown={() => game.current?.touchJump(true)} onUp={() => game.current?.touchJump(false)}>
-              <span className="g-display text-lg">Jump</span>
-            </TouchButton>
-          </div>
+          <ControlLayer controls={touchControls}>
+            {(placed) => (
+              <>
+                <TouchButton id="pound" at={placed.pound} onDown={() => game.current?.touchPound()} />
+                <TouchButton id="jump" at={placed.jump} onDown={() => game.current?.touchJump(true)} onUp={() => game.current?.touchJump(false)} />
+              </>
+            )}
+          </ControlLayer>
         </>
       )}
     </>
   );
 }
 
-function TouchButton({ label, size, children, onDown, onUp }: { label: string; size: string; children: ReactNode; onDown: () => void; onUp?: () => void }) {
+/** Jump and ground pound, movable from Pause → Edit controls; the stick follows the thumb anywhere on the left half. */
+const touchControls = createControls("sky-hop:controls:v1", {
+  jump: { label: "Jump", w: 68, x: -50, y: -52, round: true },
+  pound: { label: "Ground pound", w: 48, x: -120, y: -42, round: true },
+});
+
+type TouchId = keyof typeof touchControls.defs;
+
+const HOP_BUTTON = "grid place-items-center rounded-full border-[3px] border-[#1c1917] bg-[var(--accent)] text-[#1c1917]";
+
+function HopIcon({ id, size }: { id: TouchId; size: number }) {
+  return id === "jump" ? (
+    <span className="g-display" style={{ fontSize: Math.round(size * 0.21) }}>
+      Jump
+    </span>
+  ) : (
+    <ArrowDownToLine size={Math.round(size * 0.42)} />
+  );
+}
+
+/** A button as the controls editor shows it. */
+function HopFace({ id, at }: { id: TouchId; at: Placed }) {
+  return (
+    <span className={`${HOP_BUTTON} size-full shadow-[0_6px_0_#1c1917]`}>
+      <HopIcon id={id} size={at.w} />
+    </span>
+  );
+}
+
+function TouchButton({ id, at, onDown, onUp }: { id: TouchId; at: Placed; onDown: () => void; onUp?: () => void }) {
   const [pressed, setPressed] = useState(false);
   return (
     <button
       type="button"
-      aria-label={label}
-      className={`${size} grid touch-none place-items-center rounded-full border-4 border-[#1c1917] bg-[var(--accent)] text-[#1c1917] transition-transform select-none ${
-        pressed ? "translate-y-1 shadow-[0_2px_0_#1c1917]" : "shadow-[0_6px_0_#1c1917]"
-      }`}
+      aria-label={touchControls.defs[id].label}
+      style={box(at)}
+      className={`${HOP_BUTTON} pointer-events-auto absolute touch-none transition-transform select-none ${pressed ? "translate-y-1 shadow-[0_2px_0_#1c1917]" : "shadow-[0_6px_0_#1c1917]"}`}
       onPointerDown={(e) => {
         e.stopPropagation();
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -748,7 +788,7 @@ function TouchButton({ label, size, children, onDown, onUp }: { label: string; s
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {children}
+      <HopIcon id={id} size={at.w} />
     </button>
   );
 }

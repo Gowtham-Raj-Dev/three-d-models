@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { ChevronRight, ChevronsUp, CircleHelp, Coins, Crosshair, FastForward, Heart, Home, Pause, Play, RotateCcw, Skull, Snowflake, Star, Swords, Trophy, X } from "lucide-react";
+import { ChevronRight, ChevronsUp, CircleHelp, Coins, Crosshair, FastForward, Gamepad2, Heart, Home, Pause, Play, RotateCcw, Skull, Snowflake, Star, Swords, Trophy, X } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { above, ControlLayer, ControlsButton, ControlsEditor, createControls } from "../shared/touch-layout";
 import {
   BigButton,
   createRecords,
   createStore,
   formatNumber,
+  FullscreenButton,
   GameRoot,
   GameTitle,
   HowToPlay,
@@ -15,12 +17,14 @@ import {
   Kbd,
   LoadingScreen,
   Modal,
+  RotateButton,
   SoftButton,
   Stat,
   SystemButtons,
   useRecords,
   useShortcuts,
   useStore,
+  useTouchScreen,
   type Store,
 } from "../shared/ui";
 import { SaucerSiegeGame, type Banner, type Hud, type Phase, type Result } from "./engine";
@@ -77,6 +81,8 @@ export function SaucerSiege({ sizes }: { sizes: Record<string, number> }) {
   const [banner, setBanner] = useState<Banner | null>(null);
   const [icons, setIcons] = useState<Partial<Record<TowerKind, string>>>({});
   const [help, setHelp] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const touch = useTouchScreen();
   const saved = useRecords(records);
   const mapIndex = Math.min(MAPS.length - 1, Math.max(0, saved.map));
 
@@ -150,9 +156,13 @@ export function SaucerSiege({ sizes }: { sizes: Record<string, number> }) {
       setHelp(false);
       return;
     }
+    if (editing) {
+      setEditing(false);
+      return;
+    }
     if (phase === "playing") game?.pause();
     else if (phase === "paused") game?.resume();
-  }, [help, phase]);
+  }, [help, editing, phase]);
 
   const openHelp = useCallback(() => {
     if (phase === "playing") gameRef.current?.pause();
@@ -165,7 +175,7 @@ export function SaucerSiege({ sizes }: { sizes: Record<string, number> }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const game = gameRef.current;
-      if (!game || e.ctrlKey || e.metaKey || e.altKey || help) return;
+      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || editing) return;
       const k = e.key.toLowerCase();
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       if (phase === "playing") {
@@ -242,14 +252,18 @@ export function SaucerSiege({ sizes }: { sizes: Record<string, number> }) {
     <GameRoot game={GAME} className="bg-[#2b2350]">
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Saucer Siege game" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && <MenuScreen mapIndex={mapIndex} maps={saved.maps} onMap={chooseMap} onPlay={() => start()} onHelp={() => setHelp(true)} />}
+      {phase === "menu" && !editing && (
+        <MenuScreen mapIndex={mapIndex} maps={saved.maps} onMap={chooseMap} onPlay={() => start()} onHelp={() => setHelp(true)} onControls={() => setEditing(true)} />
+      )}
 
-      {inGame && (
+      {/* From the title screen the controls editor shows the HUD behind it, so the bar keeps clear of it. */}
+      {(inGame || (phase === "menu" && editing)) && (
         <HudOverlay
           store={hud}
           icons={icons}
+          editing={editing}
           paused={phase === "paused"}
           firstGame={saved.plays === 0}
           onPause={pauseOrResume}
@@ -259,7 +273,7 @@ export function SaucerSiege({ sizes }: { sizes: Record<string, number> }) {
 
       {banner && inGame && <BannerView key={banner.id} banner={banner} />}
 
-      {phase === "paused" && !help && (
+      {phase === "paused" && !help && !editing && (
         <Modal title="Paused">
           <BigButton onClick={pauseOrResume} icon={<Play className="size-5 fill-current" />} autoFocus>
             Resume
@@ -275,10 +289,18 @@ export function SaucerSiege({ sizes }: { sizes: Record<string, number> }) {
               Menu
             </SoftButton>
           </div>
+          {touch && (
+            <SoftButton onClick={() => setEditing(true)} icon={<Gamepad2 className="size-4" />}>
+              Edit controls
+            </SoftButton>
+          )}
           <div className="flex justify-center">
             <SystemButtons />
           </div>
         </Modal>
+      )}
+      {(phase === "paused" || phase === "menu") && editing && (
+        <ControlsEditor controls={barControls} face={() => <Bar hud={hud.get()} icons={icons} game={gameRef} />} onClose={() => setEditing(false)} />
       )}
 
       {(phase === "won" || phase === "lost") && result && !help && (
@@ -314,19 +336,23 @@ function MenuScreen({
   onMap,
   onPlay,
   onHelp,
+  onControls,
 }: {
   mapIndex: number;
   maps: Record<string, MapRecord>;
   onMap: (i: number) => void;
   onPlay: () => void;
   onHelp: () => void;
+  onControls: () => void;
 }) {
   const map = MAPS[mapIndex];
   const rec = maps[map.id];
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
       <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <SystemButtons onHelp={onHelp} />
+        <SystemButtons onHelp={onHelp}>
+          <ControlsButton onClick={onControls} />
+        </SystemButtons>
       </div>
 
       <div className="px-4 pt-1 text-center sm:pt-2">
@@ -398,6 +424,7 @@ function TowerIcon({ src, className = "" }: { src?: string; className?: string }
 function HudOverlay({
   store,
   icons,
+  editing,
   paused,
   firstGame,
   onPause,
@@ -405,27 +432,30 @@ function HudOverlay({
 }: {
   store: Store<Hud>;
   icons: Partial<Record<TowerKind, string>>;
+  /** The controls editor is open: it draws its own copy of the bar. */
+  editing: boolean;
   paused: boolean;
   firstGame: boolean;
   onPause: () => void;
   game: RefObject<SaucerSiegeGame | null>;
 }) {
   const hud = useStore(store);
-  const g = () => game.current;
   const lowLives = hud.lives <= 5;
   return (
     <>
-      {/* Top bar */}
+      {/* Top bar. `data-avoid`: the bottom bar keeps clear of these (shared/touch-layout.tsx). */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2.5 pt-[max(env(safe-area-inset-top),10px)] sm:p-4">
-        <div className="g-hud flex items-center gap-1 p-1 sm:gap-1.5">
+        <div data-avoid className="g-hud flex items-center gap-1 p-1 sm:gap-1.5 pointer-coarse:gap-0.5 pointer-coarse:p-0.5">
           <HudStat icon={<Coins className="size-4 text-amber-300" />} value={formatNumber(hud.gold)} label="Gold" />
           <HudStat icon={<Heart className={`size-4 fill-rose-400 text-rose-400 ${lowLives ? "animate-pulse" : ""}`} />} value={hud.lives} label="Lives" warn={lowLives} />
           <HudStat icon={<Swords className="size-4 text-[var(--accent)]" />} value={`${hud.wave}/${hud.waves}`} label="Wave" />
         </div>
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div data-avoid className="pointer-events-auto flex items-center gap-2">
           <div className="hidden sm:block">
             <SystemButtons />
           </div>
+          <FullscreenButton className="sm:hidden" />
+          <RotateButton className="sm:hidden" />
           <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
             {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
           </IconButton>
@@ -443,46 +473,64 @@ function HudOverlay({
         </div>
       )}
 
-      {/* Bottom: hint, wave controls and the build bar / tower panel */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-2 pb-[max(env(safe-area-inset-bottom),8px)] sm:px-4 sm:pb-4">
-        <Hint hud={hud} firstGame={firstGame} />
-        <div className="flex w-full max-w-3xl flex-col items-stretch gap-2 sm:flex-row sm:items-end">
-          <div className="pointer-events-auto flex-1">
-            {hud.tower ? <TowerPanel hud={hud} icon={icons[hud.tower.kind]} game={game} /> : <BuildBar hud={hud} icons={icons} game={game} />}
-          </div>
-          <div className="pointer-events-auto flex gap-2 sm:w-48 sm:flex-col">
-            {hud.next && <p className="g-hud hidden px-2 py-1 text-center text-[10px] leading-tight font-semibold sm:block">Next: {hud.next}</p>}
-            <WaveButton hud={hud} onCall={() => g()?.callWave()} />
-            <button
-              type="button"
-              onClick={(e) => {
-                e.currentTarget.blur();
-                g()?.cycleSpeed();
-              }}
-              title="Game speed (T)"
-              className={`g-hud flex shrink-0 items-center justify-center gap-1.5 px-4 py-2.5 text-sm transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
-                hud.speed > 1 ? "shadow-[0_0_0_2px_var(--accent),0_0_18px_color-mix(in_srgb,var(--accent)_55%,transparent)]" : ""
-              }`}
-            >
-              <FastForward className="size-4 fill-current" />
-              <span className="g-display font-bold">{hud.speed}×</span>
-              <span className="ml-1 hidden sm:inline">
-                <Kbd>T</Kbd>
-              </span>
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* Bottom: the build bar / tower panel with the wave controls (movable: shared/touch-layout.tsx), and the hint just above it. */}
+      <ControlLayer controls={barControls} hidden={editing}>
+        {(placed, _frame, fit) => (
+          <>
+            <div className="pointer-events-none absolute flex w-max max-w-[90vw] justify-center" style={above(placed.bar)}>
+              <Hint hud={hud} firstGame={firstGame} />
+            </div>
+            {fit("bar", <Bar hud={hud} icons={icons} game={game} />)}
+          </>
+        )}
+      </ControlLayer>
     </>
+  );
+}
+
+/** The bottom bar. Order = placement priority. */
+const barControls = createControls("saucer-siege:controls:v1", {
+  bar: { label: "Tower bar", w: 340, h: 110, x: 0, y: -64, center: true, fit: true },
+});
+
+function Bar({ hud, icons, game }: { hud: Hud; icons: Partial<Record<TowerKind, string>>; game: RefObject<SaucerSiegeGame | null> }) {
+  const g = () => game.current;
+  return (
+    <div className="flex max-w-3xl flex-col items-stretch gap-2 sm:flex-row sm:items-end pointer-coarse:gap-1">
+      <div className="pointer-events-auto flex-1">
+        {hud.tower ? <TowerPanel hud={hud} icon={icons[hud.tower.kind]} game={game} /> : <BuildBar hud={hud} icons={icons} game={game} />}
+      </div>
+      <div className="pointer-events-auto flex gap-2 sm:w-48 sm:flex-col pointer-coarse:w-auto pointer-coarse:gap-1">
+        {hud.next && <p className="g-hud hidden px-2 py-1 text-center text-[10px] leading-tight font-semibold sm:block pointer-coarse:hidden">Next: {hud.next}</p>}
+        <WaveButton hud={hud} onCall={() => g()?.callWave()} />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.currentTarget.blur();
+            g()?.cycleSpeed();
+          }}
+          title="Game speed (T)"
+          className={`g-hud flex shrink-0 items-center justify-center gap-1.5 px-4 py-2.5 text-sm transition hover:brightness-125 pointer-coarse:px-2.5 pointer-coarse:py-1.5 pointer-coarse:text-xs focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
+            hud.speed > 1 ? "shadow-[0_0_0_2px_var(--accent),0_0_18px_color-mix(in_srgb,var(--accent)_55%,transparent)]" : ""
+          }`}
+        >
+          <FastForward className="size-4 fill-current" />
+          <span className="g-display font-bold">{hud.speed}×</span>
+          <span className="ml-1 hidden sm:inline">
+            <Kbd>T</Kbd>
+          </span>
+        </button>
+      </div>
+    </div>
   );
 }
 
 function HudStat({ icon, value, label, warn = false }: { icon: ReactNode; value: ReactNode; label: string; warn?: boolean }) {
   return (
-    <div className={`flex items-center gap-1.5 rounded-[var(--g-hud-radius)] px-2 py-1 sm:px-2.5 ${warn ? "bg-rose-500/35" : "g-tint"}`} title={label}>
+    <div className={`flex items-center gap-1.5 rounded-[var(--g-hud-radius)] px-2 py-1 sm:px-2.5 pointer-coarse:gap-1 pointer-coarse:px-1.5 pointer-coarse:py-0.5 [&_svg]:pointer-coarse:size-3 ${warn ? "bg-rose-500/35" : "g-tint"}`} title={label}>
       {icon}
       <span className="sr-only">{label}</span>
-      <span className="g-display text-sm font-bold tabular-nums sm:text-base">{value}</span>
+      <span className="g-display text-sm font-bold tabular-nums sm:text-base pointer-coarse:text-xs">{value}</span>
     </div>
   );
 }
@@ -506,13 +554,13 @@ function Hint({ hud, firstGame }: { hud: Hud; firstGame: boolean }) {
       </>
     );
   if (!text) return null;
-  return <p className="g-hud pointer-events-none px-4 py-1.5 text-center text-xs font-semibold sm:text-sm">{text}</p>;
+  return <p className="g-hud pointer-events-none px-4 py-1.5 text-center text-xs font-semibold sm:text-sm pointer-coarse:px-3 pointer-coarse:py-1 pointer-coarse:text-[11px]">{text}</p>;
 }
 
 function BuildBar({ hud, icons, game }: { hud: Hud; icons: Partial<Record<TowerKind, string>>; game: RefObject<SaucerSiegeGame | null> }) {
   return (
     <div
-      className={`g-hud grid grid-cols-4 gap-1.5 p-1.5 transition sm:gap-2 sm:p-2 ${
+      className={`g-hud grid grid-cols-4 gap-1.5 p-1.5 transition sm:gap-2 sm:p-2 pointer-coarse:gap-1 pointer-coarse:p-1 ${
         hud.cell ? "shadow-[0_0_0_2px_var(--accent),0_0_26px_color-mix(in_srgb,var(--accent)_55%,transparent)]" : ""
       }`}
     >
@@ -534,14 +582,14 @@ function BuildBar({ hud, icons, game }: { hud: Hud; icons: Partial<Record<TowerK
             onFocus={() => game.current?.previewKind(kind)}
             onBlur={() => game.current?.previewKind(null)}
             title={`${def.name} — ${def.blurb} (${def.hotkey})`}
-            className={`g-soft relative px-1 pt-1 pb-1.5 transition focus-visible:outline-2 focus-visible:outline-[var(--accent)] sm:px-2 sm:py-1.5 ${armed ? "brightness-125" : ""} ${afford ? "" : "opacity-50"}`}
+            className={`g-soft relative px-1 pt-1 pb-1.5 transition focus-visible:outline-2 focus-visible:outline-[var(--accent)] sm:px-2 sm:py-1.5 pointer-coarse:px-1.5 pointer-coarse:py-1 ${armed ? "brightness-125" : ""} ${afford ? "" : "opacity-50"}`}
           >
-            <span className="g-unskew w-full flex-col sm:flex-row sm:justify-start sm:gap-2 sm:text-left">
-              <span className="g-display absolute top-1 left-1.5 hidden text-[10px] opacity-55 sm:block">{def.hotkey}</span>
-              <TowerIcon src={icons[kind]} className="size-11 shrink-0 sm:size-12" />
+            <span className="g-unskew w-full flex-col sm:flex-row sm:justify-start sm:gap-2 sm:text-left pointer-coarse:flex-col pointer-coarse:gap-0 pointer-coarse:text-center">
+              <span className="g-display absolute top-1 left-1.5 hidden text-[10px] opacity-55 sm:block pointer-coarse:hidden">{def.hotkey}</span>
+              <TowerIcon src={icons[kind]} className="size-11 shrink-0 sm:size-12 pointer-coarse:size-7" />
               <span className="min-w-0">
-                <span className="g-display block truncate text-[11px] leading-tight font-bold sm:text-xs">{def.name}</span>
-                <span className={`g-display flex items-center justify-center gap-1 text-xs font-bold tabular-nums sm:justify-start ${afford ? "text-amber-300" : "text-rose-300"}`}>
+                <span className="g-display block truncate text-[11px] leading-tight font-bold sm:text-xs pointer-coarse:text-[10px]">{def.name}</span>
+                <span className={`g-display flex items-center justify-center gap-1 text-xs font-bold tabular-nums sm:justify-start pointer-coarse:justify-center pointer-coarse:text-[10px] ${afford ? "text-amber-300" : "text-rose-300"}`}>
                   <Coins className="size-3" />
                   {def.cost}
                 </span>
@@ -561,8 +609,8 @@ function TowerPanel({ hud, icon, game }: { hud: Hud; icon?: string; game: RefObj
   const canUpgrade = t.upgrade !== null && hud.gold >= t.upgrade;
   const next = t.level < 2 ? def.levels[t.level + 1] : null;
   return (
-    <div className="g-panel flex items-center gap-2 p-2 sm:gap-3">
-      <TowerIcon src={icon} className="hidden size-14 shrink-0 sm:block" />
+    <div className="g-panel flex items-center gap-2 p-2 sm:gap-3 pointer-coarse:gap-1.5 pointer-coarse:p-1.5">
+      <TowerIcon src={icon} className="hidden size-14 shrink-0 sm:block pointer-coarse:hidden" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="g-panel-title text-xs whitespace-nowrap sm:text-base">{def.name}</p>
@@ -597,7 +645,7 @@ function TowerPanel({ hud, icon, game }: { hud: Hud; icon?: string; game: RefObj
           game.current?.upgrade();
         }}
         title="Upgrade (U)"
-        className={`${canUpgrade ? "g-btn" : "g-soft"} px-3 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:opacity-60 sm:px-4`}
+        className={`${canUpgrade ? "g-btn" : "g-soft"} px-3 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:opacity-60 sm:px-4 pointer-coarse:px-2 pointer-coarse:py-1 pointer-coarse:text-[10px]`}
       >
         <span className="g-unskew flex-col">
           <span className="flex items-center gap-1">
@@ -618,7 +666,7 @@ function TowerPanel({ hud, icon, game }: { hud: Hud; icon?: string; game: RefObj
           game.current?.sell();
         }}
         title="Sell (X)"
-        className="g-soft px-3 py-1.5 text-xs font-bold focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        className="g-soft px-3 py-1.5 text-xs font-bold focus-visible:outline-2 focus-visible:outline-[var(--accent)] pointer-coarse:px-2 pointer-coarse:py-1 pointer-coarse:text-[10px]"
       >
         <span className="g-unskew flex-col">
           <span className="g-display">Sell</span>
@@ -633,7 +681,7 @@ function TowerPanel({ hud, icon, game }: { hud: Hud; icon?: string; game: RefObj
         }}
         aria-label="Close (Q)"
         title="Close (Q)"
-        className="g-soft grid size-9 shrink-0 place-items-center focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+        className="g-soft grid size-9 shrink-0 place-items-center focus-visible:outline-2 focus-visible:outline-[var(--accent)] pointer-coarse:size-7"
       >
         <span className="g-unskew">
           <X className="size-4" />
@@ -655,14 +703,14 @@ function WaveButton({ hud, onCall }: { hud: Hud; onCall: () => void }) {
         onCall();
       }}
       title={hud.next ? `Next wave: ${hud.next} — call it early for bonus gold (Space)` : "Call the next wave early for bonus gold (Space)"}
-      className={`${ready ? "g-btn" : "g-hud"} flex min-w-0 flex-1 items-center justify-center px-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)]`}
+      className={`${ready ? "g-btn" : "g-hud"} flex min-w-0 flex-1 items-center justify-center px-3 py-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] pointer-coarse:px-2 pointer-coarse:py-1`}
     >
       {ready ? (
         <span className="g-unskew gap-2">
-          <ChevronRight className="size-5 shrink-0" />
+          <ChevronRight className="size-5 shrink-0 pointer-coarse:size-4" />
           <span className="min-w-0">
-            <span className="block text-[13px] leading-tight whitespace-nowrap">{hud.wave === 0 ? "Wave 1" : `Wave ${hud.wave + 1} · ${hud.countdown}s`}</span>
-            <span className="block text-[10px] leading-tight whitespace-nowrap opacity-80">
+            <span className="block text-[13px] leading-tight whitespace-nowrap pointer-coarse:text-[11px]">{hud.wave === 0 ? "Wave 1" : `Wave ${hud.wave + 1} · ${hud.countdown}s`}</span>
+            <span className="block text-[10px] leading-tight whitespace-nowrap opacity-80 pointer-coarse:text-[9px]">
               {hud.next?.startsWith("Mothership") ? "Mothership! " : "Go now "}
               {hud.bonus > 0 ? `+${hud.bonus}` : ""}
             </span>
@@ -670,8 +718,8 @@ function WaveButton({ hud, onCall }: { hud: Hud; onCall: () => void }) {
         </span>
       ) : (
         <span className="min-w-0 text-center">
-          <span className="g-display block text-[13px] leading-tight font-bold">{done ? "Final wave" : `Wave ${hud.wave}`}</span>
-          <span className="block text-[11px] leading-tight opacity-70">{hud.alive} saucers left</span>
+          <span className="g-display block text-[13px] leading-tight font-bold pointer-coarse:text-[11px]">{done ? "Final wave" : `Wave ${hud.wave}`}</span>
+          <span className="block text-[11px] leading-tight opacity-70 pointer-coarse:text-[9px]">{hud.alive} saucers left</span>
         </span>
       )}
     </button>
@@ -683,11 +731,11 @@ function BannerView({ banner }: { banner: Banner }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-4">
       <div className="animate-[saucer-banner_2.8s_ease_forwards] text-center">
-        <p className={`g-title text-3xl sm:text-5xl ${tone}`}>
+        <p className={`g-title text-3xl sm:text-5xl pointer-coarse:text-2xl ${tone}`}>
           {banner.tone === "boss" && <Skull className="mr-2 inline size-8 align-[-4px] sm:size-10" />}
           {banner.title}
         </p>
-        {banner.sub && <p className="g-display mt-2 text-xs tracking-[0.12em] text-white uppercase [text-shadow:0_0_8px_#7c3aed,0_2px_6px_rgb(0_0_0/0.7)] sm:text-sm">{banner.sub}</p>}
+        {banner.sub && <p className="g-display mt-2 text-xs tracking-[0.12em] text-white uppercase [text-shadow:0_0_8px_#7c3aed,0_2px_6px_rgb(0_0_0/0.7)] sm:text-sm pointer-coarse:mt-1 pointer-coarse:text-[10px]">{banner.sub}</p>}
       </div>
       <style>{`@keyframes saucer-banner{0%{opacity:0;transform:translateY(-12px) scale(.92)}10%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0;transform:translateY(-6px)}}`}</style>
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   CircleHelp,
   Coins,
@@ -9,6 +9,7 @@ import {
   Flame,
   FlaskConical,
   Footprints,
+  Gamepad2,
   Heart,
   Home,
   Pause,
@@ -25,6 +26,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { ControlsButton } from "../shared/touch-layout";
 import {
   BigButton,
   createRecords,
@@ -40,14 +42,16 @@ import {
   SoftButton,
   Stat,
   SystemButtons,
+  usePhoneLandscape,
   useRecords,
   useShortcuts,
   useStore,
   type Store,
 } from "../shared/ui";
-import { CryptKnightGame, type Action, type Hud, type Offer, type Phase, type RunSummary } from "./engine";
+import { CryptKnightGame, type Hud, type Offer, type Phase, type RunSummary } from "./engine";
 import { GAME } from "./manifest";
 import type { PowerIcon } from "./powers";
+import { ControlsEditor, TouchControls } from "./touch";
 
 const records = createRecords("crypt-knight:v1", { bestDepth: 0, wins: 0, runs: 0, bestTime: 0, kills: 0 });
 
@@ -98,6 +102,9 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
   const [hurtKey, setHurtKey] = useState(0);
   const [help, setHelp] = useState(false);
   const [touch, setTouch] = useState(false);
+  const [editing, setEditing] = useState(false);
+  // The HUD shown behind the controls editor when it opens from the title screen.
+  const [menuHud] = useState(() => createStore<Hud>(EMPTY_HUD));
   const [runKey, setRunKey] = useState(0);
   const saved = useRecords(records);
 
@@ -157,12 +164,14 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
     setSummary(null);
     setOptions(null);
     setHelp(false);
+    setEditing(false);
     setRunKey((k) => k + 1);
     game.start();
   };
 
   const toMenu = () => {
     setSummary(null);
+    setEditing(false);
     setOptions(null);
     gameRef.current?.toMenu();
   };
@@ -177,6 +186,10 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
     (document.activeElement as HTMLElement | null)?.blur();
     if (help) {
       setHelp(false);
+      return;
+    }
+    if (editing) {
+      setEditing(false);
       return;
     }
     if (phase === "playing") game?.pause();
@@ -194,7 +207,7 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const game = gameRef.current;
-      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || e.repeat) return;
+      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || editing || e.repeat) return;
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const confirm = e.key === "Enter" || (e.key === " " && !onButton);
       if (phase === "menu" && confirm && !onButton) {
@@ -237,9 +250,12 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
       <style>{STYLES}</style>
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Crypt Knight game" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && <MenuScreen best={saved.bestDepth} wins={saved.wins} bestTime={saved.bestTime} later={later} onPlay={start} onHelp={() => setHelp(true)} touch={touch} />}
+      {phase === "menu" && !editing && (
+        <MenuScreen best={saved.bestDepth} wins={saved.wins} bestTime={saved.bestTime} later={later} onPlay={start} onHelp={() => setHelp(true)} onControls={() => setEditing(true)} touch={touch} />
+      )}
+      {phase === "menu" && editing && <HudOverlay store={menuHud} paused={false} onPause={() => {}} touch />}
 
       {running && <HudOverlay store={hud} paused={phase === "paused"} onPause={pauseOrResume} touch={touch} />}
       {running && <LowHealth store={hud} />}
@@ -256,7 +272,7 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
         </div>
       )}
 
-      {phase === "paused" && !help && (
+      {phase === "paused" && !help && !editing && (
         <Modal title="Paused">
           <BigButton onClick={pauseOrResume} icon={<Play className="size-5 fill-current" />}>
             Resume
@@ -272,8 +288,14 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
               Menu
             </SoftButton>
           </div>
+          {touch && (
+            <SoftButton onClick={() => setEditing(true)} icon={<Gamepad2 className="size-4" />}>
+              Edit controls
+            </SoftButton>
+          )}
         </Modal>
       )}
+      {editing && (phase === "menu" || phase === "paused") && <ControlsEditor store={phase === "menu" ? menuHud : hud} onClose={() => setEditing(false)} />}
 
       {phase === "choosing" && options && !help && <PowerChoice options={options} store={hud} onPick={pick} game={gameRef} />}
 
@@ -325,11 +347,31 @@ export function CryptKnight({ sizes }: { sizes: Record<string, number> }) {
 
 // --- Screens -----------------------------------------------------------------------------------------
 
-function MenuScreen({ best, wins, bestTime, later, onPlay, onHelp, touch }: { best: number; wins: number; bestTime: number; later: number; onPlay: () => void; onHelp: () => void; touch: boolean }) {
+function MenuScreen({
+  best,
+  wins,
+  bestTime,
+  later,
+  onPlay,
+  onHelp,
+  onControls,
+  touch,
+}: {
+  best: number;
+  wins: number;
+  bestTime: number;
+  later: number;
+  onPlay: () => void;
+  onHelp: () => void;
+  onControls: () => void;
+  touch: boolean;
+}) {
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col bg-[linear-gradient(to_bottom,rgb(7_5_11/0.8),transparent_35%,transparent_58%,rgb(7_5_11/0.88))]">
       <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <SystemButtons onHelp={onHelp} />
+        <SystemButtons onHelp={onHelp}>
+          <ControlsButton onClick={onControls} />
+        </SystemButtons>
       </div>
 
       <div className="px-4 pt-1 text-center sm:pt-3">
@@ -368,11 +410,14 @@ function MenuScreen({ best, wins, bestTime, later, onPlay, onHelp, touch }: { be
 
 function HudOverlay({ store, paused, onPause, touch }: { store: Store<Hud>; paused: boolean; onPause: () => void; touch: boolean }) {
   const hud = useStore(store);
+  // Phones held sideways: the corner buttons go in a row, leaving the right side to the touch controls.
+  const land = usePhoneLandscape();
   const hpPct = Math.max(0, Math.min(100, (hud.hp / hud.maxHp) * 100));
   return (
     <>
+      {/* `data-avoid`: touch controls keep clear of these (touch.tsx). */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <div className="min-w-0 space-y-2">
+        <div data-avoid className="min-w-0 space-y-2">
           <div className="g-hud w-44 p-2 sm:w-64">
             <div className="g-display flex items-center justify-between px-0.5 text-[11px] tabular-nums">
               <span className="inline-flex items-center gap-1">
@@ -398,7 +443,7 @@ function HudOverlay({ store, paused, onPause, touch }: { store: Store<Hud>; paus
         </div>
 
         <div className="flex flex-1 flex-col items-center gap-2 pt-0.5">
-          <div className="g-hud px-4 py-1.5 text-center">
+          <div data-avoid className="g-hud px-4 py-1.5 text-center">
             <p className="g-display text-[9px] tracking-[0.25em] text-[var(--accent)] uppercase">Room</p>
             <p className="g-display text-lg leading-none tabular-nums">
               {hud.room}
@@ -416,11 +461,11 @@ function HudOverlay({ store, paused, onPause, touch }: { store: Store<Hud>; paus
           ) : null}
         </div>
 
-        <div className="pointer-events-auto flex flex-col items-end gap-2">
-          <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
-            {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
+        <div data-avoid className={`pointer-events-auto flex items-end gap-2 ${land ? "flex-row-reverse" : "flex-col"}`}>
+          <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"} small={land}>
+            {paused ? <Play className={`${land ? "size-[18px]" : "size-5"} fill-current`} /> : <Pause className={`${land ? "size-[18px]" : "size-5"} fill-current`} />}
           </IconButton>
-          <SystemButtons vertical />
+          <SystemButtons vertical={!land} small={land} />
         </div>
       </div>
 
@@ -543,136 +588,5 @@ function PowerChoice({ options, store, onPick, game }: { options: Offer[]; store
         </div>
       </div>
     </div>
-  );
-}
-
-// --- Touch controls ----------------------------------------------------------------------------------
-
-function TouchControls({ game, store }: { game: { current: CryptKnightGame | null }; store: Store<Hud> }) {
-  const hud = useStore(store);
-  const stickRef = useRef<{ id: number; x: number; y: number } | null>(null);
-  const [knob, setKnob] = useState<{ ox: number; oy: number; x: number; y: number } | null>(null);
-  const R = 52;
-
-  const onStickDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (stickRef.current) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    stickRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
-    setKnob({ ox: e.clientX, oy: e.clientY, x: 0, y: 0 });
-  };
-  const onStickMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const s = stickRef.current;
-    if (!s || s.id !== e.pointerId) return;
-    let dx = e.clientX - s.x;
-    let dy = e.clientY - s.y;
-    const l = Math.hypot(dx, dy);
-    if (l > R) {
-      // The base follows the thumb when it drags past the edge.
-      s.x += (dx / l) * (l - R);
-      s.y += (dy / l) * (l - R);
-      dx = e.clientX - s.x;
-      dy = e.clientY - s.y;
-    }
-    game.current?.setStick(dx / R, -dy / R);
-    setKnob({ ox: s.x, oy: s.y, x: dx, y: dy });
-  };
-  const onStickUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const s = stickRef.current;
-    if (!s || s.id !== e.pointerId) return;
-    stickRef.current = null;
-    game.current?.setStick(0, 0);
-    setKnob(null);
-  };
-
-  const tap = (action: Action) => (e: ReactPointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    game.current?.press(action);
-  };
-
-  return (
-    <>
-      <div className="absolute bottom-0 left-0 h-[55%] w-[55%] touch-none" onPointerDown={onStickDown} onPointerMove={onStickMove} onPointerUp={onStickUp} onPointerCancel={onStickUp} aria-label="Move">
-        {knob ? (
-          <div className="pointer-events-none fixed" style={{ left: knob.ox - R - 14, top: knob.oy - R - 14 }}>
-            <div className="relative rounded-full bg-black/35 ring-2 ring-[#c9a24a]/50" style={{ width: (R + 14) * 2, height: (R + 14) * 2 }}>
-              <div className="absolute size-14 rounded-full bg-[radial-gradient(circle_at_35%_30%,#f8e7c0,#b91c1c_60%,#7f1d1d)] ring-2 ring-[#c9a24a]" style={{ left: R + 14 - 28 + knob.x, top: R + 14 - 28 + knob.y }} />
-            </div>
-          </div>
-        ) : (
-          <div className="pointer-events-none absolute bottom-[max(env(safe-area-inset-bottom),28px)] left-7 grid size-32 place-items-center rounded-full bg-black/25 ring-2 ring-[#c9a24a]/30">
-            <div className="size-12 rounded-full bg-[#b91c1c]/50 ring-2 ring-[#c9a24a]/50" />
-          </div>
-        )}
-      </div>
-
-      <div className="absolute right-3 bottom-[max(env(safe-area-inset-bottom),18px)] h-[230px] w-[230px] touch-none select-none">
-        <TouchButton className="g-btn right-1 bottom-1 size-[92px]" onDown={tap("attack")} label="Attack">
-          <Sword className="size-10" />
-        </TouchButton>
-        <TouchButton
-          className="g-hud right-[106px] bottom-0 size-16"
-          onDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            game.current?.setTouchBlock(true);
-          }}
-          onUp={() => game.current?.setTouchBlock(false)}
-          label="Block"
-        >
-          <Shield className="size-7" />
-        </TouchButton>
-        <TouchButton className="g-hud right-0 bottom-[106px] size-16" onDown={tap("roll")} label="Roll" dim={hud.roll < 1} fill={hud.roll}>
-          <Wind className="size-7" />
-        </TouchButton>
-        <TouchButton className="g-hud right-[88px] bottom-[88px] size-16" onDown={tap("spin")} label="Spin" dim={hud.charge < 1} fill={hud.charge} glow={hud.charge >= 1}>
-          <Tornado className="size-7" />
-        </TouchButton>
-        <TouchButton className="g-hud right-[162px] bottom-[96px] size-12" onDown={tap("potion")} label="Potion" dim={hud.potions <= 0}>
-          <FlaskConical className="size-5 text-[var(--accent)]" />
-          <span className="g-display absolute -top-2 -right-2 grid size-5 place-items-center bg-[#f8e7c0] text-[11px] text-[#3f0d0d]">{hud.potions}</span>
-        </TouchButton>
-      </div>
-    </>
-  );
-}
-
-function TouchButton({
-  className,
-  onDown,
-  onUp,
-  label,
-  children,
-  dim = false,
-  fill,
-  glow = false,
-}: {
-  className: string;
-  onDown: (e: ReactPointerEvent) => void;
-  onUp?: () => void;
-  label: string;
-  children: ReactNode;
-  dim?: boolean;
-  /** 0..1 charge shown as a crimson fill rising from the bottom. */
-  fill?: number;
-  glow?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId);
-        onDown(e);
-      }}
-      onPointerUp={onUp}
-      onPointerCancel={onUp}
-      onLostPointerCapture={onUp}
-      onContextMenu={(e) => e.preventDefault()}
-      className={`absolute grid touch-none place-items-center transition active:scale-95 ${dim ? "opacity-60" : ""} ${glow ? "shadow-[0_0_0_1px_#c9a24a,0_0_22px_rgb(201_162_74/0.6)]" : ""} ${className}`}
-    >
-      {fill !== undefined && fill < 1 && <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,rgb(244_63_94/0.55),rgb(127_29_29/0.7))]" style={{ height: `${Math.max(0, fill) * 100}%` }} />}
-      <span className="relative grid place-items-center">{children}</span>
-    </button>
   );
 }

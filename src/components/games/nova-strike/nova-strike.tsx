@@ -295,7 +295,7 @@ export function NovaStrike({ sizes }: { sizes: Record<string, number> }) {
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Nova Strike game" />
       {phase !== "loading" && phase !== "error" && <Scanlines />}
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
       {phase === "menu" && !entry && (
         <MenuScreen

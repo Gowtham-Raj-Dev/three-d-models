@@ -7,12 +7,14 @@ import {
   BigButton,
   createRecords,
   createStore,
+  FullscreenButton,
   GameRoot,
   GameTitle,
   HowToPlay,
   IconButton,
   LoadingScreen,
   Modal,
+  RotateButton,
   SoftButton,
   Stat,
   SystemButtons,
@@ -212,7 +214,7 @@ export function PuttParadise({ sizes }: { sizes: Record<string, number> }) {
       <style>{STYLES}</style>
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full touch-none" aria-label="Putt Paradise mini golf course" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
       {phase === "menu" && <MenuScreen ball={saved.ball} best={saved.best} holesInOne={saved.holesInOne} rounds={saved.rounds} onBall={changeBall} onPlay={start} onHelp={() => setHelp(true)} />}
 
@@ -408,6 +410,8 @@ function HudOverlay({ store, phase, onPause, onMap }: { store: Store<Hud>; phase
             <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
               {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
             </IconButton>
+            <FullscreenButton className="sm:hidden" />
+            <RotateButton className="sm:hidden" />
           </div>
           <div className="hidden sm:block">
             <SystemButtons vertical />

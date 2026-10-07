@@ -1,33 +1,95 @@
 "use client";
 
 import { useEffect, useState, type ComponentType, type CSSProperties } from "react";
-import { ChefHat, Crown, Flame, Sailboat, TreePalm } from "lucide-react";
+import {
+  Anchor,
+  Castle,
+  ChefHat,
+  Crown,
+  Disc3,
+  Flame,
+  FlagTriangleRight,
+  Hamburger,
+  Hexagon,
+  KeyRound,
+  Orbit,
+  Plane,
+  Rocket,
+  Sailboat,
+  Skull,
+  Star,
+  Target,
+  TreePalm,
+  Trophy,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 
 /**
- * Each game's own loading screen (drawn by LoadingScreen in ui.tsx over the game's cover art): a
- * progress bar from the game's world — Kingdom Clash's gold-framed bar, Turbo Karts' start lights,
- * Cannon Cove's treasure-map route… — status lines in its voice, and an optional ambient effect.
- * Keyframes (g-*) live in globals.css.
+ * Each game's own loading screen (drawn by shared/loading-screen.tsx over the game's cover art): a
+ * logo, tips and a progress bar from the game's world — Kingdom Clash's gold-framed bar, Turbo
+ * Karts' start lights, Cannon Cove's treasure-map route… — status lines in its voice, and an
+ * optional ambient effect. Keyframes (g-*) live in globals.css.
  */
 export interface LoadingLook {
   /** Darkens the cover art at the top and bottom so the title and bar stay readable. */
   shade: string;
   /** Text colour, when the theme's loading text would not read on the shaded art. */
   ink?: string;
-  /** Shown in turn under the bar. */
+  /** Shown one after another as the download goes on. */
   lines: string[];
   Bar: ComponentType<{ pct: number }>;
+  /** The bar prints the percentage itself (the status line then leaves it out). */
+  ownPct?: boolean;
   /** Ambient effect over the art. */
   Fx?: ComponentType;
+  title: TitleLook;
 }
+
+/** The logo, ribbon, tips and sky of a loading screen. Colours are 6-digit hex (alpha gets appended). */
+export interface TitleLook {
+  /** Icon on the medal above the title. */
+  emblem: LucideIcon;
+  /** A few words on the ribbon under the title. */
+  motto: string;
+  /** Short tips that work for keyboard and touch alike (default: the game's tagline). */
+  tips?: string[];
+  /** Gradient stops of the small first word(s) and the big last word. */
+  top: string;
+  main: string;
+  /** Outline colour, and its width in em (0 for neon / engraved titles). */
+  outline: string;
+  stroke: number;
+  /** Filter under the title — solid depth, offset sticker shadow or neon glow. Default: depth in the outline colour. */
+  depth?: string;
+  /** Degrees; negative leans the title up to the right. */
+  tilt?: number;
+  /** Average glyph width (em) of the display font as the theme sets it; long words shrink to fit phones. */
+  charW: number;
+  /** The whole title on one line instead of a small first word over a big last word. */
+  oneLine?: boolean;
+  /** `glow`: a neon medal instead of a solid one. */
+  medal: { bg: string; icon: string; ring: string; glow?: string };
+  /** `shadow` (text) and `depth` (filter) default to a solid drop. */
+  ribbon: { bg: string; text: string; edge: string; shadow?: string; depth?: string };
+  /** Light rays and halo behind the title; `rays` is their opacity (0 = none). */
+  glow: string;
+  rays: number;
+  /** Particles drifting up: sparks, embers, fireflies, bubbles… */
+  spark: string;
+  /** Soft clouds drifting across the top. */
+  clouds?: boolean;
+  /** Tint of the shaded sky behind the title (top, then lower down). */
+  sky: [string, string];
+}
+
+/** Gold coin medal shared by the sunny games. */
+const GOLD = "radial-gradient(circle at 35% 28%, #fffbeb, #fcd34d 38%, #f59e0b 70%, #b45309)";
 
 type BarProps = { pct: number };
 
 /** A fill's width — never empty, so the bar reads as a bar from the first frame. */
 const fill = (pct: number): CSSProperties => ({ width: `${Math.max(3, pct)}%` });
-
-/** A fill that starts after a badge covering the bar's left end. */
-const fillAfter = (pct: number, badge: string): CSSProperties => ({ width: `calc(${badge} + (100% - ${badge}) * ${Math.max(3, pct) / 100})` });
 
 /** Left position of something riding the fill's tip, kept inside the bar. */
 const tip = (pct: number, min = 4, max = 96) => `${Math.min(max, Math.max(min, pct))}%`;
@@ -35,13 +97,17 @@ const tip = (pct: number, min = 4, max = 96) => `${Math.min(max, Math.max(min, p
 const GROW = "transition-[width] duration-300 ease-out";
 const RIDE = "transition-[left] duration-300 ease-out";
 
-/** Diagonal stripes sliding along a fill. */
+/**
+ * Diagonal stripes sliding along a fill. They slide by moving (not by repainting), so they stay smooth
+ * while the game is busy parsing models.
+ */
 function Stripes({ color, size = 28 }: { color: string; size?: number }) {
   return (
     <span
-      className="absolute inset-0 motion-safe:animate-[g-stripes_0.9s_linear_infinite]"
+      className="absolute inset-y-0 right-0 motion-safe:animate-[g-stripes_0.9s_linear_infinite]"
       style={
         {
+          left: -size,
           backgroundImage: `linear-gradient(-45deg, ${color} 25%, transparent 25% 50%, ${color} 50% 75%, transparent 75%)`,
           backgroundSize: `${size}px ${size}px`,
           "--stripe": `${size}px`,
@@ -51,33 +117,51 @@ function Stripes({ color, size = 28 }: { color: string; size?: number }) {
   );
 }
 
+/** A soft highlight sweeping along a fill now and then. */
+function Glint() {
+  return (
+    <span
+      className="absolute inset-y-0 left-0 w-[45%] motion-safe:animate-[g-glint_2.8s_ease-in-out_infinite]"
+      style={{ transform: "translateX(-110%)", background: "linear-gradient(100deg, #fff0, #ffffff8c 50%, #fff0)" }}
+    />
+  );
+}
+
+const OUTLINE = "0 2px 0 #1f2937, 2px 0 0 #1f2937, -2px 0 0 #1f2937, 0 -2px 0 #1f2937, 2px 2px 0 #1f2937, -2px 2px 0 #1f2937, 0 3px 0 #1f2937";
+
 // --- Bars -------------------------------------------------------------------------------------------
 
-/** Kingdom Clash: chunky gold-ringed bar with a glossy green fill and a crown badge. */
+/** Kingdom Clash: chunky gold-ringed bar, a castle badge, a glossy green fill with a glint, the percentage on top. */
 function ClashBar({ pct }: BarProps) {
   return (
-    <div className="relative">
+    <div className="relative pl-[30px]">
+      <span
+        className="absolute top-1/2 left-0 z-[2] -mt-[31px] grid size-[62px] place-items-center rounded-full border-[3px] border-[#1f2937] text-[#1e3a8a]"
+        style={{ background: GOLD, boxShadow: "inset 0 -4px 0 #b4530999, inset 0 3px 0 #fff9, 0 4px 0 #1f2937, 0 10px 18px #0009" }}
+      >
+        <Castle className="size-[30px]" strokeWidth={2.4} />
+      </span>
       <div
-        className="h-10 rounded-2xl border-[3px] border-[#1f2937] bg-[#1e293b] p-[5px]"
-        style={{ boxShadow: "inset 0 0 0 2px #fbbf24, 0 5px 0 #1f2937, 0 14px 30px #0009" }}
+        className="relative h-[46px] rounded-2xl border-[3px] border-[#1f2937] p-[5px]"
+        style={{ background: "linear-gradient(180deg, #0b1220, #1e293b)", boxShadow: "inset 0 0 0 2px #fbbf24, inset 0 6px 10px #000c, 0 5px 0 #1f2937, 0 16px 32px #000a" }}
       >
         <div
           className={`relative h-full overflow-hidden rounded-[10px] ${GROW}`}
           style={{
-            ...fillAfter(pct, "2.5rem"),
-            background: "linear-gradient(180deg, #86efac, #22c55e 55%, #16a34a)",
-            boxShadow: "inset 0 -4px 0 #15803d, inset 0 3px 0 #ffffff80",
+            width: `calc(30px + (100% - 30px) * ${pct / 100})`,
+            background: "linear-gradient(180deg, #bbf7d0, #4ade80 28%, #22c55e 58%, #16a34a 82%, #15803d)",
+            boxShadow: "inset 0 -4px 0 #166534, inset 0 2px 0 #ffffffb3",
           }}
         >
-          <Stripes color="#ffffff2e" />
+          <Stripes color="#ffffff30" size={22} />
+          <Glint />
+          <span className="absolute inset-x-1.5 top-[3px] h-[36%] rounded-lg" style={{ background: "linear-gradient(180deg, #ffffffb3, #ffffff1a)" }} />
+          <span className="absolute inset-y-0.5 right-0 w-4 rounded-lg" style={{ background: "linear-gradient(90deg, #f0fdf400, #f0fdf4e6)" }} />
         </div>
+        <span className="g-display absolute inset-0 grid place-items-center pl-6 text-[21px] leading-none text-white tabular-nums" style={{ textShadow: OUTLINE }}>
+          {pct}%
+        </span>
       </div>
-      <span
-        className="absolute top-1/2 -left-3 grid size-14 -translate-y-1/2 place-items-center rounded-full border-[3px] border-[#1f2937]"
-        style={{ background: "linear-gradient(180deg, #fde68a, #f59e0b)", boxShadow: "inset 0 -4px 0 #d97706, 0 4px 0 #1f2937" }}
-      >
-        <Crown className="size-7 text-[#78350f]" strokeWidth={2.5} />
-      </span>
     </div>
   );
 }
@@ -480,87 +564,466 @@ export const LOADING_LOOKS: Record<string, LoadingLook> = {
     shade: "#111111",
     lines: ["Waxing the rails…", "Tightening the trucks…", "Spray-painting the ramps…", "Dropping in…"],
     Bar: SkateBar,
+    title: {
+      emblem: Zap,
+      motto: "Dodge · Jump · Grab",
+      tips: [
+        "Every coin adds 10 points. Coin trails lead to a safe lane.",
+        "Cars block a whole lane. Switch lanes before you reach them.",
+        "Jump barriers, cones and fences. Duck under striped gates.",
+        "Heart = shield, star = coin magnet, jewel = double score.",
+        "Slam down in mid-air to slide straight under a gate.",
+        "Watch out for oncoming traffic!",
+      ],
+      top: "#ffffff 30%, #e5e5e5 90%",
+      main: "#fef08a 10%, #facc15 50%, #f59e0b 95%",
+      outline: "#111111",
+      stroke: 0.14,
+      depth: "drop-shadow(.2em .2em 0 #111111) drop-shadow(.42em .42em 0 #f59e0b99)",
+      tilt: -4,
+      charW: 0.74,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #fef9c3, #facc15 45%, #eab308 80%)", icon: "#111111", ring: "#111111" },
+      ribbon: { bg: "linear-gradient(180deg, #262626, #111111)", text: "#facc15", edge: "#000000", shadow: "0 .1em 0 #000", depth: "drop-shadow(.16em .16em 0 #f59e0b)" },
+      glow: "#facc15",
+      rays: 0.35,
+      spark: "#facc15",
+      sky: ["#1c1917", "#292524"],
+    },
   },
   "saucer-siege": {
     shade: "#05030d",
     lines: ["Calibrating the tractor beam…", "Scanning for earthlings…", "Charging the plasma cannons…", "Entering orbit…"],
     Bar: SaucerBar,
     Fx: ScanFx,
+    title: {
+      emblem: Orbit,
+      motto: "Build · Upgrade · Defend",
+      tips: [
+        "Build towers beside the road before the saucers reach your keep.",
+        "Ballista: fast bolts. Cannon: splash. Catapult: huge range.",
+        "Turrets shred scouts but struggle against armour.",
+        "Upgrade a tower to add a floor, or sell it for 70% back.",
+        "Shoot purple beam saucers first. They freeze your towers.",
+        "A mothership arrives every fifth wave.",
+        "Call waves early for bonus gold.",
+      ],
+      top: "#ffffff 30%, #ede9fe 90%",
+      main: "#f5f3ff 10%, #c4b5fd 50%, #8b5cf6 95%",
+      outline: "#2e1065",
+      stroke: 0.06,
+      depth: "drop-shadow(0 0 .25em #a78bfa) drop-shadow(0 0 .9em #7c3aed)",
+      charW: 0.98,
+      medal: { bg: "radial-gradient(circle at 50% 40%, #2e1065, #0b0820 75%)", icon: "#c4b5fd", ring: "#a78bfa", glow: "#8b5cf6" },
+      ribbon: { bg: "linear-gradient(180deg, #4c1d95, #2e1065)", text: "#ede9fe", edge: "#a78bfa", shadow: "0 0 .5em #a78bfa", depth: "drop-shadow(0 0 .4em #7c3aed)" },
+      glow: "#a78bfa",
+      rays: 0.3,
+      spark: "#c4b5fd",
+      sky: ["#2e1065", "#4c1d95"],
+    },
   },
   "cannon-cove": {
     shade: "#04121c",
     lines: ["Hoisting the sails…", "Loading the cannons…", "Reading the treasure map…", "Weighing anchor…"],
     Bar: CoveBar,
+    title: {
+      emblem: Anchor,
+      motto: "Sail · Fire · Plunder",
+      tips: [
+        "Your cannons point sideways. Turn side-on before you fire.",
+        "Sail across the wind for top speed. Into it is painfully slow.",
+        "Drop to battle sails for tight turns.",
+        "A red ! means an enemy is about to fire. Turn hard!",
+        "Sail through barrels and chests for gold and repairs.",
+        "Every 5th wave the ghost ship rises. Leave the green rings!",
+        "Pick an upgrade after every wave.",
+      ],
+      top: "#fffaf0 25%, #fdf3dc 60%, #e7cf9f 95%",
+      main: "#fef3c7 8%, #fcd34d 40%, #f59e0b 70%, #b45309 100%",
+      outline: "#3b2412",
+      stroke: 0.12,
+      tilt: -2,
+      charW: 0.46,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #d6a46a, #a2703e 50%, #6b4423)", icon: "#fdf3dc", ring: "#3b2412" },
+      ribbon: { bg: "linear-gradient(180deg, #b91c1c, #991b1b 60%, #7f1d1d)", text: "#fdf3dc", edge: "#450a0a" },
+      glow: "#fcd34d",
+      rays: 0.35,
+      spark: "#bae6fd",
+      clouds: true,
+      sky: ["#0e4a6b", "#0369a1"],
+    },
   },
   "crypt-knight": {
     shade: "#050304",
     lines: ["Lighting the torches…", "Sharpening the blade…", "Waking the dead…", "Descending into the crypt…"],
     Bar: CryptBar,
     Fx: TorchFx,
+    title: {
+      emblem: Skull,
+      motto: "Slash · Parry · Roll",
+      tips: [
+        "Clear every skeleton to open the next door.",
+        "The third hit of a combo breaks a warrior's shield guard.",
+        "Red floor markers show where an attack will land.",
+        "Block right as a hit lands to parry and stun the attacker.",
+        "You can't be hurt in the middle of a roll.",
+        "Fill the ring to unleash a spin attack.",
+        "Ten rooms deep, the Bone King waits.",
+      ],
+      top: "#fffbeb 20%, #f8e7c0 55%, #c9a24a 95%",
+      main: "#fecaca 5%, #ef4444 40%, #b91c1c 75%, #7f1d1d 100%",
+      outline: "#0d0a0b",
+      stroke: 0.05,
+      depth: "drop-shadow(0 .1em 0 #000) drop-shadow(0 0 .6em #b91c1c99) drop-shadow(0 .6em .8em #000d)",
+      charW: 0.82,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #3f0d0d, #1a1416 70%)", icon: "#c9a24a", ring: "#c9a24a", glow: "#b91c1c" },
+      ribbon: { bg: "linear-gradient(180deg, #991b1b, #7f1d1d 60%, #450a0a)", text: "#f8e7c0", edge: "#2a0505", shadow: "0 .1em 0 #000", depth: "drop-shadow(0 .1em 0 #c9a24a) drop-shadow(0 .4em .5em #000c)" },
+      glow: "#ef4444",
+      rays: 0,
+      spark: "#f97316",
+      sky: ["#3b0a0a", "#450a0a"],
+    },
   },
   "order-up": {
     shade: "#1c1019",
     lines: ["Firing up the grill…", "Whipping the shakes…", "Wiping the counter…", "Flipping the sign to OPEN…"],
     Bar: DinerBar,
+    title: {
+      emblem: Hamburger,
+      motto: "Grill · Stack · Serve",
+      tips: [
+        "Build each burger bottom to top, exactly as ordered.",
+        "Pull patties off the grill when the ring turns green.",
+        "Serve fast for bigger tips. Serving in a row builds a combo.",
+        "Watch the patience bars. Empty means an angry walk-out.",
+        "Wrong stack? Bin it, but wasted food costs money.",
+        "Spend the day's cash on kitchen upgrades.",
+      ],
+      top: "#ffffff 20%, #fdf2f8 50%, #fbcfe8 90%",
+      main: "#ffffff 20%, #fdf2f8 50%, #fbcfe8 90%",
+      outline: "#9d174d",
+      stroke: 0.12,
+      depth: "drop-shadow(0 .28em 0 #be185d) drop-shadow(0 .7em .8em #000a)",
+      tilt: -4,
+      charW: 0.5,
+      oneLine: true,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #fce7f3, #f9a8d4 45%, #ec4899)", icon: "#ffffff", ring: "#be185d" },
+      ribbon: { bg: "linear-gradient(180deg, #5eead4, #14b8a6 60%, #0d9488)", text: "#ffffff", edge: "#0f766e", depth: "drop-shadow(0 .16em 0 #be185d) drop-shadow(0 .4em .5em #0008)" },
+      glow: "#f472b6",
+      rays: 0.35,
+      spark: "#f9a8d4",
+      sky: ["#500724", "#831843"],
+    },
   },
   "hex-haven": {
     shade: "#0b2a1f",
     lines: ["Planting the forests…", "Laying the meadow tiles…", "Filling the rivers…", "Raising the cottages…"],
     Bar: HexBar,
+    title: {
+      emblem: Hexagon,
+      motto: "Place · Match · Grow",
+      tips: [
+        "Every matching side scores 10 points.",
+        "Rivers flow into rivers or lakes. Roads meet roads.",
+        "Match every side of 3 or more neighbours for a bonus tile.",
+        "Flag tiles carry quests. Grow that area to win more tiles.",
+        "Peek at the next three tiles to plan ahead.",
+        "The game ends when your stack runs out.",
+      ],
+      top: "#ffffff 30%, #ecfdf5 90%",
+      main: "#ecfdf5 10%, #a7f3d0 45%, #34d399 80%, #059669 100%",
+      outline: "#064e3b",
+      stroke: 0.12,
+      depth: "drop-shadow(0 .26em 0 #065f46) drop-shadow(0 .7em .8em #0009)",
+      tilt: -2,
+      charW: 0.56,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #ecfdf5, #6ee7b7 45%, #10b981)", icon: "#064e3b", ring: "#065f46" },
+      ribbon: { bg: "linear-gradient(180deg, #fde68a, #fbbf24 60%, #f59e0b)", text: "#78350f", edge: "#b45309", shadow: "0 .1em 0 #fef3c7", depth: "drop-shadow(0 .16em 0 #065f46) drop-shadow(0 .4em .5em #0008)" },
+      glow: "#a7f3d0",
+      rays: 0.4,
+      spark: "#d9f99d",
+      clouds: true,
+      sky: ["#065f46", "#047857"],
+    },
   },
   "sky-hop": {
     shade: "#0c4a6e",
     ink: "#ffffff",
     lines: ["Fluffing the clouds…", "Pumping up the platforms…", "Stretching the legs…", "Polishing the coins…"],
     Bar: HopBar,
+    title: {
+      emblem: Star,
+      motto: "Run · Jump · Stomp",
+      tips: [
+        "Small flags are checkpoints. They refill your hearts.",
+        "Jump again in mid-air for a flipping double jump.",
+        "Stomp enemies from above. Polar bears take two!",
+        "Ground pound to smash crates and nearby enemies.",
+        "Every level hides three stars. One is in the key's chest.",
+        "100 coins earn an extra life.",
+        "Snow is slippery. Start braking early!",
+      ],
+      top: "#ffffff 30%, #e0f2fe 90%",
+      main: "#fef9c3 8%, #fde047 40%, #facc15 70%, #eab308 100%",
+      outline: "#1c1917",
+      stroke: 0.14,
+      depth: "drop-shadow(.12em .3em 0 #1c1917) drop-shadow(0 .7em .8em #0008)",
+      tilt: -4,
+      charW: 0.68,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #fbcfe8, #f472b6 50%, #db2777)", icon: "#ffffff", ring: "#1c1917" },
+      ribbon: { bg: "linear-gradient(180deg, #f472b6, #ec4899 60%, #db2777)", text: "#ffffff", edge: "#9d174d", shadow: "0 .12em 0 #1c1917" },
+      glow: "#fde047",
+      rays: 0.45,
+      spark: "#ffffff",
+      clouds: true,
+      sky: ["#0369a1", "#0ea5e9"],
+    },
   },
   "turbo-karts": {
     shade: "#0a0a0a",
     lines: ["Warming up the tyres…", "Filling the tanks…", "Painting the start line…", "Lining up on the grid…"],
     Bar: KartBar,
+    title: {
+      emblem: Trophy,
+      motto: "Drift · Boost · Win",
+      tips: [
+        "Hold drift through a turn. Purple sparks give the biggest boost.",
+        "Drive through ? boxes for turbos, shields and bananas.",
+        "Drop a banana when a rival is right on your tail.",
+        "Coins make your kart faster, up to 10.",
+        "Stay on the asphalt. Grass slows you down.",
+        "Hold the gas just before GO for a rocket start.",
+        "Drift in mid-air off the big ramp for a trick boost.",
+      ],
+      top: "#ffffff 30%, #e5e5e5 90%",
+      main: "#fed7aa 5%, #fb923c 40%, #f97316 70%, #c2410c 100%",
+      outline: "#111111",
+      stroke: 0.12,
+      depth: "drop-shadow(.2em .2em 0 #000) drop-shadow(0 0 .9em #f9731666)",
+      tilt: -6,
+      charW: 0.66,
+      medal: { bg: GOLD, icon: "#111111", ring: "#111111" },
+      ribbon: { bg: "linear-gradient(90deg, #fb923c, #ea580c)", text: "#111111", edge: "#9a3412", shadow: "0 .08em 0 #fdba74", depth: "drop-shadow(.16em .16em 0 #000)" },
+      glow: "#f97316",
+      rays: 0.3,
+      spark: "#fb923c",
+      sky: ["#1c1917", "#292524"],
+    },
   },
   "siege-smash": {
     shade: "#111a05",
     lines: ["Winding the catapult…", "Stacking the towers…", "Rounding up boulders…", "Waking the guards…"],
     Bar: SiegeBar,
+    title: {
+      emblem: Target,
+      motto: "Aim · Fire · Topple",
+      tips: [
+        "Knock out every defender to clear the level.",
+        "Drag back to aim. The dotted arc shows the shot.",
+        "Hit towers high to topple them.",
+        "Splitting stones break into three. Tap again mid-flight.",
+        "Powder kegs set each other off!",
+        "Fewer shots earn more stars.",
+      ],
+      top: "#fefce8 30%, #e7e5e4 90%",
+      main: "#ecfccb 8%, #bef264 40%, #84cc16 72%, #4d7c0f 100%",
+      outline: "#1a2e05",
+      stroke: 0.12,
+      tilt: -2,
+      charW: 0.6,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #f5f5f4, #a8a29e 55%, #57534e)", icon: "#292524", ring: "#292524" },
+      ribbon: { bg: "linear-gradient(180deg, #dc2626, #b91c1c 60%, #7f1d1d)", text: "#fefce8", edge: "#450a0a" },
+      glow: "#d9f99d",
+      rays: 0.35,
+      spark: "#fde68a",
+      clouds: true,
+      sky: ["#365314", "#4d7c0f"],
+    },
   },
   "beat-street": {
     shade: "#020005",
     lines: ["Tuning the decks…", "Dropping the bass…", "Hanging the disco ball…", "Clearing the dance floor…"],
     Bar: BeatBar,
     Fx: DiscoFx,
+    title: {
+      emblem: Disc3,
+      motto: "Tap · Hold · Groove",
+      tips: [
+        "Hit each note as it crosses the glowing line.",
+        "Hold notes with tails until the tail has passed.",
+        "Every 10 notes in a row raise your multiplier, up to ×4.",
+        "Fill the fever bar to double every point.",
+        "Score 70% to unlock the next track.",
+        "Hits feel late? Use Calibrate on the menu.",
+      ],
+      top: "#ffffff 20%, #f5d0fe 60%, #e879f9 100%",
+      main: "#ffffff 10%, #a5f3fc 50%, #22d3ee 100%",
+      outline: "#e879f9",
+      stroke: 0,
+      depth: "drop-shadow(0 0 .12em #e879f9) drop-shadow(0 0 .5em #e879f9) drop-shadow(0 0 1.2em #a21caf)",
+      charW: 1,
+      medal: { bg: "radial-gradient(circle, #1e0b2b, #07010c 75%)", icon: "#67e8f9", ring: "#e879f9", glow: "#e879f9" },
+      ribbon: { bg: "linear-gradient(180deg, #22d3ee33, #22d3ee12)", text: "#a5f3fc", edge: "#22d3ee", shadow: "0 0 .5em #22d3ee", depth: "drop-shadow(0 0 .35em #22d3ee)" },
+      glow: "#e879f9",
+      rays: 0.25,
+      spark: "#67e8f9",
+      sky: ["#4a044e", "#701a75"],
+    },
   },
   "putt-paradise": {
     shade: "#042f2e",
     lines: ["Mowing the greens…", "Raking the bunkers…", "Placing the flags…", "Teeing up…"],
     Bar: PuttBar,
+    title: {
+      emblem: FlagTriangleRight,
+      motto: "Nine dreamy holes",
+      tips: [
+        "Sink the ball in as few strokes as you can.",
+        "Drag back like a slingshot, then let go to putt.",
+        "Bank shots off the walls to get round corners.",
+        "Ramps and the loop need speed.",
+        "Into the lagoon costs a stroke.",
+        "Each hole shows its par. Beat it!",
+      ],
+      top: "#ffffff 40%, #f0fdfa 90%",
+      main: "#ffffff 25%, #ccfbf1 60%, #5eead4 100%",
+      outline: "#134e4a",
+      stroke: 0.03,
+      depth: "drop-shadow(0 .06em 0 #134e4a) drop-shadow(0 .4em .7em #042f2ecc)",
+      charW: 0.55,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #ffffff, #f0fdfa 50%, #99f6e4)", icon: "#0f766e", ring: "#ffffff" },
+      ribbon: { bg: "linear-gradient(180deg, #2dd4bf, #14b8a6 60%, #0f766e)", text: "#ffffff", edge: "#115e59", depth: "drop-shadow(0 .3em .5em #042f2e99)" },
+      glow: "#ccfbf1",
+      rays: 0.35,
+      spark: "#ffffff",
+      clouds: true,
+      sky: ["#0f766e", "#14b8a6"],
+    },
   },
   "kingdom-clash": {
     shade: "#0b1d4a",
     lines: ["Raising the walls…", "Filling the gold mines…", "Training the troops…", "Waking the Axe King…", "Polishing the Town Hall…"],
     Bar: ClashBar,
+    ownPct: true,
+    title: {
+      emblem: Crown,
+      motto: "Build · Train · Raid",
+      tips: [
+        "Collect from Gold Mines and Elixir Collectors when their bubbles pop up.",
+        "Upgrade your Town Hall to unlock new buildings and higher levels.",
+        "Storages raise how much gold and elixir you can hold.",
+        "Build walls in straight lines with the Row button.",
+        "The Hidden Tesla stays underground until raiders come close.",
+        "Wall Breakers carry lit bombs that blow walls open.",
+        "Pick a hero's card again in battle for War Cry or Vanish.",
+        "Heroes sleep at their altar to heal between battles.",
+        "50% destroyed is one star, the Town Hall another, everything three.",
+        "Online rivals are full of loot. Hit Next to find a richer one.",
+        "Lightning, heal, rage, freeze and jump spells can turn a battle.",
+        "Rearrange your whole village in the layout editor.",
+      ],
+      top: "#ffffff 22%, #dbeafe 55%, #93c5fd 92%",
+      main: "#fffbeb 6%, #fde68a 32%, #fbbf24 55%, #f59e0b 76%, #c2410c 100%",
+      outline: "#1f2937",
+      stroke: 0.13,
+      tilt: -3,
+      charW: 0.52,
+      medal: { bg: GOLD, icon: "#78350f", ring: "#1f2937" },
+      ribbon: { bg: "linear-gradient(180deg, #60a5fa, #2563eb 55%, #1d4ed8)", text: "#ffffff", edge: "#1e3a8a" },
+      glow: "#fde68a",
+      rays: 0.5,
+      spark: "#fbbf24",
+      clouds: true,
+      sky: ["#1e3a8a", "#2563eb"],
+    },
   },
   castaway: {
     shade: "#0b2531",
     lines: ["Gathering driftwood…", "Lighting the campfire…", "Charting the island…", "Washing ashore…"],
     Bar: CastawayBar,
+    title: {
+      emblem: TreePalm,
+      motto: "Gather · Craft · Survive",
+      top: "#fff7ed 40%, #fed7aa 95%",
+      main: "#fff7ed 10%, #fdba74 50%, #ea580c 100%",
+      outline: "#2b2118",
+      stroke: 0.1,
+      depth: "drop-shadow(.08em .14em 0 #2b2118) drop-shadow(0 .6em .7em #0008)",
+      tilt: -3,
+      charW: 0.45,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #fff7ed, #fdba74 55%, #c2410c)", icon: "#2b2118", ring: "#2b2118" },
+      ribbon: { bg: "linear-gradient(180deg, #f7f1e1, #e7dcc4)", text: "#2b2118", edge: "#c2410c", shadow: "none", depth: "drop-shadow(.1em .14em 0 #2b2118)" },
+      glow: "#fdba74",
+      rays: 0.3,
+      spark: "#fde68a",
+      clouds: true,
+      sky: ["#0e7490", "#0891b2"],
+    },
   },
   "nova-strike": {
     shade: "#020617",
     lines: ["Charging the lasers…", "Warming up the cabinet…", "Loading stage one…", "Player one, get ready…"],
     Bar: NovaBar,
     Fx: CrtFx,
+    title: {
+      emblem: Rocket,
+      motto: "Insert coin",
+      top: "#ecfeff 30%, #a5f3fc 90%",
+      main: "#fdf2f8 10%, #f472b6 55%, #db2777 100%",
+      outline: "#020617",
+      stroke: 0.08,
+      depth: "drop-shadow(.12em .12em 0 #db2777) drop-shadow(0 0 .6em #22d3ee88)",
+      charW: 1,
+      medal: { bg: "radial-gradient(circle, #0f172a, #020617 75%)", icon: "#22d3ee", ring: "#22d3ee", glow: "#22d3ee" },
+      ribbon: { bg: "linear-gradient(180deg, #0f172a, #020617)", text: "#22d3ee", edge: "#22d3ee", shadow: "0 0 .4em #22d3ee", depth: "drop-shadow(.12em .12em 0 #db2777)" },
+      glow: "#22d3ee",
+      rays: 0.2,
+      spark: "#f472b6",
+      sky: ["#0f172a", "#1e1b4b"],
+    },
   },
   "night-heist": {
     shade: "#0b1220",
     lines: ["Cutting the cameras…", "Studying the blueprints…", "Timing the guards…", "Cracking the safe…"],
     Bar: HeistBar,
     Fx: SearchlightFx,
+    title: {
+      emblem: KeyRound,
+      motto: "Sneak · Crack · Escape",
+      top: "#f5f0e1 40%, #d6d3c4 95%",
+      main: "#fecaca 5%, #f87171 50%, #b91c1c 100%",
+      outline: "#0b0f19",
+      stroke: 0.05,
+      depth: "drop-shadow(0 .1em 0 #000) drop-shadow(0 0 .7em #f8717166)",
+      charW: 0.7,
+      medal: { bg: "radial-gradient(circle, #1e293b, #0b0f19 75%)", icon: "#f87171", ring: "#f87171", glow: "#f87171" },
+      ribbon: { bg: "linear-gradient(180deg, #1e293b, #0f172a)", text: "#f5f0e1", edge: "#f87171", shadow: "0 .1em 0 #000", depth: "drop-shadow(0 .3em .5em #000b)" },
+      glow: "#fef3c7",
+      rays: 0,
+      spark: "#fef3c7",
+      sky: ["#0f172a", "#1e293b"],
+    },
   },
   "sky-courier": {
     shade: "#0b1d33",
     lines: ["Filing the flight plan…", "Loading the parcels…", "Checking the weather…", "Cleared for take-off…"],
     Bar: CourierBar,
+    title: {
+      emblem: Plane,
+      motto: "Fly · Deliver · Land",
+      top: "#f8f1e3 40%, #e7dcc4 95%",
+      main: "#fdf6d8 5%, #e8c766 45%, #d4af37 70%, #8a6d1c 100%",
+      outline: "#0b1d33",
+      stroke: 0.06,
+      depth: "drop-shadow(0 .12em 0 #0b1d33) drop-shadow(0 .5em .7em #000a)",
+      charW: 0.75,
+      medal: { bg: "radial-gradient(circle at 35% 28%, #fdf6d8, #d4af37 55%, #8a6d1c)", icon: "#0b1d33", ring: "#0b1d33" },
+      ribbon: { bg: "linear-gradient(180deg, #13294b, #0b1d33)", text: "#d4af37", edge: "#d4af37", shadow: "0 .1em 0 #000", depth: "drop-shadow(0 .3em .5em #000a)" },
+      glow: "#d4af37",
+      rays: 0.3,
+      spark: "#f8f1e3",
+      clouds: true,
+      sky: ["#13294b", "#1e3a5f"],
+    },
   },
 };
 

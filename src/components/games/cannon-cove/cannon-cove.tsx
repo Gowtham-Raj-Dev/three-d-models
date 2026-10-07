@@ -7,6 +7,7 @@ import {
   Coins,
   Crosshair,
   Flag,
+  Gamepad2,
   Gauge,
   Hammer,
   Home,
@@ -25,11 +26,13 @@ import {
   Wrench,
 } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { box, ControlLayer, ControlsButton, ControlsEditor, createControls, type Placed } from "../shared/touch-layout";
 import {
   BigButton,
   createRecords,
   createStore,
   formatNumber,
+  FullscreenButton,
   GameRoot,
   GameTitle,
   HowToPlay,
@@ -37,6 +40,7 @@ import {
   Kbd,
   LoadingScreen,
   Modal,
+  RotateButton,
   SoftButton,
   Stat,
   SystemButtons,
@@ -69,6 +73,7 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
   const [offer, setOffer] = useState<Offer | null>(null);
   const [result, setResult] = useState<(VoyageResult & { newBest: boolean }) | null>(null);
   const [help, setHelp] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [touch, setTouch] = useState(false);
   const [runKey, setRunKey] = useState(0);
   const saved = useRecords(records);
@@ -143,6 +148,10 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
       setHelp(false);
       return;
     }
+    if (editing) {
+      setEditing(false);
+      return;
+    }
     if (phase === "playing") game?.pause();
     else if (phase === "paused") game?.resume();
   };
@@ -158,7 +167,7 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
       const game = gameRef.current;
-      if (!game || e.ctrlKey || e.metaKey || e.altKey || help) return;
+      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || editing) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -232,9 +241,11 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Cannon Cove game" />
       <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 block h-full w-full" aria-hidden />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && <MenuScreen best={saved.bestWave} bestGold={saved.bestGold} touch={touch} onPlay={start} onHelp={() => setHelp(true)} />}
+      {phase === "menu" && !editing && <MenuScreen best={saved.bestWave} bestGold={saved.bestGold} touch={touch} onPlay={start} onHelp={() => setHelp(true)} onControls={() => setEditing(true)} />}
+      {/* Controls editor from the title screen: the HUD shows behind it so controls keep clear of it. */}
+      {phase === "menu" && editing && <HudOverlay store={hud} paused={false} touch={touch} onPause={() => {}} onMinimap={onMinimap} />}
 
       {running && <HudOverlay store={hud} paused={phase === "paused"} touch={touch} onPause={pauseOrResume} onMinimap={onMinimap} />}
       {phase === "playing" && touch && <TouchControls game={gameRef} store={hud} />}
@@ -242,7 +253,7 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
 
       {phase === "upgrade" && offer && !help && <UpgradeModal offer={offer} onPick={(i) => gameRef.current?.choose(i)} onRepair={() => gameRef.current?.repair()} />}
 
-      {phase === "paused" && !help && (
+      {phase === "paused" && !help && !editing && (
         <Modal title="Anchors dropped">
           <BigButton onClick={pauseOrResume} icon={<Play className="size-5 fill-current" />}>
             Resume
@@ -258,11 +269,17 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
               Menu
             </SoftButton>
           </div>
+          {touch && (
+            <SoftButton onClick={() => setEditing(true)} icon={<Gamepad2 className="size-4" />}>
+              Edit controls
+            </SoftButton>
+          )}
           <div className="flex justify-center">
             <SystemButtons />
           </div>
         </Modal>
       )}
+      {(phase === "paused" || phase === "menu") && editing && <ControlsEditor controls={touchControls} face={(id, p) => <TouchFace id={id} at={p} hud={hud.get()} />} onClose={() => setEditing(false)} />}
 
       {phase === "over" && result && !help && (
         <Modal title="Sent to the depths!">
@@ -300,11 +317,13 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
 
 // --- Menu ----------------------------------------------------------------------------------------
 
-function MenuScreen({ best, bestGold, touch, onPlay, onHelp }: { best: number; bestGold: number; touch: boolean; onPlay: () => void; onHelp: () => void }) {
+function MenuScreen({ best, bestGold, touch, onPlay, onHelp, onControls }: { best: number; bestGold: number; touch: boolean; onPlay: () => void; onHelp: () => void; onControls: () => void }) {
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
       <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <SystemButtons onHelp={onHelp} />
+        <SystemButtons onHelp={onHelp}>
+          <ControlsButton onClick={onControls} />
+        </SystemButtons>
       </div>
       <div className="px-4 pt-2 text-center sm:pt-4">
         <GameTitle game={GAME} />
@@ -343,8 +362,8 @@ function ControlsHint({ touch }: { touch: boolean }) {
     <div
       className={`pointer-events-none absolute inset-x-0 flex animate-[cove-hint_9s_ease_forwards] justify-center px-4 ${touch ? "top-[38%]" : "bottom-[max(calc(env(safe-area-inset-bottom)+96px),112px)]"}`}
     >
-      <div className="g-panel max-w-md px-5 py-3 text-center text-sm font-semibold">
-        <p className="g-panel-title mb-1.5 text-2xl">Hoist the colours, captain!</p>
+      <div className={`g-panel text-center font-semibold ${touch ? "max-w-xs px-3 py-2 text-xs" : "max-w-md px-5 py-3 text-sm"}`}>
+        <p className={`g-panel-title ${touch ? "mb-1 text-lg" : "mb-1.5 text-2xl"}`}>Hoist the colours, captain!</p>
         {touch ? (
           <p>Stick ← → steers · push ↑ ↓ for more or less sail · the buttons fire each side</p>
         ) : (
@@ -363,7 +382,7 @@ function ControlsHint({ touch }: { touch: boolean }) {
             </span>
           </p>
         )}
-        <p className="g-muted mt-1.5 text-xs">Your cannons point sideways: turn side-on to a ship, then fire.</p>
+        <p className={`g-muted mt-1.5 ${touch ? "text-[10px]" : "text-xs"}`}>Your cannons point sideways: turn side-on to a ship, then fire.</p>
       </div>
     </div>
   );
@@ -389,19 +408,19 @@ function HudOverlay({
   const hullColor = hullFrac > 0.6 ? "bg-emerald-600" : hullFrac > 0.3 ? "bg-amber-500" : "bg-red-600";
   return (
     <div className="pointer-events-none absolute inset-0">
-      {/* Top-left: hull, gold, wave. */}
-      <div className="absolute top-0 left-0 w-[min(60vw,320px)] space-y-1.5 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <div className="g-hud px-3 py-1.5">
+      {/* Top-left: hull, gold, wave. `data-avoid`: touch controls keep clear (shared/touch-layout.tsx). */}
+      <div data-avoid className={`absolute top-0 left-0 space-y-1.5 p-3 pt-[max(env(safe-area-inset-top),12px)] ${touch ? "w-[min(48vw,210px)]" : "w-[min(60vw,320px)] sm:p-5"}`}>
+        <div className={`g-hud ${touch ? "px-2 py-1" : "px-3 py-1.5"}`}>
           <div className="flex items-center justify-between gap-2">
-            <span className="g-display inline-flex items-center gap-1.5 text-base sm:text-lg">
-              <Ship className="size-4" /> {hud.ship}
+            <span className={`g-display inline-flex items-center gap-1.5 ${touch ? "text-xs" : "text-base sm:text-lg"}`}>
+              <Ship className={touch ? "size-3.5" : "size-4"} /> {hud.ship}
             </span>
-            <span className="g-display text-base tabular-nums sm:text-lg">
+            <span className={`g-display tabular-nums ${touch ? "text-xs" : "text-base sm:text-lg"}`}>
               {hud.hull}
-              <span className="g-muted text-sm"> / {hud.maxHull}</span>
+              <span className={`g-muted ${touch ? "text-[10px]" : "text-sm"}`}> / {hud.maxHull}</span>
             </span>
           </div>
-          <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,currentColor_16%,transparent)] ring-1 ring-[color-mix(in_srgb,currentColor_30%,transparent)]">
+          <div className={`mt-1 overflow-hidden rounded-full bg-[color-mix(in_srgb,currentColor_16%,transparent)] ring-1 ring-[color-mix(in_srgb,currentColor_30%,transparent)] ${touch ? "h-1.5" : "h-2.5"}`}>
             <div
               className={`h-full rounded-full transition-[width] duration-200 ${hullColor} ${hullFrac < 0.3 ? "animate-[cove-pulse_0.8s_ease_infinite]" : ""}`}
               style={{ width: `${hullFrac * 100}%` }}
@@ -419,25 +438,27 @@ function HudOverlay({
       </div>
 
       {/* Top-right: pause and system buttons (desktop), minimap. */}
-      <div className="absolute top-0 right-0 flex flex-col items-end gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
+      <div data-avoid className="absolute top-0 right-0 flex flex-col items-end gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <div className="pointer-events-auto flex items-center gap-2">
           <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
             {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
           </IconButton>
+          <FullscreenButton className="sm:hidden" />
+          <RotateButton className="sm:hidden" />
           <div className="hidden sm:block">
             <SystemButtons />
           </div>
         </div>
         <div className="g-hud rounded-full! p-1">
-          <canvas ref={onMinimap} className={`block rounded-full ${touch ? "size-24" : "size-28 sm:size-36"}`} aria-label="Minimap" />
+          <canvas ref={onMinimap} className={`block rounded-full ${touch ? "size-20" : "size-28 sm:size-36"}`} aria-label="Minimap" />
         </div>
       </div>
 
       {/* Banner and boss bar. */}
       <div className="absolute inset-x-0 top-[max(env(safe-area-inset-top),12px)] flex flex-col items-center gap-2 px-3 pt-36 sm:pt-4">
         {hud.boss && (
-          <div className="g-hud w-[min(86vw,420px)] px-4 py-1.5">
-            <p className="g-display text-center text-lg leading-tight text-emerald-900">{hud.boss.name}</p>
+          <div className="g-hud w-[min(86vw,420px)] px-4 py-1.5 pointer-coarse:w-[min(70vw,280px)] pointer-coarse:px-3 pointer-coarse:py-1">
+            <p className="g-display text-center text-lg leading-tight text-emerald-900 pointer-coarse:text-xs">{hud.boss.name}</p>
             <div className="mt-1 h-3 overflow-hidden rounded-full bg-[color-mix(in_srgb,currentColor_16%,transparent)] ring-1 ring-emerald-900/40">
               <div className="h-full rounded-full bg-gradient-to-r from-emerald-700 to-teal-500 transition-[width] duration-200" style={{ width: `${(hud.boss.hp / hud.boss.max) * 100}%` }} />
             </div>
@@ -448,7 +469,7 @@ function HudOverlay({
 
       {hud.warn && (
         <div className="absolute inset-x-0 top-[46%] flex justify-center px-4">
-          <p className="g-hud g-display animate-[cove-pulse_1s_ease_infinite] px-4 py-1.5 text-lg text-red-800">{hud.warn}</p>
+          <p className="g-hud g-display animate-[cove-pulse_1s_ease_infinite] px-4 py-1.5 text-lg text-red-800 pointer-coarse:px-3 pointer-coarse:py-1 pointer-coarse:text-sm">{hud.warn}</p>
         </div>
       )}
 
@@ -461,7 +482,7 @@ function HudOverlay({
         </div>
       )}
       {touch && (
-        <div className="absolute inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),16px)+138px)] flex justify-center">
+        <div className="absolute inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),16px)+108px)] flex justify-center">
           <HelmPanel hud={hud} compact />
         </div>
       )}
@@ -471,7 +492,7 @@ function HudOverlay({
 
 function HudChip({ icon, children, wide = false }: { icon: ReactNode; children: ReactNode; wide?: boolean }) {
   return (
-    <span className={`g-hud g-display items-center gap-1.5 px-2.5 py-0.5 text-base tabular-nums ${wide ? "hidden sm:inline-flex" : "inline-flex"}`}>
+    <span className={`g-hud g-display items-center gap-1.5 px-2.5 py-0.5 text-base tabular-nums pointer-coarse:gap-1 pointer-coarse:px-1.5 pointer-coarse:py-0 pointer-coarse:text-[11px] [&>svg]:pointer-coarse:size-3 ${wide ? "hidden sm:inline-flex" : "inline-flex"}`}>
       {icon}
       {children}
     </span>
@@ -486,9 +507,9 @@ function BannerView({ banner }: { banner: NonNullable<Hud["banner"]> }) {
     bad: "text-red-800",
   }[banner.tone];
   return (
-    <div className="g-panel animate-[cove-banner_0.35s_ease] px-6 py-2 text-center">
-      <p className={`g-panel-title text-3xl sm:text-5xl ${tone}`}>{banner.title}</p>
-      <p className="g-muted mt-0.5 text-sm font-semibold sm:text-base">{banner.sub}</p>
+    <div className="g-panel animate-[cove-banner_0.35s_ease] px-6 py-2 text-center pointer-coarse:px-3 pointer-coarse:py-1">
+      <p className={`g-panel-title text-3xl sm:text-5xl pointer-coarse:text-xl ${tone}`}>{banner.title}</p>
+      <p className="g-muted mt-0.5 text-sm font-semibold sm:text-base pointer-coarse:text-[10px]">{banner.sub}</p>
     </div>
   );
 }
@@ -517,14 +538,14 @@ function ReloadGauge({ label, keyName, value, guns }: { label: string; keyName: 
 function HelmPanel({ hud, compact = false }: { hud: Hud; compact?: boolean }) {
   const effColor = hud.trimEff > 0.85 ? "text-emerald-800" : hud.trimEff > 0.5 ? "text-amber-800" : "text-red-800";
   return (
-    <div className={`g-hud flex items-center gap-3 ${compact ? "px-2.5 py-1" : "px-3.5 py-1.5"}`}>
+    <div data-avoid={compact || undefined} className={`g-hud flex items-center ${compact ? "gap-2 px-2 py-0.5" : "gap-3 px-3.5 py-1.5"}`}>
       <div
-        className="relative grid size-12 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,currentColor_10%,transparent)] ring-2 ring-[color-mix(in_srgb,currentColor_45%,transparent)]"
+        className={`relative grid shrink-0 ${compact ? "size-8" : "size-12"} place-items-center rounded-full bg-[color-mix(in_srgb,currentColor_10%,transparent)] ring-2 ring-[color-mix(in_srgb,currentColor_45%,transparent)]`}
         title={`Wind: ${hud.windStrength < 0.92 ? "light breeze" : hud.windStrength < 1.06 ? "steady breeze" : "strong wind"}`}
       >
         <svg
           viewBox="0 0 40 40"
-          className="size-10 transition-transform duration-150 ease-linear"
+          className={`${compact ? "size-7" : "size-10"} transition-transform duration-150 ease-linear`}
           style={{ transform: `rotate(${hud.wind}deg) scale(${0.7 + hud.windStrength * 0.28})` }}
           aria-hidden
         >
@@ -532,14 +553,14 @@ function HelmPanel({ hud, compact = false }: { hud: Hud; compact?: boolean }) {
         </svg>
       </div>
       <div className="min-w-0">
-        <p className={`g-display text-base leading-tight whitespace-nowrap ${effColor}`}>
+        <p className={`g-display leading-tight whitespace-nowrap ${compact ? "text-xs" : "text-base"} ${effColor}`}>
           <Wind className="mr-1 inline size-3.5" />
           {hud.trim}
         </p>
         <div className="mt-0.5 flex items-center gap-1.5">
-          <span className="g-muted text-xs font-bold">Sails</span>
+          <span className={`g-muted font-bold ${compact ? "text-[10px]" : "text-xs"}`}>Sails</span>
           {[1, 2, 3].map((n) => (
-            <span key={n} className={`h-3.5 w-2.5 rounded-[2px] ring-1 ring-[color-mix(in_srgb,currentColor_45%,transparent)] ${hud.sail >= n ? "bg-current" : "bg-transparent"}`} />
+            <span key={n} className={`${compact ? "h-2.5 w-2" : "h-3.5 w-2.5"} rounded-[2px] ring-1 ring-[color-mix(in_srgb,currentColor_45%,transparent)] ${hud.sail >= n ? "bg-current" : "bg-transparent"}`} />
           ))}
           {!compact && (
             <span className="g-display ml-2 inline-flex items-center gap-1 text-base tabular-nums">
@@ -556,19 +577,60 @@ function HelmPanel({ hud, compact = false }: { hud: Hud; compact?: boolean }) {
 
 type GameRef = { readonly current: CannonCoveGame | null };
 
+/** Steering stick and the two broadside buttons, movable from Pause → Edit controls (shared/touch-layout.tsx). Order = placement priority. */
+const touchControls = createControls("cannon-cove:controls:v1", {
+  stick: { label: "Steering stick", w: 96, x: 64, y: -64, round: true },
+  fireR: { label: "Fire right", w: 56, x: -44, y: -44, round: true },
+  fireL: { label: "Fire left", w: 56, x: -112, y: -44, round: true },
+});
+
+type TouchId = keyof typeof touchControls.defs;
+
 function TouchControls({ game, store }: { game: GameRef; store: Store<Hud> }) {
+  const hud = useStore(store);
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between px-4 pb-[max(env(safe-area-inset-bottom),16px)]">
-      <Joystick game={game} />
-      <FireButtons game={game} store={store} />
-    </div>
+    <ControlLayer controls={touchControls}>
+      {(placed) => (
+        <>
+          <Joystick game={game} at={placed.stick} />
+          <FireButton side={1} value={hud.reloadL} game={game} at={placed.fireL} />
+          <FireButton side={-1} value={hud.reloadR} game={game} at={placed.fireR} />
+        </>
+      )}
+    </ControlLayer>
   );
 }
 
-function Joystick({ game }: { game: GameRef }) {
+/** A control as the controls editor shows it. */
+function TouchFace({ id, at, hud }: { id: TouchId; at: Placed; hud: Hud }) {
+  if (id === "stick")
+    return (
+      <div className="g-hud relative grid size-full place-items-center rounded-full!">
+        <StickFace size={at.w} knob={{ x: 0, y: 0 }} />
+      </div>
+    );
+  const side = id === "fireL" ? 1 : -1;
+  return <FireFace side={side} size={at.w} value={side === 1 ? hud.reloadL : hud.reloadR} />;
+}
+
+function StickFace({ size, knob }: { size: number; knob: { x: number; y: number } }) {
+  const k = Math.round(size * 0.42);
+  return (
+    <>
+      <span className="g-display absolute top-1 text-[10px] leading-none">▲ sail</span>
+      <span className="g-display absolute bottom-1 text-[10px] leading-none">▼ sail</span>
+      <span className="absolute left-2 text-sm opacity-70">◀</span>
+      <span className="absolute right-2 text-sm opacity-70">▶</span>
+      <span className="g-btn rounded-full!" style={{ width: k, height: k, transform: `translate(${knob.x}px, ${knob.y}px)` }} />
+    </>
+  );
+}
+
+function Joystick({ game, at }: { game: GameRef; at: Placed }) {
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const state = useRef<{ id: number; cx: number; cy: number; latch: 0 | 1 | -1 } | null>(null);
-  const R = 46;
+  // How far the knob travels.
+  const R = at.w / 2 - 14;
 
   const move = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = state.current;
@@ -603,7 +665,8 @@ function Joystick({ game }: { game: GameRef }) {
 
   return (
     <div
-      className="g-hud pointer-events-auto relative grid size-32 touch-none place-items-center rounded-full!"
+      style={box(at)}
+      className="g-hud pointer-events-auto absolute grid touch-none place-items-center rounded-full!"
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
         const r = e.currentTarget.getBoundingClientRect();
@@ -616,33 +679,35 @@ function Joystick({ game }: { game: GameRef }) {
       aria-label="Steering stick: left and right to steer, up and down to set sails"
       role="application"
     >
-      <span className="g-display absolute top-1 text-xs leading-none">▲ sail</span>
-      <span className="g-display absolute bottom-1 text-xs leading-none">▼ sail</span>
-      <span className="absolute left-2 text-sm opacity-70">◀</span>
-      <span className="absolute right-2 text-sm opacity-70">▶</span>
-      <span className="g-btn size-14 rounded-full!" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
+      <StickFace size={at.w} knob={knob} />
     </div>
   );
 }
 
-function FireButtons({ game, store }: { game: GameRef; store: Store<Hud> }) {
-  const hud = useStore(store);
-  return (
-    <div className="pointer-events-auto flex items-end gap-3">
-      <FireButton label="Fire left" side={1} value={hud.reloadL} game={game} />
-      <FireButton label="Fire right" side={-1} value={hud.reloadR} game={game} />
-    </div>
-  );
-}
-
-function FireButton({ label, side, value, game }: { label: string; side: 1 | -1; value: number; game: GameRef }) {
+/** A fire button: the ring fills as the guns on that side reload. */
+function FireFace({ side, size, value }: { side: 1 | -1; size: number; value: number }) {
   const ready = value >= 1;
   const deg = Math.min(1, Math.max(0, value)) * 360;
   return (
+    <span className="grid size-full place-items-center rounded-full p-[3px]" style={{ background: `conic-gradient(var(--accent) ${deg}deg, rgb(59 36 18 / 0.55) ${deg}deg)` }}>
+      <span className={`g-btn grid size-full place-items-center rounded-full! ${ready ? "" : "opacity-70 grayscale"}`}>
+        <span className="flex flex-col items-center leading-none">
+          <Crosshair size={Math.round(size * 0.29)} />
+          <span className="mt-0.5" style={{ fontSize: Math.max(8, Math.round(size * 0.16)) }}>
+            {side === 1 ? "◀ Left" : "Right ▶"}
+          </span>
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function FireButton({ side, value, game, at }: { side: 1 | -1; value: number; game: GameRef; at: Placed }) {
+  return (
     <button
       type="button"
-      className="relative grid size-[78px] touch-none place-items-center rounded-full p-[5px] select-none"
-      style={{ background: `conic-gradient(var(--accent) ${deg}deg, rgb(59 36 18 / 0.55) ${deg}deg)` }}
+      style={box(at)}
+      className="pointer-events-auto absolute touch-none rounded-full select-none"
       onPointerDown={(e) => {
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -651,14 +716,9 @@ function FireButton({ label, side, value, game }: { label: string; side: 1 | -1;
       onPointerUp={() => game.current?.setFire(side, false)}
       onPointerCancel={() => game.current?.setFire(side, false)}
       onContextMenu={(e) => e.preventDefault()}
-      aria-label={label}
+      aria-label={side === 1 ? "Fire left" : "Fire right"}
     >
-      <span className={`g-btn grid size-full place-items-center rounded-full! ${ready ? "" : "opacity-70 grayscale"}`}>
-        <span className="flex flex-col items-center leading-none">
-          <Crosshair className="size-6" />
-          <span className="mt-1 text-xs">{side === 1 ? "◀ Left" : "Right ▶"}</span>
-        </span>
-      </span>
+      <FireFace side={side} size={at.w} value={value} />
     </button>
   );
 }

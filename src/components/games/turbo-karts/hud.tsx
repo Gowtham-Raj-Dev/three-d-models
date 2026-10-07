@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Banana, ChevronLeft, ChevronRight, ChevronsUp, Coins, Pause, Play, Shield, Zap } from "lucide-react";
-import { IconButton, SystemButtons, useStore, type Store } from "../shared/ui";
+import { box, ControlLayer, createControls, type Placed } from "../shared/touch-layout";
+import { FullscreenButton, IconButton, RotateButton, SystemButtons, useStore, type Store } from "../shared/ui";
 import type { ItemKind } from "./kart";
 import { DRIVERS } from "./manifest";
 import { ordinal, type Hud, type TurboKartsGame } from "./engine";
@@ -70,25 +71,25 @@ export function HudOverlay({
 
   return (
     <div className="pointer-events-none absolute inset-0 select-none">
-      {/* Top-left: place, lap, time */}
-      <div className="absolute top-[max(env(safe-area-inset-top),10px)] left-3 flex items-start gap-2 sm:top-4 sm:left-5">
+      {/* Top-left: place, lap, time. `data-avoid`: touch controls keep clear (shared/touch-layout.tsx). */}
+      <div data-avoid className="absolute top-[max(env(safe-area-inset-top),10px)] left-3 flex items-start gap-2 sm:top-4 sm:left-5">
         {!timeTrial && (
           <div className="g-hud flex items-end gap-0.5 px-3 pt-0.5 pb-1 italic sm:px-4">
-            <span className={`g-display text-5xl leading-none tabular-nums sm:text-7xl ${hud.place === 1 ? "text-[var(--accent)]" : ""}`}>{hud.place}</span>
-            <span className="g-display mb-1 text-xl leading-none sm:mb-2 sm:text-3xl">{suffix}</span>
-            <span className="mb-1 ml-1 text-xs font-bold opacity-60 sm:mb-2 sm:text-sm">/{hud.racers}</span>
+            <span className={`g-display text-5xl leading-none tabular-nums sm:text-7xl pointer-coarse:text-4xl ${hud.place === 1 ? "text-[var(--accent)]" : ""}`}>{hud.place}</span>
+            <span className="g-display mb-1 text-xl leading-none sm:mb-2 sm:text-3xl pointer-coarse:mb-1 pointer-coarse:text-lg">{suffix}</span>
+            <span className="mb-1 ml-1 text-xs font-bold opacity-60 sm:mb-2 sm:text-sm pointer-coarse:mb-1 pointer-coarse:text-xs">/{hud.racers}</span>
           </div>
         )}
         <div className="space-y-1.5">
           <div className={`g-hud px-3 py-1 italic ${final ? "border-[var(--accent)] bg-[var(--accent)] text-black" : ""}`}>
             <span className="text-[10px] font-bold tracking-[0.2em] uppercase opacity-70">Lap </span>
-            <span className="g-display text-xl tabular-nums sm:text-2xl">
+            <span className="g-display text-xl tabular-nums sm:text-2xl pointer-coarse:text-lg">
               {hud.lap}
               <span className="text-sm opacity-70">/{hud.laps}</span>
             </span>
           </div>
           <div className="g-hud px-3 py-1 tabular-nums">
-            <p className="g-display text-base leading-tight sm:text-lg">{formatTime(hud.time)}</p>
+            <p className="g-display text-base leading-tight sm:text-lg pointer-coarse:text-sm">{formatTime(hud.time)}</p>
             <p className="text-[10px] font-semibold opacity-70 sm:text-[11px]">
               Lap {formatTime(hud.lapTime)}
               {hud.bestLap !== null && <span className="hidden sm:inline"> · best {formatTime(hud.bestLap)}</span>}
@@ -115,9 +116,9 @@ export function HudOverlay({
       )}
 
       {/* Top-right: item slot, coins, buttons */}
-      <div className="absolute top-[max(env(safe-area-inset-top),10px)] right-3 flex items-start gap-2 sm:top-4 sm:right-5">
+      <div data-avoid className="absolute top-[max(env(safe-area-inset-top),10px)] right-3 flex items-start gap-2 sm:top-4 sm:right-5">
         <div className="flex flex-col items-end gap-1.5">
-          <div className="g-hud relative size-16 overflow-hidden p-1 sm:size-20" aria-label="Item">
+          <div className="g-hud relative size-16 overflow-hidden p-1 sm:size-20 pointer-coarse:size-12" aria-label="Item">
             {hud.rolling ? <Roulette /> : hud.item ? <ItemIcon kind={hud.item} /> : <span className="grid size-full place-items-center text-2xl font-black opacity-25">?</span>}
             {hud.item && hud.itemCount > 1 && <span className="g-display absolute right-1 bottom-0 text-lg text-white [text-shadow:1px_1px_0_#000]">×{hud.itemCount}</span>}
           </div>
@@ -136,6 +137,8 @@ export function HudOverlay({
           <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
             {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
           </IconButton>
+          <FullscreenButton className="sm:hidden" />
+          <RotateButton className="sm:hidden" />
           <div className="hidden sm:block">
             <SystemButtons vertical />
           </div>
@@ -144,17 +147,20 @@ export function HudOverlay({
 
       {/* Minimap */}
       <div
+        data-avoid
         className={`g-hud absolute overflow-hidden p-1 ${
-          touch ? "top-[calc(max(env(safe-area-inset-top),10px)+118px)] left-3 size-28 sm:size-36" : "bottom-5 left-5 size-40 lg:size-48"
+          touch ? "top-[calc(max(env(safe-area-inset-top),10px)+100px)] left-3 size-24" : "bottom-5 left-5 size-40 lg:size-48"
         }`}
       >
         <canvas ref={minimap} className="block size-full" aria-label="Track map" />
       </div>
 
-      {/* Speedometer */}
-      <div className={`absolute flex items-end gap-2 ${touch ? "top-[calc(max(env(safe-area-inset-top),10px)+118px)] right-3 hidden sm:flex" : "right-5 bottom-5"}`}>
-        <Speedo speed={hud.speed} boost={hud.boost} drift={hud.drift} />
-      </div>
+      {/* Speedometer (not on touch screens: phones have no room beside the corner buttons and touch controls) */}
+      {!touch && (
+        <div className="absolute right-5 bottom-5 flex items-end gap-2">
+          <Speedo speed={hud.speed} boost={hud.boost} drift={hud.drift} />
+        </div>
+      )}
 
       {/* Countdown */}
       {hud.countdown !== null && <Countdown n={hud.countdown} />}
@@ -241,17 +247,51 @@ function Countdown({ n }: { n: number }) {
 
 // --- Touch controls ---------------------------------------------------------------------------------
 
-function HoldButton({
-  label,
-  onChange,
-  className = "",
-  children,
-}: {
-  label: string;
-  onChange: (down: boolean) => void;
-  className?: string;
-  children: ReactNode;
-}) {
+/** On-screen controls, movable from Pause → Edit controls (shared/touch-layout.tsx). Order = placement priority. */
+export const touchControls = createControls("turbo-karts:controls:v1", {
+  steer: { label: "Steering", w: 120, h: 56, x: 72, y: -42 },
+  drift: { label: "Drift", w: 60, x: -42, y: -44 },
+  brake: { label: "Brake", w: 48, x: -108, y: -38 },
+  item: { label: "Item", w: 48, x: -42, y: -112 },
+  gas: { label: "Gas", w: 48, x: -108, y: -104 },
+});
+
+type TouchId = keyof typeof touchControls.defs;
+
+/** The controls on screen: no gas button while auto-accelerate is on. */
+export const touchIds = (autoGas: boolean): TouchId[] => (autoGas ? ["steer", "drift", "brake", "item"] : ["steer", "drift", "brake", "item", "gas"]);
+
+const BUTTON_TEXT: Record<Exclude<TouchId, "steer">, string> = { drift: "DRIFT", brake: "BRAKE", item: "ITEM", gas: "GAS" };
+
+function SteerHalves({ steer, h }: { steer: number; h: number }) {
+  return (
+    <>
+      <span className={`g-hud grid flex-1 place-items-center ${steer === 1 ? "bg-[var(--accent)] text-black" : ""}`}>
+        <ChevronLeft size={Math.round(h * 0.5)} />
+      </span>
+      <span className={`g-hud grid flex-1 place-items-center ${steer === -1 ? "bg-[var(--accent)] text-black" : ""}`}>
+        <ChevronRight size={Math.round(h * 0.5)} />
+      </span>
+    </>
+  );
+}
+
+/** A control as the controls editor shows it. */
+export function TouchFace({ id, at }: { id: TouchId; at: Placed }) {
+  if (id === "steer")
+    return (
+      <span className="flex size-full gap-2">
+        <SteerHalves steer={0} h={at.h} />
+      </span>
+    );
+  return (
+    <span className="g-hud grid size-full place-items-center font-bold italic" style={{ fontSize: Math.round(at.w * 0.21) }}>
+      {BUTTON_TEXT[id]}
+    </span>
+  );
+}
+
+function HoldButton({ id, at, onChange }: { id: Exclude<TouchId, "steer">; at: Placed; onChange: (down: boolean) => void }) {
   const [down, setDown] = useState(false);
   const set = (v: boolean) => {
     setDown(v);
@@ -260,8 +300,9 @@ function HoldButton({
   return (
     <button
       type="button"
-      aria-label={label}
-      className={`g-hud pointer-events-auto grid touch-none place-items-center font-bold italic select-none ${down ? "scale-95 border-white bg-[var(--accent)] text-black" : ""} ${className}`}
+      aria-label={id === "item" ? "Use item" : touchControls.defs[id].label}
+      style={{ ...box(at), fontSize: Math.round(at.w * 0.21) }}
+      className={`g-hud pointer-events-auto absolute grid touch-none place-items-center font-bold italic select-none ${down ? "scale-95 border-white bg-[var(--accent)] text-black" : ""}`}
       onPointerDown={(e) => {
         e.stopPropagation();
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -275,12 +316,12 @@ function HoldButton({
       onLostPointerCapture={() => set(false)}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {children}
+      {BUTTON_TEXT[id]}
     </button>
   );
 }
 
-/** On-screen controls: steering pad (left thumb), drift / item / brake / gas (right thumb). */
+/** On-screen controls: steering pad (left thumb), drift / item / brake / gas (right thumb) by default. */
 export function TouchControls({ game, autoGas }: { game: TurboKartsGame | null; autoGas: boolean }) {
   const [steer, setSteer] = useState(0);
   const pad = useRef<HTMLDivElement>(null);
@@ -297,52 +338,40 @@ export function TouchControls({ game, autoGas }: { game: TurboKartsGame | null; 
     game?.setTouch({ steer: 0 });
   };
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 pb-[max(env(safe-area-inset-bottom),14px)]">
-      <div
-        ref={pad}
-        className="pointer-events-auto flex touch-none gap-2"
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          e.currentTarget.setPointerCapture(e.pointerId);
-          update(e);
-        }}
-        onPointerMove={(e) => {
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) update(e);
-        }}
-        onPointerUp={release}
-        onPointerCancel={release}
-        onLostPointerCapture={release}
-        aria-label="Steering"
-      >
-        <span className={`g-hud grid size-[76px] place-items-center ${steer === 1 ? "bg-[var(--accent)] text-black" : ""}`}>
-          <ChevronLeft className="size-10" />
-        </span>
-        <span className={`g-hud grid size-[76px] place-items-center ${steer === -1 ? "bg-[var(--accent)] text-black" : ""}`}>
-          <ChevronRight className="size-10" />
-        </span>
-      </div>
-      <div className="grid grid-cols-2 items-end gap-2">
-        <HoldButton
-          label="Use item"
-          className="col-start-2 size-16 text-xs"
-          onChange={(d) => {
-            if (d) game?.touchItem();
-          }}
-        >
-          ITEM
-        </HoldButton>
-        {!autoGas && (
-          <HoldButton label="Gas" className="col-start-1 row-start-1 size-16 text-xs" onChange={(d) => game?.setTouch({ gas: d })}>
-            GAS
-          </HoldButton>
-        )}
-        <HoldButton label="Brake" className="size-16 text-xs" onChange={(d) => game?.setTouch({ brake: d })}>
-          BRAKE
-        </HoldButton>
-        <HoldButton label="Drift" className="size-[84px] text-sm" onChange={(d) => game?.setTouch({ drift: d })}>
-          DRIFT
-        </HoldButton>
-      </div>
-    </div>
+    <ControlLayer controls={touchControls} active={touchIds(autoGas)}>
+      {(placed) => (
+        <>
+          <div
+            ref={pad}
+            style={box(placed.steer)}
+            className="pointer-events-auto absolute flex touch-none gap-2"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              update(e);
+            }}
+            onPointerMove={(e) => {
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) update(e);
+            }}
+            onPointerUp={release}
+            onPointerCancel={release}
+            onLostPointerCapture={release}
+            aria-label="Steering"
+          >
+            <SteerHalves steer={steer} h={placed.steer.h} />
+          </div>
+          <HoldButton
+            id="item"
+            at={placed.item}
+            onChange={(d) => {
+              if (d) game?.touchItem();
+            }}
+          />
+          {!autoGas && <HoldButton id="gas" at={placed.gas} onChange={(d) => game?.setTouch({ gas: d })} />}
+          <HoldButton id="brake" at={placed.brake} onChange={(d) => game?.setTouch({ brake: d })} />
+          <HoldButton id="drift" at={placed.drift} onChange={(d) => game?.setTouch({ drift: d })} />
+        </>
+      )}
+    </ControlLayer>
   );
 }

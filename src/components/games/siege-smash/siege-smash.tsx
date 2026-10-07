@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Bomb, ChevronRight, CircleHelp, LayoutGrid, Lock, Pause, Play, RotateCcw, Skull, Split, Star } from "lucide-react";
+import { Bomb, ChevronRight, CircleHelp, Gamepad2, LayoutGrid, Lock, Pause, Play, RotateCcw, Skull, Split, Star } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { above, ControlLayer, ControlsButton, ControlsEditor, createControls } from "../shared/touch-layout";
 import {
   BigButton,
   createRecords,
@@ -20,6 +21,7 @@ import {
   useRecords,
   useShortcuts,
   useStore,
+  useTouchScreen,
   type Store,
 } from "../shared/ui";
 import { SiegeSmashGame, type Hud, type LevelResult, type Phase } from "./engine";
@@ -72,6 +74,8 @@ export function SiegeSmash({ sizes }: { sizes: Record<string, number> }) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<(LevelResult & { newBest: boolean; firstClear: boolean }) | null>(null);
   const [help, setHelp] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const touch = useTouchScreen();
   const [selected, setSelected] = useState(0);
   const [levelKey, setLevelKey] = useState(0);
   const saved = useRecords(records);
@@ -148,6 +152,10 @@ export function SiegeSmash({ sizes }: { sizes: Record<string, number> }) {
       setHelp(false);
       return;
     }
+    if (editing) {
+      setEditing(false);
+      return;
+    }
     if (phase === "playing") game?.pause();
     else if (phase === "paused") game?.resume();
   };
@@ -171,7 +179,7 @@ export function SiegeSmash({ sizes }: { sizes: Record<string, number> }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const game = gameRef.current;
-      if (!game || e.ctrlKey || e.metaKey || e.altKey || help) return;
+      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || editing) return;
       const down = e.type === "keydown";
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       if (phase === "playing") {
@@ -263,16 +271,26 @@ export function SiegeSmash({ sizes }: { sizes: Record<string, number> }) {
         onPointerCancel={onPointerCancel}
       />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && (
-        <MenuScreen stars={saved.stars} best={saved.best} selected={selected} onSelect={selectLevel} onPlay={() => startLevel(selected)} onHelp={() => setHelp(true)} />
+      {phase === "menu" && !editing && (
+        <MenuScreen
+          stars={saved.stars}
+          best={saved.best}
+          selected={selected}
+          onSelect={selectLevel}
+          onPlay={() => startLevel(selected)}
+          onHelp={() => setHelp(true)}
+          onControls={() => setEditing(true)}
+        />
       )}
 
-      {(running || phase === "won" || phase === "lost") && (
+      {/* From the title screen the controls editor shows the HUD behind it, so the ammo bar keeps clear of it. */}
+      {(running || phase === "won" || phase === "lost" || (phase === "menu" && editing)) && (
         <HudOverlay
           key={levelKey}
           store={hud}
+          editing={editing}
           paused={phase === "paused"}
           showControls={running}
           onPause={pauseOrResume}
@@ -282,7 +300,7 @@ export function SiegeSmash({ sizes }: { sizes: Record<string, number> }) {
         />
       )}
 
-      {phase === "paused" && !help && (
+      {phase === "paused" && !help && !editing && (
         <Modal title="Paused">
           <BigButton onClick={pauseOrResume} icon={<Play className="size-5 fill-current" />}>
             Resume
@@ -298,7 +316,15 @@ export function SiegeSmash({ sizes }: { sizes: Record<string, number> }) {
               Castles
             </SoftButton>
           </div>
+          {touch && (
+            <SoftButton onClick={() => setEditing(true)} icon={<Gamepad2 className="size-4" />}>
+              Edit controls
+            </SoftButton>
+          )}
         </Modal>
+      )}
+      {(phase === "paused" || phase === "menu") && editing && (
+        <ControlsEditor controls={ammoControls} face={() => <AmmoBar hud={hud.get()} onAmmo={() => {}} />} onClose={() => setEditing(false)} />
       )}
 
       {phase === "won" && result && !help && (
@@ -401,6 +427,7 @@ function MenuScreen({
   onSelect,
   onPlay,
   onHelp,
+  onControls,
 }: {
   stars: number[];
   best: number[];
@@ -408,6 +435,7 @@ function MenuScreen({
   onSelect: (i: number) => void;
   onPlay: () => void;
   onHelp: () => void;
+  onControls: () => void;
 }) {
   const [tab, setTab] = useState(LEVELS[selected]?.region ?? 0);
   const [shownFor, setShownFor] = useState(selected);
@@ -422,7 +450,9 @@ function MenuScreen({
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
       <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <SystemButtons onHelp={onHelp} />
+        <SystemButtons onHelp={onHelp}>
+          <ControlsButton onClick={onControls} />
+        </SystemButtons>
       </div>
 
       <div className="px-4 pt-1 text-center sm:pt-2">
@@ -518,6 +548,7 @@ function AmmoGlyph({ kind, className = "" }: { kind: AmmoKind; className?: strin
 
 function HudOverlay({
   store,
+  editing,
   paused,
   showControls,
   onPause,
@@ -526,6 +557,8 @@ function HudOverlay({
   firstTime,
 }: {
   store: Store<Hud>;
+  /** The controls editor is open: it draws its own copy of the ammo bar. */
+  editing: boolean;
   paused: boolean;
   showControls: boolean;
   onPause: () => void;
@@ -545,8 +578,9 @@ function HudOverlay({
 
   return (
     <div className="pointer-events-none absolute inset-0">
+      {/* `data-avoid`: the ammo bar keeps clear of these (shared/touch-layout.tsx). */}
       <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <div className="g-hud max-w-[60vw] px-3 py-2 sm:px-4">
+        <div data-avoid className="g-hud max-w-[60vw] px-3 py-2 sm:px-4">
           <p className="g-display truncate text-sm leading-tight sm:text-lg">
             {hud.level + 1}. {level.name}
           </p>
@@ -560,7 +594,7 @@ function HudOverlay({
             <StarRow stars={potential} size="xs" />
           </div>
         </div>
-        <div className="pointer-events-auto flex items-start gap-2">
+        <div data-avoid className="pointer-events-auto flex items-start gap-2">
           {showControls && (
             <IconButton onClick={onRestart} label="Restart level (R)">
               <RotateCcw className="size-5" />
@@ -584,64 +618,83 @@ function HudOverlay({
       )}
 
       {showControls && (
-        <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-3 pb-[max(env(safe-area-inset-bottom),12px)] sm:pb-5">
-          {hud.canSplit && <p className="g-hud g-display animate-pulse px-4 py-2 text-lg">Tap / Space — split!</p>}
-          {hud.stage === "settle" && <p className="g-hud px-3 py-1 text-xs font-bold opacity-90">Tap to skip</p>}
-          {aimStage && (hud.aiming || firstTime) && (
-            <p className="g-hud px-3 py-1 text-center text-xs font-bold">
-              {hud.aiming ? (
-                <>
-                  Power {hud.power}% · {hud.angle > 0 ? `${hud.angle}° right` : hud.angle < 0 ? `${-hud.angle}° left` : "straight"} — release to fire
-                </>
-              ) : (
-                <>
-                  <span className="sm:hidden">Drag back to aim · release to fire</span>
-                  <span className="hidden sm:inline">Drag back to aim, or A D W S · Space to fire · Q E orbit</span>
-                </>
-              )}
-            </p>
+        // The ammo bar is movable (shared/touch-layout.tsx); the hints sit just above it.
+        <ControlLayer controls={ammoControls} hidden={editing}>
+          {(placed, _frame, fit) => (
+            <>
+              <div className="pointer-events-none absolute flex w-max max-w-[90vw] flex-col items-center gap-2" style={above(placed.ammo)}>
+                {hud.canSplit && <p className="g-hud g-display animate-pulse px-4 py-2 text-lg">Tap / Space — split!</p>}
+                {hud.stage === "settle" && <p className="g-hud px-3 py-1 text-xs font-bold opacity-90">Tap to skip</p>}
+                {aimStage && (hud.aiming || firstTime) && (
+                  <p className="g-hud px-3 py-1 text-center text-xs font-bold">
+                    {hud.aiming ? (
+                      <>
+                        Power {hud.power}% · {hud.angle > 0 ? `${hud.angle}° right` : hud.angle < 0 ? `${-hud.angle}° left` : "straight"} — release to fire
+                      </>
+                    ) : (
+                      <>
+                        <span className="sm:hidden">Drag back to aim · release to fire</span>
+                        <span className="hidden sm:inline">Drag back to aim, or A D W S · Space to fire · Q E orbit</span>
+                      </>
+                    )}
+                  </p>
+                )}
+              </div>
+              {fit("ammo", <AmmoBar hud={hud} onAmmo={onAmmo} />)}
+            </>
           )}
-          <div className="pointer-events-auto flex items-end gap-2">
-            <div className="g-hud hidden flex-col items-stretch px-3 py-1.5 sm:flex">
-              <span className="text-[10px] font-bold tracking-widest uppercase opacity-70">Power</span>
-              <span className="mt-0.5 h-2 w-24 overflow-hidden rounded-full bg-[color-mix(in_srgb,currentColor_15%,transparent)]">
-                <span className="block h-full rounded-full bg-[var(--accent)]" style={{ width: `${hud.power}%` }} />
-              </span>
-              <span className="mt-0.5 text-xs font-bold tabular-nums">
-                {hud.power}% · {hud.angle > 0 ? `${hud.angle}°R` : hud.angle < 0 ? `${-hud.angle}°L` : "0°"}
-              </span>
-            </div>
-            {AMMO_ORDER.map((k, i) => {
-              const count = hud.ammo[k];
-              if (count <= 0 && !(level.ammo[k] ?? 0)) return null;
-              const active = hud.selected === k;
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={(e) => {
-                    e.currentTarget.blur();
-                    onAmmo(k);
-                  }}
-                  disabled={count <= 0}
-                  data-active={active}
-                  title={`${AMMO[k].name} — ${AMMO[k].hint} (${i + 1})`}
-                  className={`g-hud relative flex min-w-16 flex-col items-center px-2.5 py-1.5 transition disabled:opacity-40 ${active ? "ring-3 ring-[var(--accent)]" : ""}`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <AmmoGlyph kind={k} className="size-5" />
-                    <span className="g-display text-lg tabular-nums">×{count}</span>
-                  </span>
-                  <span className="text-[10px] font-bold tracking-wide uppercase opacity-75">
-                    <span className="hidden sm:inline">{i + 1} · </span>
-                    {AMMO[k].name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        </ControlLayer>
       )}
+    </div>
+  );
+}
+
+/** The ammo bar. Order = placement priority. */
+const ammoControls = createControls("siege-smash:controls:v1", {
+  ammo: { label: "Ammo bar", w: 200, h: 52, x: 0, y: -40, center: true, fit: true },
+});
+
+function AmmoBar({ hud, onAmmo }: { hud: Hud; onAmmo: (k: AmmoKind) => void }) {
+  const level = LEVELS[hud.level] ?? LEVELS[0];
+  return (
+    <div className="pointer-events-auto flex items-end gap-2">
+      <div className="g-hud hidden flex-col items-stretch px-3 py-1.5 sm:flex">
+        <span className="text-[10px] font-bold tracking-widest uppercase opacity-70">Power</span>
+        <span className="mt-0.5 h-2 w-24 overflow-hidden rounded-full bg-[color-mix(in_srgb,currentColor_15%,transparent)]">
+          <span className="block h-full rounded-full bg-[var(--accent)]" style={{ width: `${hud.power}%` }} />
+        </span>
+        <span className="mt-0.5 text-xs font-bold tabular-nums">
+          {hud.power}% · {hud.angle > 0 ? `${hud.angle}°R` : hud.angle < 0 ? `${-hud.angle}°L` : "0°"}
+        </span>
+      </div>
+      {AMMO_ORDER.map((k, i) => {
+        const count = hud.ammo[k];
+        if (count <= 0 && !(level.ammo[k] ?? 0)) return null;
+        const active = hud.selected === k;
+        return (
+          <button
+            key={k}
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onAmmo(k);
+            }}
+            disabled={count <= 0}
+            data-active={active}
+            title={`${AMMO[k].name} — ${AMMO[k].hint} (${i + 1})`}
+            className={`g-hud relative flex min-w-16 flex-col items-center px-2.5 py-1.5 transition pointer-coarse:min-w-14 pointer-coarse:px-2 pointer-coarse:py-1 disabled:opacity-40 ${active ? "ring-3 ring-[var(--accent)]" : ""}`}
+          >
+            <span className="flex items-center gap-1.5">
+              <AmmoGlyph kind={k} className="size-5" />
+              <span className="g-display text-lg tabular-nums pointer-coarse:text-base">×{count}</span>
+            </span>
+            <span className="text-[10px] font-bold tracking-wide uppercase opacity-75">
+              <span className="hidden sm:inline">{i + 1} · </span>
+              {AMMO[k].name}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

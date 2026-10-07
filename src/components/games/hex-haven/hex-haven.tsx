@@ -6,6 +6,7 @@ import {
   CircleHelp,
   Droplets,
   Flag,
+  Gamepad2,
   Home,
   House,
   Layers,
@@ -23,6 +24,7 @@ import {
   Wheat,
 } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { above, ControlLayer, ControlsButton, ControlsEditor, createControls } from "../shared/touch-layout";
 import {
   BigButton,
   createRecords,
@@ -40,6 +42,7 @@ import {
   useRecords,
   useShortcuts,
   useStore,
+  useTouchScreen,
   type Store,
 } from "../shared/ui";
 import { CATEGORY_COLOR, HexHavenGame, type GameResult, type HandView, type Hud, type Phase, type Popup, type QuestView } from "./engine";
@@ -105,6 +108,8 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
   const [popups, setPopups] = useState<Popup[]>([]);
   const [runKey, setRunKey] = useState(0);
   const [help, setHelp] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const touch = useTouchScreen();
   const saved = useRecords(records);
 
   useEffect(() => {
@@ -170,6 +175,10 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
       setHelp(false);
       return;
     }
+    if (editing) {
+      setEditing(false);
+      return;
+    }
     if (phase === "playing") game?.pause();
     else if (phase === "paused") game?.resume();
   };
@@ -185,7 +194,7 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const game = gameRef.current;
-      if (!game || e.ctrlKey || e.metaKey || e.altKey || help) return;
+      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || editing) return;
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const k = e.key.toLowerCase();
       const confirm = e.key === "Enter" || e.key === " ";
@@ -256,15 +265,17 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
       <style>{STYLES}</style>
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Hex Haven game board" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && <MenuScreen best={saved.best} games={saved.games} onPlay={start} onHelp={() => setHelp(true)} />}
+      {phase === "menu" && !editing && <MenuScreen best={saved.best} games={saved.games} onPlay={start} onHelp={() => setHelp(true)} onControls={() => setEditing(true)} />}
 
-      {inGame && (
+      {/* From the title screen the controls editor shows the HUD behind it, so the tray keeps clear of it. */}
+      {(inGame || (phase === "menu" && editing)) && (
         <HudOverlay
           store={hud}
           thumbs={thumbs}
           best={saved.best}
+          editing={editing}
           paused={phase === "paused"}
           onPause={pauseOrResume}
           onRotate={(d) => gameRef.current?.rotate(d)}
@@ -280,7 +291,7 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
         ))}
       </div>
 
-      {phase === "paused" && !help && (
+      {phase === "paused" && !help && !editing && (
         <Modal title="Paused">
           <BigButton onClick={pauseOrResume} icon={<Play className="size-5 fill-current" />}>
             Resume
@@ -296,7 +307,19 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
               Menu
             </SoftButton>
           </div>
+          {touch && (
+            <SoftButton onClick={() => setEditing(true)} icon={<Gamepad2 className="size-4" />}>
+              Edit controls
+            </SoftButton>
+          )}
         </Modal>
+      )}
+      {(phase === "paused" || phase === "menu") && editing && (
+        <ControlsEditor
+          controls={trayControls}
+          face={() => <Tray hud={hud.get()} thumbs={thumbs} onRotate={() => {}} onUndo={() => {}} />}
+          onClose={() => setEditing(false)}
+        />
       )}
 
       {phase === "over" && result && !help && (
@@ -337,11 +360,13 @@ export function HexHaven({ sizes }: { sizes: Record<string, number> }) {
 
 // --- Screens -------------------------------------------------------------------------------------
 
-function MenuScreen({ best, games, onPlay, onHelp }: { best: number; games: number; onPlay: () => void; onHelp: () => void }) {
+function MenuScreen({ best, games, onPlay, onHelp, onControls }: { best: number; games: number; onPlay: () => void; onHelp: () => void; onControls: () => void }) {
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
       <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <SystemButtons onHelp={onHelp} />
+        <SystemButtons onHelp={onHelp}>
+          <ControlsButton onClick={onControls} />
+        </SystemButtons>
       </div>
 
       <div className="px-4 pt-2 text-center sm:pt-4">
@@ -389,6 +414,7 @@ function HudOverlay({
   store,
   thumbs,
   best,
+  editing,
   paused,
   onPause,
   onRotate,
@@ -398,6 +424,8 @@ function HudOverlay({
   store: Store<Hud>;
   thumbs: Record<string, string>;
   best: number;
+  /** The controls editor is open: it draws its own copy of the tray. */
+  editing: boolean;
   paused: boolean;
   onPause: () => void;
   onRotate: (dir: 1 | -1) => void;
@@ -405,19 +433,19 @@ function HudOverlay({
   onConfirm: () => void;
 }) {
   const hud = useStore(store);
-  const [current, ...next] = hud.hand;
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
       {/* Top: score, quests, system buttons. */}
       <div className="flex items-start justify-between gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <div className="min-w-0 space-y-2">
+        {/* `data-avoid`: the tray keeps clear of these (shared/touch-layout.tsx). */}
+        <div data-avoid className="min-w-0 space-y-2">
           <div className="g-hud inline-flex flex-col rounded-[22px] px-4 py-1.5">
             <p className="g-display text-2xl leading-tight font-semibold tabular-nums sm:text-3xl">{formatNumber(hud.score)}</p>
             <p className="g-muted text-[11px] font-bold tabular-nums">best {formatNumber(Math.max(best, hud.score))}</p>
           </div>
           <QuestList quests={hud.quests} />
         </div>
-        <div className="pointer-events-auto flex shrink-0 items-start gap-2">
+        <div data-avoid className="pointer-events-auto flex shrink-0 items-start gap-2">
           <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
             {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
           </IconButton>
@@ -425,37 +453,54 @@ function HudOverlay({
         </div>
       </div>
 
-      <div className="flex-1" />
-
-      {/* Bottom: preview line, tile tray. */}
-      <div className="flex flex-col items-center gap-2 px-2 pb-[max(env(safe-area-inset-bottom),10px)] sm:pb-5">
-        <PreviewLine hud={hud} onConfirm={onConfirm} />
-        <div className="g-panel pointer-events-auto flex items-center gap-1.5 p-1.5 sm:gap-2 sm:p-2">
-          <TrayButton label="Undo (Z)" onClick={onUndo} disabled={!hud.canUndo}>
-            <Undo2 className="size-5" />
-          </TrayButton>
-          <TrayButton label="Rotate left (Q)" onClick={() => onRotate(-1)}>
-            <RotateCcw className="size-5" />
-          </TrayButton>
-          <CurrentTile tile={current} thumbs={thumbs} angle={hud.angle} />
-          <TrayButton label="Rotate right (R / E)" onClick={() => onRotate(1)}>
-            <RotateCw className="size-5" />
-          </TrayButton>
-          <div className="flex items-center gap-1 pr-1 pl-0.5 sm:gap-1.5">
-            {next.slice(0, 3).map((t, i) => (
-              <SmallTile key={i} tile={t} thumbs={thumbs} dim={i > 0} />
-            ))}
-            <div className="ml-0.5 flex min-w-9 flex-col items-center leading-none">
-              <Layers className="size-4 text-emerald-600" />
-              <span className="g-display mt-0.5 text-lg leading-none font-semibold tabular-nums">{hud.remaining}</span>
-              <span className="g-muted text-[9px] font-bold tracking-wider uppercase">left</span>
+      {/* Bottom: the tile tray (movable: shared/touch-layout.tsx) and the preview line just above it. */}
+      <ControlLayer controls={trayControls} hidden={editing}>
+        {(placed, _frame, fit) => (
+          <>
+            <div className="pointer-events-none absolute flex w-max justify-center" style={above(placed.tray)}>
+              <PreviewLine hud={hud} onConfirm={onConfirm} />
             </div>
-          </div>
+            {fit("tray", <Tray hud={hud} thumbs={thumbs} onRotate={onRotate} onUndo={onUndo} />)}
+          </>
+        )}
+      </ControlLayer>
+    </div>
+  );
+}
+
+/** The tile tray: undo, rotate, the tile in hand and the next ones. Order = placement priority. */
+const trayControls = createControls("hex-haven:controls:v1", {
+  tray: { label: "Tile tray", w: 300, h: 60, x: 0, y: -40, center: true, fit: true },
+});
+
+function Tray({ hud, thumbs, onRotate, onUndo }: { hud: Hud; thumbs: Record<string, string>; onRotate: (dir: 1 | -1) => void; onUndo: () => void }) {
+  const [current, ...next] = hud.hand;
+  return (
+    <div className="g-panel pointer-events-auto flex items-center gap-1.5 p-1.5 sm:gap-2 sm:p-2">
+      <TrayButton label="Undo (Z)" onClick={onUndo} disabled={!hud.canUndo}>
+        <Undo2 className="size-5" />
+      </TrayButton>
+      <TrayButton label="Rotate left (Q)" onClick={() => onRotate(-1)}>
+        <RotateCcw className="size-5" />
+      </TrayButton>
+      <CurrentTile tile={current} thumbs={thumbs} angle={hud.angle} />
+      <TrayButton label="Rotate right (R / E)" onClick={() => onRotate(1)}>
+        <RotateCw className="size-5" />
+      </TrayButton>
+      <div className="flex items-center gap-1 pr-1 pl-0.5 sm:gap-1.5">
+        {next.slice(0, 3).map((t, i) => (
+          <SmallTile key={i} tile={t} thumbs={thumbs} dim={i > 0} />
+        ))}
+        <div className="ml-0.5 flex min-w-9 flex-col items-center leading-none">
+          <Layers className="size-4 text-emerald-600" />
+          <span className="g-display mt-0.5 text-lg leading-none font-semibold tabular-nums">{hud.remaining}</span>
+          <span className="g-muted text-[9px] font-bold tracking-wider uppercase">left</span>
         </div>
       </div>
     </div>
   );
 }
+
 
 function QuestList({ quests }: { quests: QuestView[] }) {
   if (!quests.length) return null;
@@ -503,7 +548,7 @@ function PreviewLine({ hud, onConfirm }: { hud: Hud; onConfirm: () => void }) {
         type="button"
         onClick={onConfirm}
         disabled={!p.valid}
-        className="g-btn pointer-events-auto inline-flex animate-[hex-in_0.2s_ease] items-center px-5 py-2.5 text-lg disabled:opacity-90 disabled:grayscale-[0.6]"
+        className="g-btn pointer-events-auto inline-flex animate-[hex-in_0.2s_ease] items-center px-5 py-2.5 text-lg disabled:opacity-90 pointer-coarse:px-3.5 pointer-coarse:py-1.5 pointer-coarse:text-sm disabled:grayscale-[0.6]"
       >
         <span className="g-unskew gap-2">
           {p.valid ? (
@@ -548,7 +593,7 @@ function TrayButton({ label, onClick, disabled, children }: { label: string; onC
         e.currentTarget.blur();
         onClick();
       }}
-      className="g-soft grid size-11 shrink-0 place-items-center rounded-full transition focus-visible:outline-2 focus-visible:outline-[var(--accent)] active:scale-95 disabled:opacity-40"
+      className="g-soft grid size-11 shrink-0 place-items-center rounded-full pointer-coarse:size-8 transition focus-visible:outline-2 focus-visible:outline-[var(--accent)] active:scale-95 disabled:opacity-40"
     >
       <span className="g-unskew">{children}</span>
     </button>
@@ -557,7 +602,7 @@ function TrayButton({ label, onClick, disabled, children }: { label: string; onC
 
 function CurrentTile({ tile, thumbs, angle }: { tile: HandView | undefined; thumbs: Record<string, string>; angle: number }) {
   return (
-    <div className="relative grid size-[84px] shrink-0 place-items-center sm:size-24" title={tile?.name}>
+    <div className="relative grid size-[84px] shrink-0 place-items-center sm:size-24 pointer-coarse:size-[60px]" title={tile?.name}>
       <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,color-mix(in_srgb,var(--accent)_40%,transparent)_0%,transparent_70%)]" />
       {tile && thumbs[tile.kind] && (
         // eslint-disable-next-line @next/next/no-img-element -- data URL rendered in the browser
@@ -581,7 +626,7 @@ function CurrentTile({ tile, thumbs, angle }: { tile: HandView | undefined; thum
 
 function SmallTile({ tile, thumbs, dim }: { tile: HandView; thumbs: Record<string, string>; dim: boolean }) {
   return (
-    <div className={`relative size-9 shrink-0 sm:size-12 ${dim ? "opacity-70" : ""}`} title={tile.name}>
+    <div className={`relative size-9 shrink-0 sm:size-12 pointer-coarse:size-8 ${dim ? "opacity-70" : ""}`} title={tile.name}>
       {thumbs[tile.kind] && (
         // eslint-disable-next-line @next/next/no-img-element -- data URL rendered in the browser
         <img src={thumbs[tile.kind]} alt={tile.name} draggable={false} className="size-full" />

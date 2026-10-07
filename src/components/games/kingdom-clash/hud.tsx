@@ -1,10 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRightToLine, ArrowUpCircle, Check, ChevronsRight, CircleHelp, Clock, Crown, Dices, Globe, Hammer, Home, Info, LayoutGrid, Lock, Map as MapIcon, Moon, Music, PackageOpen, Pause, Play, Search, Settings, Shield, ShoppingCart, Sparkles, Star, Swords, Trophy, Users, Volume2, X, Zap } from "lucide-react";
+import { ArrowRightToLine, ArrowUpCircle, Check, ChevronsRight, CircleHelp, Clock, Crown, Dices, Expand, Globe, Hammer, Home, Info, LayoutGrid, Lock, Map as MapIcon, Moon, Music, PackageOpen, Pause, Play, Search, Settings, Shield, ShoppingCart, Shrink, Sparkles, Star, Swords, Trophy, Users, Volume2, X, Zap } from "lucide-react";
 import { audio } from "../shared/audio";
 import { useNativeApp } from "../shared/native-app";
-import { BigButton, IconButton, SoftButton, SystemButtons, useAudioSettings, useMediaQuery, usePhoneLandscape } from "../shared/ui";
+import {
+  BigButton,
+  IconButton,
+  PhoneRotateIcon,
+  rotateScreen,
+  SoftButton,
+  SystemButtons,
+  SystemMenu,
+  toggleFullscreen,
+  useAudioSettings,
+  useFullscreen,
+  useMediaQuery,
+  usePhoneLandscape,
+} from "../shared/ui";
 import {
   ACHIEVEMENTS,
   BUILDINGS,
@@ -95,9 +108,9 @@ function Sheet({ title, onClose, children, tabs, wide = true }: { title: string;
           className={`g-panel flex max-h-[min(88vh,760px)] w-full flex-col overflow-hidden land:h-full land:max-h-full land:max-w-none ${wide ? "max-w-3xl" : "max-w-md"}`}
         >
           {/* Landscape phones: the tabs sit in the title row to leave the height for the content. */}
-          <div className="flex items-center gap-3 px-4 pt-4 pb-2 sm:px-5 land:gap-2 land:pt-2.5 land:pb-1.5">
+          <div className="flex shrink-0 items-center gap-3 px-4 pt-4 pb-2 sm:px-5 land:gap-2 land:pt-2.5 land:pb-1.5">
             <h2 className={`g-panel-title flex-1 truncate text-2xl sm:text-3xl land:text-2xl ${tabs ? "land:flex-none" : ""}`}>{title}</h2>
-            {tabs && <div className="hidden min-w-0 flex-1 gap-1.5 overflow-x-auto land:flex">{tabs}</div>}
+            {tabs && <div className="no-scrollbar hidden min-w-0 flex-1 gap-1.5 overflow-x-auto py-1 land:flex">{tabs}</div>}
             <button
               type="button"
               onClick={onClose}
@@ -107,7 +120,8 @@ function Sheet({ title, onClose, children, tabs, wide = true }: { title: string;
               <X className="size-5 land:size-6" strokeWidth={3} />
             </button>
           </div>
-          {tabs && <div className="flex gap-2 overflow-x-auto px-4 pb-2 sm:px-5 land:hidden">{tabs}</div>}
+          {/* shrink-0: a long panel must not squash the tabs (an overflowing row may otherwise shrink to nothing). */}
+          {tabs && <div className="no-scrollbar flex shrink-0 gap-2 overflow-x-auto px-4 pt-0.5 pb-2.5 sm:px-5 land:hidden">{tabs}</div>}
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-5 land:pb-3">{children}</div>
         </div>
       </div>
@@ -132,25 +146,27 @@ export function TopBar(props: TopBarProps) {
   if (land) return <LandTopBar {...props} />;
   const { hud, onSettings, onHelp, onDefend, onEdit } = props;
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:p-3">
-      <div className="flex min-w-0 flex-col gap-1.5">
+    // Compact on phones held upright (narrower than `sm`), a little roomier on bigger screens.
+    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-1.5 sm:p-2.5">
+      <div className="flex min-w-0 flex-col gap-1 sm:gap-1.5">
         <VillageChip hud={hud} />
         <BuildersChip hud={hud} />
         <RaidersChip hud={hud} onDefend={onDefend} />
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
+      <div className="flex shrink-0 flex-col items-end gap-1 sm:gap-1.5">
         <ResourceBar res="gold" value={hud.gold} cap={hud.goldCap} />
         <ResourceBar res="elixir" value={hud.elixir} cap={hud.elixirCap} />
         <GemsChip gems={hud.gems} />
-        <div className="pointer-events-auto mt-1 flex gap-1.5">
-          <SystemButtons onHelp={onHelp}>
-            <IconButton label="Edit layout" onClick={onEdit}>
-              <LayoutGrid className="size-5" />
+        {/* One menu button keeps the top bar roomy; it opens edit, settings, sound, help, full screen and turn. */}
+        <div className="pointer-events-auto mt-0.5">
+          <SystemMenu onHelp={onHelp} small>
+            <IconButton label="Edit layout" onClick={onEdit} small>
+              <LayoutGrid className="size-[18px]" />
             </IconButton>
-            <IconButton label="Settings" onClick={onSettings}>
-              <Settings className="size-5" />
+            <IconButton label="Settings" onClick={onSettings} small>
+              <Settings className="size-[18px]" />
             </IconButton>
-          </SystemButtons>
+          </SystemMenu>
         </div>
       </div>
     </div>
@@ -190,21 +206,21 @@ function LandTopBar({ hud, onSettings, onHelp, onDefend, onEdit }: TopBarProps) 
 
 function VillageChip({ hud, small = false }: { hud: VillageHud; small?: boolean }) {
   return (
-    <div className="g-hud pointer-events-auto flex items-center gap-2 py-1 pr-3 pl-1">
+    <div className={`g-hud pointer-events-auto flex items-center ${small ? "gap-2 py-1 pr-3 pl-1" : "gap-1.5 py-0.5 pr-2.5 pl-0.5 sm:gap-2 sm:py-1 sm:pr-3 sm:pl-1"}`}>
       <span
-        className={`g-display grid shrink-0 place-items-center rounded-[10px] bg-gradient-to-b from-amber-300 to-amber-600 text-amber-950 ring-2 ring-amber-900 ${small ? "size-8 text-base" : "size-9 text-lg"}`}
+        className={`g-display grid shrink-0 place-items-center rounded-[10px] bg-gradient-to-b from-amber-300 to-amber-600 text-amber-950 ring-2 ring-amber-900 ${small ? "size-8 text-base" : "size-7 rounded-lg text-sm sm:size-8 sm:rounded-[10px] sm:text-base"}`}
       >
         {hud.th}
       </span>
       <div className="min-w-0">
-        <p className={`g-display truncate text-sm leading-tight ${small ? "max-w-[8.5rem]" : "max-w-[9.5rem] sm:max-w-[14rem] sm:text-base"}`}>{hud.name || "Your village"}</p>
-        <p className="flex items-center gap-2 text-[11px] font-bold opacity-80">
+        <p className={`g-display truncate leading-tight ${small ? "max-w-[8.5rem] text-sm" : "max-w-[9.5rem] text-xs sm:max-w-[13rem] sm:text-sm"}`}>{hud.name || "Your village"}</p>
+        <p className={`flex items-center font-bold opacity-80 ${small ? "gap-2 text-[11px]" : "gap-1.5 text-[10px] sm:gap-2 sm:text-[11px]"}`}>
           <span className="inline-flex items-center gap-0.5">
-            <Trophy className="size-3 text-amber-300" />
+            <Trophy className="size-2.5 text-amber-300 sm:size-3" />
             {hud.trophies}
           </span>
           <span className="inline-flex items-center gap-0.5">
-            <Star className="size-3 fill-amber-300 text-amber-300" />
+            <Star className="size-2.5 fill-amber-300 text-amber-300 sm:size-3" />
             {hud.stars}
           </span>
         </p>
@@ -215,8 +231,8 @@ function VillageChip({ hud, small = false }: { hud: VillageHud; small?: boolean 
 
 function BuildersChip({ hud }: { hud: VillageHud }) {
   return (
-    <div className="g-hud inline-flex w-fit items-center gap-1.5 px-2.5 py-1 text-xs font-bold whitespace-nowrap">
-      <Hammer className="size-3.5 text-amber-300" /> Builders {hud.freeBuilders}/{hud.builders}
+    <div className="g-hud inline-flex w-fit items-center gap-1 px-2 py-0.5 text-[10px] font-bold whitespace-nowrap sm:gap-1.5 sm:px-2.5 sm:py-1 sm:text-xs">
+      <Hammer className="size-3 text-amber-300 sm:size-3.5" /> Builders {hud.freeBuilders}/{hud.builders}
     </div>
   );
 }
@@ -224,10 +240,10 @@ function BuildersChip({ hud }: { hud: VillageHud }) {
 function RaidersChip({ hud, onDefend }: { hud: VillageHud; onDefend: () => void }) {
   if (hud.raidIn < 0 || hud.raidIn > 45) return null;
   return (
-    <div className="g-hud pointer-events-auto flex w-fit animate-[game-fade_0.4s_ease] items-center gap-2 py-1 pr-1 pl-2.5 text-xs font-bold whitespace-nowrap">
-      <Shield className="size-3.5 text-red-400" />
+    <div className="g-hud pointer-events-auto flex w-fit animate-[game-fade_0.4s_ease] items-center gap-1.5 py-0.5 pr-1 pl-2 text-[10px] font-bold whitespace-nowrap sm:gap-2 sm:py-1 sm:pl-2.5 sm:text-xs">
+      <Shield className="size-3 text-red-400 sm:size-3.5" />
       Raiders in {formatTime(hud.raidIn)}
-      <button type="button" onClick={onDefend} className="g-btn px-2 py-0.5 text-xs">
+      <button type="button" onClick={onDefend} className="g-btn px-1.5 py-0.5 text-[10px] sm:px-2 sm:text-xs">
         <span className="g-unskew">Defend</span>
       </button>
     </div>
@@ -236,26 +252,26 @@ function RaidersChip({ hud, onDefend }: { hud: VillageHud; onDefend: () => void 
 
 function GemsChip({ gems, small = false }: { gems: number; small?: boolean }) {
   return (
-    <div className={`g-hud flex items-center gap-2 pr-3 pl-2 ${small ? "w-[7.25rem] py-0.5" : "w-[8.5rem] py-1 sm:w-44"}`}>
-      <ResIcon res="gems" size={small ? 14 : 16} />
-      <span className={`g-display flex-1 text-right tabular-nums ${small ? "text-sm" : "text-base"}`}>{gems}</span>
+    <div className={`g-hud flex items-center ${small ? "w-[7.25rem] gap-2 py-0.5 pr-3 pl-2" : "w-[6.75rem] gap-1.5 py-0.5 pr-2 pl-1.5 sm:w-36 sm:gap-2 sm:py-1 sm:pr-2.5 sm:pl-2"}`}>
+      <ResIcon res="gems" size={14} />
+      <span className={`g-display flex-1 text-right tabular-nums ${small ? "text-sm" : "text-[13px] sm:text-base"}`}>{gems}</span>
     </div>
   );
 }
 
+/** The storage cap sits after the amount ("3,214 /5K"), so each bar stays one slim row. */
 function ResourceBar({ res, value, cap, small = false }: { res: "gold" | "elixir"; value: number; cap: number; small?: boolean }) {
   const full = value >= cap;
   return (
-    <div className={`g-hud ${small ? "w-[7.25rem] px-2 py-1" : "w-[8.5rem] py-1 pr-2.5 pl-2 sm:w-44"}`}>
-      <div className="flex items-center gap-2">
-        <ResIcon res={res} size={small ? 14 : 16} />
-        <span className={`g-display flex-1 text-right leading-none tabular-nums ${small ? "text-sm" : "text-base"} ${full ? "text-amber-300" : ""}`}>
+    <div className={`g-hud ${small ? "w-[7.25rem] px-2 py-1" : "w-[6.75rem] py-1 pr-2 pl-1.5 sm:w-36 sm:pr-2.5 sm:pl-2"}`}>
+      <div className={`flex items-center ${small ? "gap-2" : "gap-1.5 sm:gap-2"}`}>
+        <ResIcon res={res} size={14} />
+        <span className={`g-display flex-1 text-right leading-none tabular-nums ${small ? "text-sm" : "text-[13px] sm:text-base"} ${full ? "text-amber-300" : ""}`}>
           {shortNumber(value)}
-          {small && <span className="ml-0.5 text-[9px] opacity-60">/{shortNumber(cap)}</span>}
+          <span className={`ml-0.5 opacity-60 ${small ? "text-[9px]" : "text-[9px] sm:text-[10px]"}`}>/{shortNumber(cap)}</span>
         </span>
       </div>
-      <Bar rtl value={cap ? value / cap : 0} color={res === "gold" ? "linear-gradient(270deg,#fde68a,#f59e0b)" : "linear-gradient(270deg,#f5d0fe,#c026d3)"} className="mt-1 h-1.5" />
-      {!small && <p className="mt-0.5 text-right text-[9px] font-bold opacity-60">max {shortNumber(cap)}</p>}
+      <Bar rtl value={cap ? value / cap : 0} color={res === "gold" ? "linear-gradient(270deg,#fde68a,#f59e0b)" : "linear-gradient(270deg,#f5d0fe,#c026d3)"} className={small ? "mt-1 h-1.5" : "mt-1 h-1 sm:h-1.5"} />
     </div>
   );
 }
@@ -1306,6 +1322,10 @@ export function SettingsPanel({
   const [confirm, setConfirm] = useState(false);
   const [tab, setTab] = useState<"settings" | "credits">("settings");
   const sound = useAudioSettings();
+  // The Android app is always full screen and in landscape.
+  const app = useNativeApp();
+  const screenMode = useFullscreen();
+  const [screenTip, setScreenTip] = useState<string | null>(null);
   return (
     <Sheet
       title={tab === "credits" ? "Credits" : "Settings"}
@@ -1377,6 +1397,38 @@ export function SettingsPanel({
                   </button>
                 ))}
               </div>
+              {!app && !screenMode.standalone && (
+                <>
+                  <p className="g-muted pt-1 text-[11px] font-bold uppercase">Screen</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      data-active={screenMode.active}
+                      onClick={() => {
+                        if (screenMode.supported) toggleFullscreen();
+                        else setScreenTip("Safari on iPhone can't play full screen: tap Share, then Add to Home Screen, and open the game from there.");
+                      }}
+                      className="g-soft px-3 py-2.5 text-sm font-bold"
+                    >
+                      <span className="g-unskew gap-1.5">
+                        {screenMode.active ? <Shrink className="size-4" /> : <Expand className="size-4" />} {screenMode.active ? "Exit full screen" : "Full screen"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void rotateScreen().then((ok) => setScreenTip(ok ? null : "This browser can't turn the screen by itself: turn your phone, and switch off its rotation lock if the game doesn't follow."))
+                      }
+                      className="g-soft px-3 py-2.5 text-sm font-bold"
+                    >
+                      <span className="g-unskew gap-1.5">
+                        <PhoneRotateIcon className="size-4" /> Turn screen
+                      </span>
+                    </button>
+                  </div>
+                  {screenTip && <p className="text-xs leading-snug font-semibold">{screenTip}</p>}
+                </>
+              )}
             </div>
             <div className="g-tint grid grid-cols-3 gap-2 rounded-xl p-3 text-center text-xs font-bold">
               <div>

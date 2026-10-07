@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronLeft, ChevronRight, CircleHelp, Flag, Home, Medal, Play, RotateCcw, Timer, Trophy } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleHelp, Flag, Gamepad2, Home, Medal, Play, RotateCcw, Timer, Trophy } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { ControlsButton, ControlsEditor } from "../shared/touch-layout";
 import {
   BigButton,
   createRecords,
@@ -20,7 +21,7 @@ import {
   useShortcuts,
 } from "../shared/ui";
 import { CLASSES, ordinal, TurboKartsGame, type Hud, type Mode, type Phase, type RaceResult } from "./engine";
-import { formatTime, HudOverlay, TouchControls } from "./hud";
+import { formatTime, HudOverlay, TouchControls, TouchFace, touchControls, touchIds } from "./hud";
 import { DRIVERS, GAME } from "./manifest";
 import { TRACKS } from "./tracks";
 
@@ -122,6 +123,7 @@ export function TurboKarts({ sizes }: { sizes: Record<string, number> }) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ShownResult | null>(null);
   const [help, setHelp] = useState(false);
+  const [editing, setEditing] = useState(false);
   const touch = useSyncExternalStore(touchInput.subscribe, touchInput.get, touchInput.server);
   const saved = useRecords(records);
   const autoGas = saved.autoGas ?? touch;
@@ -209,6 +211,10 @@ export function TurboKarts({ sizes }: { sizes: Record<string, number> }) {
       setHelp(false);
       return;
     }
+    if (editing) {
+      setEditing(false);
+      return;
+    }
     if (racing) g?.pause();
     else if (phase === "paused") g?.resume();
   };
@@ -228,7 +234,7 @@ export function TurboKarts({ sizes }: { sizes: Record<string, number> }) {
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
       const g = gameRef.current;
-      if (!g || e.ctrlKey || e.metaKey || e.altKey || help) return;
+      if (!g || e.ctrlKey || e.metaKey || e.altKey || help || editing) return;
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const confirm = e.code === "Enter" || e.code === "NumpadEnter";
       if (phase === "intro" && (confirm || e.code === "Space")) {
@@ -303,9 +309,11 @@ export function TurboKarts({ sizes }: { sizes: Record<string, number> }) {
     >
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Turbo Karts game" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && <MenuScreen game={game} onStart={start} onHelp={() => setHelp(true)} onDriver={changeDriver} touch={touch} />}
+      {phase === "menu" && !editing && <MenuScreen game={game} onStart={start} onHelp={() => setHelp(true)} onControls={() => setEditing(true)} onDriver={changeDriver} touch={touch} />}
+      {/* Controls editor from the title screen: the HUD shows behind it so controls keep clear of it. */}
+      {phase === "menu" && editing && <HudOverlay store={hud} game={game} paused={false} onPause={() => {}} touch={touch} trackName={track.name} />}
 
       {phase === "intro" && <IntroCard trackIndex={hud.get().track} race={hud.get().race} mode={hud.get().mode} />}
 
@@ -313,7 +321,7 @@ export function TurboKarts({ sizes }: { sizes: Record<string, number> }) {
       {touch && (phase === "racing" || phase === "countdown") && <TouchControls game={game} autoGas={autoGas} />}
       {phase === "racing" && saved.races_run < 2 && !touch && <ControlsHint />}
 
-      {phase === "paused" && !help && (
+      {phase === "paused" && !help && !editing && (
         <Modal title="Paused">
           <BigButton onClick={pauseOrResume} icon={<Play className="size-5 fill-current" />} autoFocus>
             Resume
@@ -334,8 +342,14 @@ export function TurboKarts({ sizes }: { sizes: Record<string, number> }) {
               Auto-accelerate: {autoGas ? "on" : "off"}
             </SoftButton>
           )}
+          {touch && (
+            <SoftButton onClick={() => setEditing(true)} icon={<Gamepad2 className="size-4" />}>
+              Edit controls
+            </SoftButton>
+          )}
         </Modal>
       )}
+      {(phase === "paused" || phase === "menu") && editing && <ControlsEditor controls={touchControls} active={touchIds(autoGas)} face={(id, p) => <TouchFace id={id} at={p} />} onClose={() => setEditing(false)} />}
 
       {phase === "results" && result && !help && <ResultsPanel result={result} onNext={next} onRetry={retry} onPodium={podium} onMenu={toMenu} />}
 
@@ -365,12 +379,14 @@ function MenuScreen({
   game,
   onStart,
   onHelp,
+  onControls,
   onDriver,
   touch,
 }: {
   game: TurboKartsGame | null;
   onStart: () => void;
   onHelp: () => void;
+  onControls: () => void;
   onDriver: (dir: number) => void;
   touch: boolean;
 }) {
@@ -390,7 +406,9 @@ function MenuScreen({
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
       <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
-        <SystemButtons onHelp={onHelp} />
+        <SystemButtons onHelp={onHelp}>
+          <ControlsButton onClick={onControls} />
+        </SystemButtons>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-end">

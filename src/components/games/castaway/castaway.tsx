@@ -265,7 +265,7 @@ export function Castaway({ sizes }: { sizes: Record<string, number> }) {
       <style>{STYLES}</style>
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Castaway game" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
       {phase === "menu" && (
         <MenuScreen

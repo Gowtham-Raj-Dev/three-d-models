@@ -287,7 +287,8 @@ export function KingdomClash({ sizes }: { sizes: Record<string, number> }) {
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Kingdom Clash village" />
       <div ref={overlayRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
 
-      {(mode === "loading" || mode === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      {/* Stays on top until the village is ready, then fades out over it. */}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={mode !== "loading" && mode !== "error"} />
 
       <div className="g-safe">
         {mode === "village" && hud && save && hud.editing && (

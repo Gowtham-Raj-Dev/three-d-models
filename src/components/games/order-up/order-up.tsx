@@ -9,12 +9,14 @@ import {
   createRecords,
   createStore,
   formatNumber,
+  FullscreenButton,
   GameRoot,
   GameTitle,
   HowToPlay,
   IconButton,
   LoadingScreen,
   Modal,
+  RotateButton,
   SoftButton,
   Stat,
   SystemButtons,
@@ -285,7 +287,7 @@ export function OrderUp({ sizes }: { sizes: Record<string, number> }) {
       <style>{KEYFRAMES}</style>
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Order Up! game" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
       {running && <CrateLabels labels={labels} />}
 
@@ -543,6 +545,8 @@ function HudOverlay({ store, paused, onPause, onHelp }: { store: Store<Hud>; pau
         <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
           {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
         </IconButton>
+        <FullscreenButton className="sm:hidden" />
+        <RotateButton className="sm:hidden" />
         <div className="hidden sm:block">
           <SystemButtons onHelp={onHelp} />
         </div>

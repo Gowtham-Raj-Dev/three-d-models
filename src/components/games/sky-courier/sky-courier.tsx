@@ -277,7 +277,7 @@ export function SkyCourier({ sizes }: { sizes: Record<string, number> }) {
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Sky Courier game" />
       <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 block h-full w-full" aria-hidden />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
       {phase === "menu" && !help && (
         <>

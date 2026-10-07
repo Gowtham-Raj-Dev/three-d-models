@@ -8,6 +8,7 @@ import {
   createRecords,
   createStore,
   formatNumber,
+  FullscreenButton,
   GameRoot,
   GameTitle,
   HowToPlay,
@@ -15,6 +16,7 @@ import {
   Kbd,
   LoadingScreen,
   Modal,
+  RotateButton,
   SoftButton,
   Stat,
   SystemButtons,
@@ -278,7 +280,7 @@ export function BeatStreet({ sizes }: { sizes: Record<string, number> }) {
     <GameRoot game={GAME} className="bg-[#07020d]" onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Beat Street game" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
       {phase === "menu" && (
         <MenuScreen
@@ -683,6 +685,8 @@ function HudOverlay({
           <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
             {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
           </IconButton>
+          <FullscreenButton className="sm:hidden" />
+          <RotateButton className="sm:hidden" />
           <div className="hidden sm:block">
             <SystemButtons />
           </div>

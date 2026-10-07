@@ -273,30 +273,22 @@ body::before {
 }
 
 /*
- * Games: loading screens (src/components/games/shared/loaders.tsx). These only animate `transform`
- * and `opacity`, so they combine with Tailwind's translate / rotate utilities.
+ * Games: loading screen bars (src/components/games/shared/loaders.tsx). These only animate `transform`
+ * and `opacity`, so they combine with Tailwind's translate / rotate utilities and keep running while
+ * the page is busy loading.
  */
-@keyframes g-kenburns {
-  from {
-    transform: scale(1.04);
-  }
-  to {
-    transform: scale(1.14) translate(-1.5%, -1%);
-  }
-}
-@keyframes g-rise {
-  from {
-    opacity: 0;
-    transform: translateY(14px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 @keyframes g-stripes {
   to {
-    background-position: var(--stripe, 28px) 0;
+    transform: translateX(var(--stripe, 28px));
+  }
+}
+@keyframes g-glint {
+  0% {
+    transform: translateX(-110%);
+  }
+  55%,
+  100% {
+    transform: translateX(250%);
   }
 }
 @keyframes g-blink {

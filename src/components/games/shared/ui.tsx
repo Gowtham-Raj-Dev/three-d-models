@@ -1,16 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore, type HTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, CircleHelp, Expand, Info, Music, Music2, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
-import { asset } from "@/lib/asset";
+import { CircleHelp, Expand, Info, Menu, Music, Music2, Shrink, Volume2, VolumeX, X } from "lucide-react";
 import { GAME_BUTTONS, GAME_SHORTCUTS, howToFor, type GameEntry } from "@/lib/games";
 import { SITE } from "@/lib/site";
 import { themeVars } from "../themes";
-import type { LoadProgress } from "./assets";
 import { audio } from "./audio";
-import { loadingLook } from "./loaders";
 import { useNativeApp } from "./native-app";
 
 /**
@@ -118,9 +114,69 @@ export function useAudioSettings() {
 
 // --- Shortcuts --------------------------------------------------------------------------------------
 
+// Older Safari (iPad) only has the webkit-prefixed full screen API.
+type WebkitDocument = Document & { webkitFullscreenElement?: Element | null; webkitFullscreenEnabled?: boolean; webkitExitFullscreen?: () => void };
+type WebkitElement = HTMLElement & { webkitRequestFullscreen?: () => void };
+
+const fullscreenElement = () => document.fullscreenElement ?? (document as WebkitDocument).webkitFullscreenElement ?? null;
+
+async function enterFullscreen() {
+  const root = document.documentElement as WebkitElement;
+  if (root.requestFullscreen) await root.requestFullscreen({ navigationUI: "hide" });
+  else root.webkitRequestFullscreen?.();
+}
+
 export function toggleFullscreen() {
-  if (document.fullscreenElement) void document.exitFullscreen();
-  else void document.documentElement.requestFullscreen?.().catch(() => {});
+  if (fullscreenElement()) {
+    if (document.exitFullscreen) void document.exitFullscreen().catch(() => {});
+    else (document as WebkitDocument).webkitExitFullscreen?.();
+    return;
+  }
+  void enterFullscreen().catch(() => {});
+}
+
+// TypeScript's DOM types leave out lock(): only some mobile browsers have it.
+type LockableOrientation = ScreenOrientation & { lock?: (to: "portrait" | "landscape") => Promise<void> };
+
+/**
+ * Turns the screen the other way: portrait → landscape, landscape → portrait. Browsers only lock the
+ * orientation of a full screen page (or one opened from the Home Screen), so it goes full screen
+ * first. False where the browser can't (iPhone Safari, desktops).
+ */
+export async function rotateScreen() {
+  const orientation = screen.orientation as LockableOrientation | undefined;
+  if (!orientation?.lock) return false;
+  const portrait = window.matchMedia("(orientation: portrait)").matches;
+  const standalone = window.matchMedia("(display-mode: standalone)").matches;
+  try {
+    if (!fullscreenElement() && !standalone) await enterFullscreen();
+    await orientation.lock(portrait ? "landscape" : "portrait");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const onFullscreenChange = (fn: () => void) => {
+  document.addEventListener("fullscreenchange", fn);
+  document.addEventListener("webkitfullscreenchange", fn);
+  return () => {
+    document.removeEventListener("fullscreenchange", fn);
+    document.removeEventListener("webkitfullscreenchange", fn);
+  };
+};
+const never = () => () => {};
+
+/**
+ * `supported`: the browser can make the page full screen (iPhone Safari can't — there the site
+ * opens full screen once added to the Home Screen). `active`: it is full screen now.
+ */
+export function useFullscreen() {
+  const supported = useSyncExternalStore(never, () => !!(document.fullscreenEnabled || (document as WebkitDocument).webkitFullscreenEnabled), () => false);
+  const active = useSyncExternalStore(onFullscreenChange, () => !!fullscreenElement(), () => false);
+  // Opened from the Home Screen: already full screen.
+  const standalone = useSyncExternalStore(never, () => window.matchMedia("(display-mode: standalone)").matches || !!(navigator as Navigator & { standalone?: boolean }).standalone, () => false);
+  return { supported, active, standalone };
 }
 
 /**
@@ -206,97 +262,30 @@ export function GameTitle({ game, size = "lg" }: { game: GameEntry; size?: "sm" 
   );
 }
 
-const formatMb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-
-/**
- * Loading screen in the game's own world: its cover art slowly drifting behind the title, and a
- * progress bar and status lines from the game itself (shared/loaders.tsx) — real byte progress.
- */
-export function LoadingScreen({ game, progress, error }: { game: GameEntry; progress: LoadProgress | null; error: string | null }) {
-  const look = loadingLook(game.slug);
-  const [line, setLine] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setLine((n) => n + 1), 2600);
-    return () => clearInterval(id);
-  }, []);
-  const pct = Math.round((progress?.ratio ?? 0) * 100);
-  const { shade, Bar, Fx } = look;
-  return (
-    <div className="g-loading absolute inset-0 overflow-hidden" style={look.ink ? { color: look.ink } : undefined}>
-      {!game.comingSoon && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={asset(game.cover)}
-          alt=""
-          decoding="async"
-          className="absolute inset-0 size-full object-cover motion-safe:animate-[g-kenburns_30s_ease-in-out_infinite_alternate]"
-        />
-      )}
-      <div
-        className="absolute inset-0"
-        style={{
-          background: `linear-gradient(180deg, ${shade}e6 0%, ${shade}59 30%, ${shade}14 50%, ${shade}bf 74%, ${shade}fa 100%), radial-gradient(ellipse at 50% 45%, transparent 55%, ${shade}b3 100%)`,
-        }}
-      />
-      {Fx && <Fx />}
-      <div className="relative flex h-full flex-col items-center justify-between px-6 pt-[13vh] pb-[8vh] text-center land:pt-6 land:pb-5">
-        <div className="motion-safe:animate-[g-rise_0.8s_ease-out_both]">
-          <GameTitle game={game} />
-          <p className="g-display mt-4 text-sm opacity-90 [text-shadow:0_1px_3px_#000c] sm:text-base land:mt-2">{game.tagline}</p>
-        </div>
-        <div className="w-full max-w-xl">
-          {error ? (
-            <div className="space-y-4">
-              <p className="text-sm opacity-90 [text-shadow:0_1px_3px_#000c]">{error}</p>
-              <div className="flex justify-center gap-3">
-                <SoftButton onClick={() => window.location.reload()} icon={<RotateCcw className="size-4" />}>
-                  Reload
-                </SoftButton>
-                <BackLink game={game} />
-              </div>
-            </div>
-          ) : (
-            <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={`Loading ${game.title}`}>
-              <Bar pct={pct} />
-              <div className="g-display mt-4 flex items-baseline justify-between gap-4 text-xs [text-shadow:0_1px_3px_#000c] sm:text-sm land:mt-3">
-                <span key={line} className="min-w-0 truncate animate-[game-fade_0.4s_ease]">
-                  {look.lines[line % look.lines.length]}
-                </span>
-                <span className="shrink-0 tabular-nums">
-                  {progress && <span className="mr-2 text-[0.85em] opacity-70">{formatMb(progress.totalBytes)}</span>}
-                  {pct}%
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Leaves the game for its details page. */
-export function BackLink({ game }: { game: GameEntry }) {
-  const app = useNativeApp();
-  if (app) return null;
-  return (
-    <Link
-      href={`/games/${game.slug}/`}
-      className="g-hud g-display inline-flex items-center gap-1.5 px-3.5 py-2 text-sm transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-    >
-      <ArrowLeft className="size-4" /> Back
-    </Link>
-  );
-}
+/** Loading screen in the game's own world (its look per game lives in shared/loaders.tsx). */
+export { LoadingScreen } from "./loading-screen";
 
 /** Top-right cluster: music, sound, help, fullscreen. */
-export function SystemButtons({ onHelp, children, vertical = false, small = false }: { onHelp?: () => void; children?: ReactNode; vertical?: boolean; small?: boolean }) {
+export function SystemButtons({
+  onHelp,
+  children,
+  vertical = false,
+  small = false,
+  grid = false,
+}: {
+  onHelp?: () => void;
+  children?: ReactNode;
+  vertical?: boolean;
+  small?: boolean;
+  /** Four to a row (inside SystemMenu's panel). */
+  grid?: boolean;
+}) {
   const settings = useAudioSettings();
   // The Android app is already full screen.
   const app = useNativeApp();
   const icon = small ? "size-[18px]" : "size-5";
   return (
-    <div className={`pointer-events-auto flex items-center gap-2 ${vertical ? "flex-col" : ""}`}>
+    <div className={`pointer-events-auto ${grid ? "grid grid-cols-4 gap-1.5" : `flex items-center gap-2 ${vertical ? "flex-col" : ""}`}`}>
       {children}
       <IconButton
         label={settings.music ? "Music off (M)" : "Music on (M)"}
@@ -326,12 +315,131 @@ export function SystemButtons({ onHelp, children, vertical = false, small = fals
         </IconButton>
       )}
       {onHelp && <CreditsButton small={small} iconClass={icon} />}
-      {!app && (
-        <IconButton label="Fullscreen (F)" onClick={toggleFullscreen} className="hidden sm:grid" small={small}>
-          <Expand className={icon} />
-        </IconButton>
-      )}
+      {!app && <FullscreenButton small={small} iconClass={icon} />}
+      <RotateButton small={small} iconClass={icon} />
     </div>
+  );
+}
+
+/**
+ * Every corner button behind one menu button, for busy screens: tap it to open them in a small panel,
+ * tap anywhere else (or a button in it) to close. The panel stays mounted while closed, so a sheet one
+ * of its buttons opened (credits, a tip) stays up.
+ */
+export function SystemMenu({ onHelp, children, small = false, align = "right" }: { onHelp?: () => void; children?: ReactNode; small?: boolean; align?: "left" | "right" }) {
+  const [open, setOpen] = useState(false);
+  const icon = small ? "size-[18px]" : "size-5";
+  return (
+    <div className="pointer-events-auto relative">
+      <IconButton label={open ? "Close menu" : "Menu"} onClick={() => setOpen((o) => !o)} small={small}>
+        {open ? <X className={icon} /> : <Menu className={icon} />}
+      </IconButton>
+      {open && (
+        <div
+          className="fixed inset-0 z-40"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            setOpen(false);
+          }}
+        />
+      )}
+      <div
+        className={`g-hud absolute top-full z-50 mt-1.5 w-max p-1.5 ${align === "right" ? "right-0" : "left-0"} ${open ? "animate-[game-fade_0.15s_ease]" : "hidden"}`}
+        onClick={() => setOpen(false)}
+      >
+        <SystemButtons onHelp={onHelp} small={small} grid>
+          {children}
+        </SystemButtons>
+      </div>
+    </div>
+  );
+}
+
+/** A phone turning between upright and sideways. */
+export function PhoneRotateIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <rect x="8.5" y="5" width="7" height="14" rx="1.5" transform="rotate(-45 12 12)" />
+      <path d="M14.5 2.6a9.6 9.6 0 0 1 6.9 6.9" />
+      <path d="m21.4 9.5.5-3M21.4 9.5l-2.9-.9" />
+      <path d="M9.5 21.4a9.6 9.6 0 0 1-6.9-6.9" />
+      <path d="m2.6 14.5-.5 3M2.6 14.5l2.9.9" />
+    </svg>
+  );
+}
+
+/**
+ * Touch screens: turns the screen to the other orientation (portrait ↔ landscape). Where the browser
+ * can't, it says to turn the phone instead. Not in the Android app, which stays in landscape.
+ */
+export function RotateButton({ small = false, iconClass = "size-5", className = "" }: { small?: boolean; iconClass?: string; className?: string }) {
+  const app = useNativeApp();
+  const touch = useTouchScreen();
+  const portrait = useMediaQuery("(orientation: portrait)");
+  const [tip, setTip] = useState(false);
+  if (app || !touch) return null;
+  return (
+    <>
+      <IconButton label={portrait ? "Turn to landscape" : "Turn to portrait"} onClick={() => void rotateScreen().then((ok) => ok || setTip(true))} small={small} className={className}>
+        <PhoneRotateIcon className={iconClass} />
+      </IconButton>
+      {tip && (
+        <TipSheet title={portrait ? "Landscape" : "Portrait"} onClose={() => setTip(false)}>
+          This browser can&apos;t turn the screen by itself. Turn your phone {portrait ? "sideways" : "upright"} — if the game doesn&apos;t turn with it, switch off your phone&apos;s
+          rotation lock.
+        </TipSheet>
+      )}
+    </>
+  );
+}
+
+/**
+ * Full screen on / off. Where the browser can't (iPhone Safari) it explains Add to Home Screen
+ * instead; hidden in the Android app and when opened from the Home Screen, which are full screen already.
+ */
+export function FullscreenButton({ small = false, iconClass = "size-5", className = "" }: { small?: boolean; iconClass?: string; className?: string }) {
+  const app = useNativeApp();
+  const { supported, active, standalone } = useFullscreen();
+  const [tip, setTip] = useState(false);
+  if (app || standalone) return null;
+  return (
+    <>
+      <IconButton label={active ? "Exit full screen (F)" : "Full screen (F)"} onClick={() => (supported ? toggleFullscreen() : setTip(true))} small={small} className={className}>
+        {active ? <Shrink className={iconClass} /> : <Expand className={iconClass} />}
+      </IconButton>
+      {tip && (
+        <TipSheet title="Full screen" onClose={() => setTip(false)}>
+          Safari on iPhone can&apos;t play games full screen. Tap <b>Share</b>, then <b>Add to Home Screen</b>, and open the game from your Home Screen.
+        </TipSheet>
+      )}
+    </>
+  );
+}
+
+/** A short note over the game (what to do where the browser can't go full screen or turn the screen). */
+function TipSheet({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const root = document.querySelector<HTMLElement>(".g-root");
+  if (!root) return null;
+  return createPortal(
+    <div
+      className="absolute inset-0 z-50 overflow-y-auto bg-black/55 backdrop-blur-sm"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div className="grid min-h-full place-items-center p-4">
+        <div role="dialog" aria-label={title} className="g-panel relative w-full max-w-xs p-5 text-center" onClick={(e) => e.stopPropagation()}>
+          <h2 className="g-panel-title text-2xl">{title}</h2>
+          <p className="mt-3 text-sm leading-relaxed">{children}</p>
+          <div className="mt-5">
+            <BigButton onClick={onClose}>Got it</BigButton>
+          </div>
+        </div>
+      </div>
+    </div>,
+    root,
   );
 }
 
@@ -427,20 +535,27 @@ function TouchControlsList({ game }: { game: GameEntry }) {
 
 function ButtonsList() {
   const app = useNativeApp();
-  const [canFullscreen] = useState(() => typeof document !== "undefined" && document.fullscreenEnabled);
+  const { standalone } = useFullscreen();
   return (
     <>
       <p className="g-muted -mt-1 mb-3 text-xs">In the top corner of the screen, or in the pause or settings menu.</p>
       <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {GAME_BUTTONS.filter((b) => !b.fullscreen || (canFullscreen && !app)).map(({ action, icon: Icon, fullscreen }) => (
-          // The fullscreen button only shows on wider screens (see SystemButtons).
-          <li key={action} className={`g-tint items-center gap-2.5 rounded-[var(--g-hud-radius)] px-3 py-2 text-xs ${fullscreen ? "hidden sm:flex" : "flex"}`}>
+        {GAME_BUTTONS.filter((b) => !b.fullscreen || (!app && !standalone)).map(({ action, icon: Icon }) => (
+          <li key={action} className="g-tint flex items-center gap-2.5 rounded-[var(--g-hud-radius)] px-3 py-2 text-xs">
             <span className="g-hud grid size-7 shrink-0 place-items-center">
               <Icon className="size-4" />
             </span>
             {action}
           </li>
         ))}
+        {!app && (
+          <li className="g-tint flex items-center gap-2.5 rounded-[var(--g-hud-radius)] px-3 py-2 text-xs">
+            <span className="g-hud grid size-7 shrink-0 place-items-center">
+              <PhoneRotateIcon className="size-4" />
+            </span>
+            Turn the screen (portrait / landscape)
+          </li>
+        )}
       </ul>
     </>
   );
@@ -528,7 +643,7 @@ export function BigButton({ onClick, icon, children, autoFocus, disabled }: { on
       }}
       autoFocus={autoFocus}
       disabled={disabled}
-      className="g-btn flex w-full items-center justify-center px-6 py-4 text-2xl focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent)] disabled:opacity-50"
+      className="g-btn flex w-full items-center justify-center px-6 py-4 text-2xl pointer-coarse:px-4 pointer-coarse:py-2 pointer-coarse:text-lg focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent)] disabled:opacity-50"
     >
       <span className="g-unskew gap-2.5">
         {icon}
@@ -547,7 +662,7 @@ export function SoftButton({ onClick, icon, children, active = false }: { onClic
         audio.unlock();
         onClick();
       }}
-      className="g-soft flex w-full items-center justify-center px-4 py-3 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+      className="g-soft flex w-full items-center justify-center px-4 py-3 text-sm pointer-coarse:px-3 pointer-coarse:py-1.5 pointer-coarse:text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
     >
       <span className="g-unskew gap-2">
         {icon}
@@ -571,7 +686,7 @@ export function IconButton({
   children: ReactNode;
   plain?: boolean;
   dim?: boolean;
-  /** 36px instead of 44px (landscape phone HUDs). */
+  /** 36px instead of 44px (touch screens always get 32px). */
   small?: boolean;
   className?: string;
 }) {
@@ -585,7 +700,7 @@ export function IconButton({
       }}
       aria-label={label}
       title={label}
-      className={`grid ${small ? "size-9" : "size-11"} place-items-center transition focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
+      className={`grid ${small ? "size-9" : "size-11"} pointer-coarse:size-8 place-items-center transition focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
         plain ? "rounded-full hover:bg-[color-mix(in_srgb,currentColor_12%,transparent)]" : "g-hud hover:brightness-110"
       } ${dim ? "opacity-55" : ""} ${className}`}
     >

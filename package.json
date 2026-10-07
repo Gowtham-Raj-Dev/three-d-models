@@ -20,7 +20,8 @@
     "models:stamp": "node scripts/stamp-licenses.mjs",
     "library:build": "node scripts/build-library.mjs",
     "decoders": "node scripts/copy-decoders.mjs",
-    "android:build": "node scripts/build-android.mjs"
+    "android:build": "node scripts/build-android.mjs",
+    "games:backdrops": "node scripts/capture-backdrops.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

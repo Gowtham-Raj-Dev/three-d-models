@@ -172,7 +172,7 @@ export function NightHeist({ sizes }: { sizes: Record<string, number> }) {
     <GameRoot game={GAME} className="bg-[#06070c]">
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" aria-label="Night Heist game" />
 
-      {(phase === "loading" || phase === "error") && <LoadingScreen game={GAME} progress={progress} error={error} />}
+      <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
       {phase === "menu" && !help && <CaseFiles records={saved.cases} onPick={openCase} onHelp={() => setHelp(true)} />}
 
