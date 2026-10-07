@@ -1,15 +1,9 @@
 import type { GameEntry } from "@/lib/games";
+import { SKATERS, STAGES, stageModels } from "./content";
 
 /** Skate Rush — every model it uses, from the site's own library (public/library). No three.js here. */
 
-const letters = (from: string, to: string) =>
-  Array.from({ length: to.charCodeAt(0) - from.charCodeAt(0) + 1 }, (_, i) => String.fromCharCode(from.charCodeAt(0) + i));
-
-export const CHARACTERS = [
-  { key: "mini-skate/character-skate-boy", name: "Skate Boy" },
-  { key: "mini-skate/character-skate-girl", name: "Skate Girl" },
-] as const;
-
+/** Models every stage uses (the stages swap in their own buildings, props and traffic). */
 export const M = {
   board: "mini-skate/skateboard",
   road: "racing-kit/road-straight-long",
@@ -22,54 +16,53 @@ export const M = {
   heart: "platformer-kit/heart",
   star: "platformer-kit/star",
   jewel: "platformer-kit/jewel",
-  streetLight: "city-kit-roads/light-curved",
   trafficLight: "city-kit-roads/traffic-light",
-  hydrant: "city-builder-bits/firehydrant",
-  bench: "city-builder-bits/bench",
-  planter: "city-kit-suburban/planter",
-  treeLarge: "city-kit-suburban/tree-large",
-  treeSmall: "city-kit-suburban/tree-small",
 } as const;
 
-export const CARS = [
-  "car-kit/taxi",
-  "car-kit/sedan",
-  "car-kit/sedan-sports",
-  "car-kit/police",
-  "car-kit/suv",
-  "car-kit/suv-luxury",
-  "car-kit/van",
-  "car-kit/hatchback-sports",
-  "car-kit/delivery",
-  "car-kit/truck",
-  "car-kit/garbage-truck",
-  "car-kit/ambulance",
-  "car-kit/firetruck",
-];
+/** Loaded before the menu: the first skater, the shared models and the first stage. */
+export const BASE_MODELS = [SKATERS[0].key, ...Object.values(M), ...stageModels(STAGES[0])];
 
-export const DOWNTOWN = letters("a", "n").map((l) => `city-kit-commercial/building-${l}`);
-export const SKYSCRAPERS = letters("a", "e").map((l) => `city-kit-commercial/building-skyscraper-${l}`);
-export const SUBURB = letters("a", "u").map((l) => `city-kit-suburban/building-type-${l}`);
-
-/** Load order matters: what the menu shows first (riders, road, first buildings) goes first. */
-export const MODELS = [...CHARACTERS.map((c) => c.key), ...Object.values(M), ...DOWNTOWN, ...SKYSCRAPERS, ...CARS, ...SUBURB];
+/** Everything the game can load (skaters and stages beyond the first load when picked). */
+export const MODELS = [...new Set([...BASE_MODELS, ...SKATERS.map((s) => s.key), ...STAGES.flatMap(stageModels)])];
 
 export const GAME: GameEntry = {
   slug: "skate-rush",
   title: "Skate Rush",
   tagline: "Skate through the city, dodge the traffic, grab every coin.",
   description:
-    "An endless 3D skateboard runner. Switch lanes past taxis and fire trucks, kickflip over barriers, duck under gates and collect coins, shields, magnets and score boosters — the city only gets faster.",
+    "An endless 3D skateboard runner. Switch lanes past taxis and fire trucks, kickflip over barriers, duck under gates and collect coins, shields, magnets and score boosters — then spend your coins on 18 skaters, 10 skins, 13 boards and 7 stages, from Snow Village to a low-gravity Moon Base.",
   genre: "Endless runner",
   accent: "#f59e0b",
   cover: "/games/skate-rush/cover.webp",
+  trailer: { src: "/games/skate-rush/trailer.mp4", poster: "/games/skate-rush/trailer-poster.webp", seconds: 36 },
   models: MODELS,
-  collections: ["Mini Skate", "Car Kit", "City Kit Commercial", "City Kit Suburban", "City Kit Roads", "Racing Kit", "Platformer Kit"],
+  collections: [
+    "Mini Skate",
+    "Mini Characters",
+    "Mini Arcade",
+    "Mini Arena",
+    "Mini Dungeon",
+    "Mini Forest",
+    "Car Kit",
+    "City Kit Commercial",
+    "City Kit Suburban",
+    "City Kit Industrial",
+    "City Kit Roads",
+    "City Builder Bits",
+    "Racing Kit",
+    "Platformer Kit",
+    "Holiday Kit",
+    "Graveyard Kit",
+    "Halloween Bits",
+    "Pirate Kit",
+    "Space Base Bits",
+  ],
   controls: [
     { action: "Change lane", keys: ["←", "→", "A", "D"], touch: "Swipe left / right" },
     { action: "Jump (kickflip!)", keys: ["↑", "W", "Space"], touch: "Swipe up" },
     { action: "Duck", keys: ["↓", "S"], touch: "Swipe down" },
     { action: "Start / play again", keys: ["Enter"], touch: "Tap Play" },
+    { action: "Shop (skaters, skins, boards, stages)", keys: ["B"], touch: "Tap Shop" },
   ],
   howTo: [
     "Run as far as you can — your score grows with distance, and every coin adds 10 points.",
@@ -78,6 +71,7 @@ export const GAME: GameEntry = {
     "Follow the coin trails — they always lead to a safe lane.",
     "Heart = shield (survives one crash), star = coin magnet, jewel = double score for 10 seconds.",
     "Press ↓ in mid-air to slam down fast and slide straight under a gate.",
+    "Spend your coins in the Shop: new skaters, skins, boards with trails, and stages. Later stages pay more coins per run.",
   ],
   touchHowTo: [
     "Run as far as you can — your score grows with distance, and every coin adds 10 points.",
@@ -86,7 +80,8 @@ export const GAME: GameEntry = {
     "Follow the coin trails — they always lead to a safe lane.",
     "Heart = shield (survives one crash), star = coin magnet, jewel = double score for 10 seconds.",
     "Swipe down in mid-air to slam down fast and slide straight under a gate.",
+    "Spend your coins in the Shop: new skaters, skins, boards with trails, and stages. Later stages pay more coins per run.",
   ],
-  features: ["3 lanes, endless city", "Kickflips & 360 spins", "Shield, magnet & 2× power-ups", "Downtown and suburb districts"],
+  features: ["7 stages to unlock", "18 skaters & 10 skins", "13 boards with trails", "Kickflips, shields & magnets"],
   music: "City Rush",
 };

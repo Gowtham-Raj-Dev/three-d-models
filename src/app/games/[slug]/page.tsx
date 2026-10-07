@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronRight, Download, Gamepad2, Hourglass, Keyboard, ListChecks, Music, Play, Smartphone } from "lucide-react";
 import { ComingSoonArt, GameCard } from "@/components/game-card";
+import { GameTrailer } from "@/components/game-trailer";
 import { JsonLd } from "@/components/json-ld";
 import { asset } from "@/lib/asset";
 import { androidApp } from "@/lib/game-apps";
@@ -98,6 +99,7 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
   const playHref = `/games/${game.slug}/play/`;
   const soon = game.comingSoon === true;
   const app = soon ? null : androidApp(game.slug);
+  const trailer = soon ? null : game.trailer;
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 sm:pt-10">
@@ -123,8 +125,26 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
                   author: { "@type": "Person", name: SITE.author },
                   creator: { "@type": "Person", name: SITE.author },
                   publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
+                  ...(trailer ? { trailer: { "@id": absoluteUrl(trailer.src) } } : {}),
                 },
               ]),
+          ...(trailer
+            ? [
+                {
+                  "@context": "https://schema.org",
+                  "@type": "VideoObject",
+                  "@id": absoluteUrl(trailer.src),
+                  name: `${game.title} — gameplay trailer`,
+                  description: `${game.tagline} ${game.description}`,
+                  thumbnailUrl: absoluteUrl(trailer.poster),
+                  contentUrl: absoluteUrl(trailer.src),
+                  uploadDate: "2026-10-07",
+                  duration: `PT${trailer.seconds}S`,
+                  author: { "@type": "Person", name: SITE.author },
+                  publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
+                },
+              ]
+            : []),
           {
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
@@ -150,6 +170,8 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
           <div className="relative aspect-[1200/630] overflow-hidden rounded-3xl border border-line">
             <ComingSoonArt game={game} titleClass="text-5xl sm:text-7xl" />
           </div>
+        ) : trailer ? (
+          <GameTrailer game={{ ...game, trailer }} playHref={playHref} />
         ) : (
           <Link
             href={playHref}

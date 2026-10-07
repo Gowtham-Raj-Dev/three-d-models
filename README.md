@@ -92,6 +92,20 @@ Needs JDK 17 and the Android SDK (`ANDROID_HOME`). For a new release bump `versi
 Signing: `android/kingdom-clash/release.jks` + `keystore.properties` (git-ignored). **Back them up privately** — every
 update must be signed with the same key, or phones refuse to install it over the old version.
 
+### Skate Rush on YouTube Playables
+
+`npm run playables:build` builds Skate Rush as a stand-alone page for [YouTube Playables](https://developers.google.com/youtube/gaming/playables)
+(no Next.js, every path relative, ~7.7 MB): `dist-playables/skate-rush/` and `dist-playables/skate-rush-playables.zip`
+for upload. Its `index.html` loads YouTube's SDK before the game, and the game follows the SDK's rules
+(`src/components/games/shared/playables.ts`): firstFrameReady / gameReady, pause, resume and mute only from YouTube,
+progress in YouTube's cloud save (never localStorage), best score with sendScore, no full-screen or rotate buttons.
+Test it with `npx serve dist-playables/skate-rush` (the SDK does nothing outside YouTube) and YouTube's Playables test suite.
+
+The trailer on its page (`public/games/skate-rush/trailer.mp4` + `trailer-poster.webp`) is recorded from the game:
+`node scripts/record-skate-trailer.mjs` with `npm run dev` running and ffmpeg installed (or `FFMPEG=path/to/ffmpeg`).
+It steps the game frame by frame on a virtual clock while the autopilot plays, draws the captions over it and renders
+the music offline, so re-run it whenever the game's look changes.
+
 ### Custom colors
 
 Every model page has a **Customize colors** button (viewer toolbar, download box and mobile dock) that opens a
@@ -206,6 +220,7 @@ The converted models are already committed in `public/`, so the site works right
 | `npm run icons` | Render `favicon.ico`, Apple touch icon and PWA icons from `src/app/icon.svg` |
 | `npm run decoders` | Copy three.js's Draco + Basis decoders into `public/decoders/` (for the GLB viewer) |
 | `npm run android:build` | Build the Kingdom Clash Android APK from `out/` → `public/downloads/kingdom-clash.apk` (`--pack-only` skips Gradle) |
+| `npm run playables:build` | Build Skate Rush for YouTube Playables → `dist-playables/skate-rush-playables.zip` |
 
 ### Regenerating the models
 

@@ -8,6 +8,7 @@ import { SITE } from "@/lib/site";
 import { themeVars } from "../themes";
 import { audio } from "./audio";
 import { useNativeApp } from "./native-app";
+import { inPlayables, usePlayables } from "./playables";
 
 /**
  * Building blocks every game's UI is made of: the full-screen frame, loading screen, how-to-play
@@ -45,11 +46,16 @@ export function useStore<T>(store: Store<T>) {
   return useSyncExternalStore(store.subscribe, store.get, store.get);
 }
 
-/** Records kept in this browser (best score, unlocks, settings) — every access guarded. */
-export function createRecords<T extends object>(key: string, defaults: T) {
+/**
+ * Records kept in this browser (best score, unlocks, settings) — every access guarded. With `cloud`
+ * (YouTube Playables) nothing touches localStorage: every change goes to `cloud`, and the saved
+ * copy comes in through hydrate().
+ */
+export function createRecords<T extends object>(key: string, defaults: T, { cloud }: { cloud?: (value: T) => void } = {}) {
   const listeners = new Set<() => void>();
   let cache: T | null = null;
   const read = (): T => {
+    if (cloud) return defaults;
     try {
       return { ...defaults, ...JSON.parse(window.localStorage.getItem(key) ?? "{}") };
     } catch {
@@ -65,11 +71,19 @@ export function createRecords<T extends object>(key: string, defaults: T) {
     server: (): T => defaults,
     set(patch: Partial<T>) {
       cache = { ...records.get(), ...patch };
-      try {
-        window.localStorage.setItem(key, JSON.stringify(cache));
-      } catch {
-        // Storage blocked: keep for this session.
+      if (cloud) cloud(cache);
+      else {
+        try {
+          window.localStorage.setItem(key, JSON.stringify(cache));
+        } catch {
+          // Storage blocked: keep for this session.
+        }
       }
+      listeners.forEach((fn) => fn());
+    },
+    /** Replaces the records with a saved copy without saving it again (cloud saves). */
+    hydrate(saved: Partial<T>) {
+      cache = { ...defaults, ...saved };
       listeners.forEach((fn) => fn());
     },
   };
@@ -191,7 +205,7 @@ export function useShortcuts({ onPause, onHelp }: { onPause?: () => void; onHelp
       const k = e.key.toLowerCase();
       if (k === "m") audio.toggleMusic();
       else if (k === "n") audio.toggleSfx();
-      else if (k === "f") toggleFullscreen();
+      else if (k === "f" && !inPlayables()) toggleFullscreen();
       else if ((k === "h" || k === "?") && onHelp) onHelp();
       else if ((k === "escape" || k === "p") && onPause) onPause();
       else return;
@@ -374,10 +388,12 @@ export function PhoneRotateIcon({ className = "" }: { className?: string }) {
  */
 export function RotateButton({ small = false, iconClass = "size-5", className = "" }: { small?: boolean; iconClass?: string; className?: string }) {
   const app = useNativeApp();
+  const youtube = usePlayables();
   const touch = useTouchScreen();
   const portrait = useMediaQuery("(orientation: portrait)");
   const [tip, setTip] = useState(false);
-  if (app || !touch) return null;
+  // YouTube Playables handles the screen itself.
+  if (app || youtube || !touch) return null;
   return (
     <>
       <IconButton label={portrait ? "Turn to landscape" : "Turn to portrait"} onClick={() => void rotateScreen().then((ok) => ok || setTip(true))} small={small} className={className}>
@@ -399,9 +415,10 @@ export function RotateButton({ small = false, iconClass = "size-5", className = 
  */
 export function FullscreenButton({ small = false, iconClass = "size-5", className = "" }: { small?: boolean; iconClass?: string; className?: string }) {
   const app = useNativeApp();
+  const youtube = usePlayables();
   const { supported, active, standalone } = useFullscreen();
   const [tip, setTip] = useState(false);
-  if (app || standalone) return null;
+  if (app || youtube || standalone) return null;
   return (
     <>
       <IconButton label={active ? "Exit full screen (F)" : "Full screen (F)"} onClick={() => (supported ? toggleFullscreen() : setTip(true))} small={small} className={className}>
@@ -534,7 +551,9 @@ function TouchControlsList({ game }: { game: GameEntry }) {
 }
 
 function ButtonsList() {
-  const app = useNativeApp();
+  const native = useNativeApp();
+  const youtube = usePlayables();
+  const app = native || youtube;
   const { standalone } = useFullscreen();
   return (
     <>
@@ -563,6 +582,7 @@ function ButtonsList() {
 
 export function HowToPlay({ game, onClose }: { game: GameEntry; onClose: () => void }) {
   const touch = useTouchScreen();
+  const youtube = usePlayables();
   return (
     <div className="absolute inset-0 z-20 overflow-y-auto bg-black/55 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
       <div className="grid min-h-full place-items-center p-4">
@@ -592,7 +612,7 @@ export function HowToPlay({ game, onClose }: { game: GameEntry; onClose: () => v
             <ButtonsList />
           ) : (
             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {GAME_SHORTCUTS.map((s) => (
+              {GAME_SHORTCUTS.filter((s) => !youtube || s.keys[0] !== "F").map((s) => (
                 <li key={s.action} className="g-tint flex items-center justify-between gap-2 rounded-[var(--g-hud-radius)] px-3 py-2 text-xs">
                   {s.action}
                   <span className="flex gap-1">

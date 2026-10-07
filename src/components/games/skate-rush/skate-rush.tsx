@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, CircleHelp, Gem, Heart, Home, Magnet, Pause, Play, RotateCcw, Trophy } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { CircleHelp, Gem, Heart, Home, Magnet, Map as MapIcon, Pause, Play, RotateCcw, Shirt, ShoppingBag, Sparkles, Trophy, User } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { audio } from "../shared/audio";
+import { music } from "../shared/music";
+import { CITY_RUSH } from "../shared/songs";
+import { playablesFirstFrame, playablesLifecycle, playablesLoad, playablesReady, playablesSave, playablesScore, inPlayables } from "../shared/playables";
 import {
   BigButton,
   createRecords,
@@ -18,14 +22,45 @@ import {
   Stat,
   SystemButtons,
   useRecords,
+  usePhoneLandscape,
   useShortcuts,
   useStore,
   type Store,
 } from "../shared/ui";
-import { SkateRushGame, type Hud, type Move, type Phase, type RunResult } from "./engine";
-import { CHARACTERS, GAME } from "./manifest";
+import { BOARDS, findItem, ITEMS, SKATERS, SKINS, STAGES, type ShopItem, type ShopKind } from "./content";
+import { SkateRushGame, type Hud, type Loadout, type Move, type Phase, type RunResult } from "./engine";
+import { GAME } from "./manifest";
+import { CoinIcon, isOwned, ownedKey, Shop } from "./shop";
 
-const records = createRecords("skate-rush:v1", { best: 0, bank: 0, runs: 0, character: 0 });
+interface Save {
+  best: number;
+  bank: number;
+  runs: number;
+  /** Version 1 saves: 0 = Skate Boy, 1 = Skate Girl. */
+  character: number;
+  skater: string;
+  skin: string;
+  board: string;
+  stage: string;
+  /** Bought items, "kind:id". */
+  owned: string[];
+}
+
+const DEFAULTS: Save = { best: 0, bank: 0, runs: 0, character: 0, skater: "", skin: SKINS[0].id, board: BOARDS[0].id, stage: STAGES[0].id, owned: [] };
+
+// In YouTube Playables progress goes to YouTube's cloud save instead of this browser.
+const records = createRecords("skate-rush:v1", DEFAULTS, { cloud: inPlayables() ? playablesSave : undefined });
+
+/** The equipped items, falling back to the free ones for anything unknown or not owned. */
+function loadoutOf(save: Save): Loadout {
+  const skater = save.skater || (save.character === 1 ? SKATERS[1].id : SKATERS[0].id);
+  const pick = (kind: ShopKind, id: string) => {
+    const list = ITEMS[kind];
+    const item = list.find((i) => i.id === id);
+    return item && isOwned(save, kind, item) ? item.id : list[0].id;
+  };
+  return { skater: pick("skater", skater), skin: pick("skin", save.skin), board: pick("board", save.board), stage: pick("stage", save.stage) };
+}
 
 const EMPTY_HUD: Hud = { score: 0, coins: 0, distance: 0, shield: false, magnet: 0, boost: 0 };
 
@@ -45,6 +80,11 @@ const KEY_MOVES: Record<string, Move> = {
   S: "duck",
 };
 
+type Result = RunResult & { newBest: boolean; bonus: number; multiplier: number };
+
+/** What the 3D camera frames for each shop tab. */
+const showcaseOf = (kind: ShopKind) => (kind === "board" ? "board" : kind === "stage" ? "stage" : "skater");
+
 export function SkateRush({ sizes }: { sizes: Record<string, number> }) {
   // Model sizes never change: keep the first object so a re-render doesn't rebuild the game.
   const [modelSizes] = useState(sizes);
@@ -55,38 +95,69 @@ export function SkateRush({ sizes }: { sizes: Record<string, number> }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<(RunResult & { newBest: boolean }) | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
   const [runKey, setRunKey] = useState(0);
   const [help, setHelp] = useState(false);
+  const [shop, setShop] = useState<{ tab: ShopKind; selected: string } | null>(null);
+  const [busy, setBusy] = useState<{ label: string; ratio: number } | null>(null);
   const saved = useRecords(records);
+  const loadout = loadoutOf(saved);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const game = new SkateRushGame(canvas, {
-      progress: setProgress,
-      phase: setPhase,
-      hud: hud.set,
-      error: setError,
-      over: (run) => {
-        const before = records.get();
-        const newBest = run.score > before.best;
-        records.set({ best: Math.max(before.best, run.score), bank: before.bank + run.coins, runs: before.runs + 1 });
-        setResult({ ...run, newBest });
+    const youtube = inPlayables();
+    const game = new SkateRushGame(
+      canvas,
+      {
+        progress: setProgress,
+        phase: setPhase,
+        hud: hud.set,
+        error: setError,
+        busy: setBusy,
+        over: (run) => {
+          const before = records.get();
+          const multiplier = findItem(STAGES, loadoutOf(before).stage).rules.coins;
+          const bonus = Math.round(run.coins * (multiplier - 1));
+          const newBest = run.score > before.best;
+          records.set({ best: Math.max(before.best, run.score), bank: before.bank + run.coins + bonus, runs: before.runs + 1 });
+          if (newBest) playablesScore(run.score);
+          setResult({ ...run, newBest, bonus, multiplier });
+        },
       },
-    });
+      { visibility: !youtube },
+    );
     gameRef.current = game;
-    game.selectCharacter(records.get().character);
-    void game.load(modelSizes);
+    // Dev server only: scripts/record-skate-trailer.mjs drives the game (and renders its music) through this.
+    if (process.env.NODE_ENV !== "production") Object.assign(window, { __skateRush: { game, records, audio, music, song: CITY_RUSH } });
+    playablesFirstFrame();
+    const stopLifecycle = playablesLifecycle(
+      () => {
+        game.pause();
+        game.setSuspended(true);
+      },
+      () => game.setSuspended(false),
+    );
+    void (async () => {
+      // YouTube: wait for the cloud save before anything can be saved over it.
+      const cloud = await playablesLoad();
+      if (cloud) records.hydrate(cloud as Partial<Save>);
+      if (gameRef.current === game) void game.load(modelSizes, loadoutOf(records.get()));
+    })();
     return () => {
+      stopLifecycle();
       gameRef.current = null;
       game.dispose();
     };
   }, [hud, modelSizes]);
 
+  useEffect(() => {
+    if (phase === "menu") playablesReady();
+  }, [phase]);
+
   const start = () => {
     const game = gameRef.current;
-    if (!game) return;
+    if (!game || busy) return;
     (document.activeElement as HTMLElement | null)?.blur();
     setResult(null);
     setHelp(false);
@@ -115,19 +186,81 @@ export function SkateRush({ sizes }: { sizes: Record<string, number> }) {
     setHelp(true);
   };
 
-  useShortcuts({ onPause: pauseOrResume, onHelp: openHelp });
+  useShortcuts({ onPause: shop ? undefined : pauseOrResume, onHelp: openHelp });
 
-  const changeCharacter = (dir: number) => {
-    const next = (saved.character + dir + CHARACTERS.length) % CHARACTERS.length;
-    records.set({ character: next });
-    gameRef.current?.selectCharacter(next);
+  // --- Shop ---
+
+  /** Shows an item on the 3D skater (a preview, or the equipped one). */
+  const preview = (kind: ShopKind, id: string) => {
+    const game = gameRef.current;
+    if (!game) return;
+    if (kind === "skater") void game.setSkater(id);
+    else if (kind === "skin") game.setSkin(id);
+    else if (kind === "board") game.setBoard(id);
+    else void game.setStage(id);
   };
 
-  // Game keys: arrows / WASD / Space while running, Enter on the menus.
+  const shift = useRef({ x: 0, y: 0 });
+  const shopTab = useRef<ShopKind>("skater");
+
+  const openShop = (tab: ShopKind = "skater") => {
+    if (phase === "over") toMenu();
+    else if (phase !== "menu") return;
+    setResult(null);
+    shopTab.current = tab;
+    setShop({ tab, selected: loadout[tab] });
+    gameRef.current?.setShowcase(showcaseOf(tab), shift.current);
+  };
+
+  const closeShop = () => {
+    const game = gameRef.current;
+    setShop(null);
+    if (!game) return;
+    // Back to what's equipped (the last previews may not be owned).
+    const now = loadoutOf(records.get());
+    const current = game.currentLoadout;
+    (Object.keys(now) as ShopKind[]).forEach((kind) => now[kind] !== current[kind] && preview(kind, now[kind]));
+    game.setShowcase("menu");
+  };
+
+  const pickTab = (tab: ShopKind) => {
+    if (!shop) return;
+    // Leaving a tab puts its equipped item back on the skater.
+    if (shop.selected !== loadout[shop.tab]) preview(shop.tab, loadout[shop.tab]);
+    shopTab.current = tab;
+    setShop({ tab, selected: loadout[tab] });
+    gameRef.current?.setShowcase(showcaseOf(tab), shift.current);
+  };
+
+  const pickItem = (id: string) => {
+    if (!shop) return;
+    setShop({ ...shop, selected: id });
+    preview(shop.tab, id);
+  };
+
+  const equip = (kind: ShopKind, id: string) => {
+    records.set({ [kind]: id } as Partial<Save>);
+    preview(kind, id);
+  };
+
+  const buy = (kind: ShopKind, item: ShopItem) => {
+    const save = records.get();
+    if (save.bank < item.price || isOwned(save, kind, item)) return;
+    records.set({ bank: save.bank - item.price, owned: [...save.owned, ownedKey(kind, item.id)], [kind]: item.id } as Partial<Save>);
+    gameRef.current?.sfx.power();
+    preview(kind, item.id);
+  };
+
+  const onLayout = useCallback((s: { x: number; y: number }) => {
+    shift.current = s;
+    gameRef.current?.setShowcase(showcaseOf(shopTab.current), s);
+  }, []);
+
+  // Game keys: arrows / WASD / Space while running, Enter on the menus, B for the shop.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const game = gameRef.current;
-      if (!game || e.ctrlKey || e.metaKey || e.altKey || help) return;
+      if (!game || e.ctrlKey || e.metaKey || e.altKey || help || shop) return;
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const confirm = e.key === "Enter" || e.key === " ";
       if (phase === "playing") {
@@ -145,23 +278,22 @@ export function SkateRush({ sizes }: { sizes: Record<string, number> }) {
         if (confirm && !onButton) {
           e.preventDefault();
           start();
-        } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-          e.preventDefault();
-          changeCharacter(e.key === "ArrowLeft" ? -1 : 1);
-        }
+        } else if (e.key === "b" || e.key === "B") openShop();
       } else if (phase === "over") {
         if (confirm && !onButton) {
           e.preventDefault();
           start();
         } else if (e.key === "Escape") toMenu();
+        else if (e.key === "b" || e.key === "B") openShop();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // Leaving the tab or window pauses the run.
+  // Leaving the tab or window pauses the run (YouTube pauses through its own SDK instead).
   useEffect(() => {
+    if (inPlayables()) return;
     const pause = () => gameRef.current?.pause();
     const onVisibility = () => document.hidden && pause();
     document.addEventListener("visibilitychange", onVisibility);
@@ -198,14 +330,22 @@ export function SkateRush({ sizes }: { sizes: Record<string, number> }) {
 
       <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && (
-        <MenuScreen
-          character={saved.character}
-          best={saved.best}
-          bank={saved.bank}
-          onCharacter={changeCharacter}
-          onPlay={start}
-          onHelp={() => setHelp(true)}
+      {phase === "menu" && !shop && (
+        <MenuScreen loadout={loadout} best={saved.best} bank={saved.bank} busy={busy} onPlay={start} onShop={openShop} onHelp={() => setHelp(true)} />
+      )}
+
+      {phase === "menu" && shop && (
+        <Shop
+          save={{ ...saved, ...loadout }}
+          tab={shop.tab}
+          selected={shop.selected}
+          busy={busy}
+          onTab={pickTab}
+          onSelect={pickItem}
+          onBuy={buy}
+          onEquip={equip}
+          onClose={closeShop}
+          onLayout={onLayout}
         />
       )}
 
@@ -240,19 +380,29 @@ export function SkateRush({ sizes }: { sizes: Record<string, number> }) {
               </p>
             )}
             <p className="g-muted text-xs font-bold tracking-[0.2em] uppercase">Score</p>
-            <p className="g-display text-6xl tabular-nums">{formatNumber(result.score)}</p>
+            <p className="g-display text-6xl tabular-nums pointer-coarse:text-5xl">{formatNumber(result.score)}</p>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <Stat label="Coins" value={formatNumber(result.coins)} />
+            <Stat label="Coins" value={formatNumber(result.coins + result.bonus)} />
             <Stat label="Distance" value={`${formatNumber(result.distance)} m`} />
             <Stat label="Best" value={formatNumber(Math.max(saved.best, result.score))} />
           </div>
+          {result.bonus > 0 && (
+            <p className="g-tint flex items-center justify-center gap-1.5 rounded-[var(--g-hud-radius)] px-3 py-1.5 text-center text-xs font-bold">
+              <Sparkles className="size-3.5 text-amber-300" /> {findItem(STAGES, loadout.stage).name} bonus ×{result.multiplier}: +{formatNumber(result.bonus)}
+            </p>
+          )}
           <BigButton onClick={start} icon={<RotateCcw className="size-5" />}>
             Play again
           </BigButton>
-          <SoftButton onClick={toMenu} icon={<Home className="size-4" />}>
-            Menu
-          </SoftButton>
+          <div className="grid grid-cols-2 gap-2">
+            <SoftButton onClick={() => openShop()} icon={<ShoppingBag className="size-4" />}>
+              Shop · {formatNumber(saved.bank)}
+            </SoftButton>
+            <SoftButton onClick={toMenu} icon={<Home className="size-4" />}>
+              Menu
+            </SoftButton>
+          </div>
         </Modal>
       )}
 
@@ -264,73 +414,109 @@ export function SkateRush({ sizes }: { sizes: Record<string, number> }) {
 // --- Screens -------------------------------------------------------------------------------------
 
 function MenuScreen({
-  character,
+  loadout,
   best,
   bank,
-  onCharacter,
+  busy,
   onPlay,
+  onShop,
   onHelp,
 }: {
-  character: number;
+  loadout: Loadout;
   best: number;
   bank: number;
-  onCharacter: (dir: number) => void;
+  busy: { label: string; ratio: number } | null;
   onPlay: () => void;
+  onShop: (tab?: ShopKind) => void;
   onHelp: () => void;
 }) {
+  const tiles: { kind: ShopKind; label: string; value: string; icon: ReactNode }[] = [
+    { kind: "skater", label: "Skater", value: findItem(SKATERS, loadout.skater).name, icon: <User className="size-4" /> },
+    { kind: "skin", label: "Skin", value: findItem(SKINS, loadout.skin).name, icon: <Shirt className="size-4" /> },
+    { kind: "board", label: "Board", value: findItem(BOARDS, loadout.board).name, icon: <BoardIcon /> },
+    { kind: "stage", label: "Stage", value: findItem(STAGES, loadout.stage).name, icon: <MapIcon className="size-4" /> },
+  ];
+  const sideways = usePhoneLandscape();
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
       <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <SystemButtons onHelp={onHelp} />
       </div>
 
-      <div className="px-4 pt-2 text-center sm:pt-4">
-        <GameTitle game={GAME} />
-        <p className="g-display mt-3 text-sm text-white [text-shadow:2px_2px_0_#111] sm:text-base">Dodge the traffic · grab the coins · don&apos;t stop</p>
+      <div className="px-4 pt-2 text-center sm:pt-4 land:pt-0">
+        <GameTitle game={GAME} size={sideways ? "sm" : "lg"} />
+        <p className="g-display mt-3 text-sm text-white [text-shadow:2px_2px_0_#111] sm:text-base land:hidden">Dodge the traffic · grab the coins · don&apos;t stop</p>
       </div>
 
       <div className="flex-1" />
 
-      <div className="pointer-events-auto mx-auto w-full max-w-md space-y-3 px-4 pb-[max(env(safe-area-inset-bottom),16px)] sm:pb-8">
-        <div className="g-hud flex items-center justify-between p-1.5">
-          <IconButton onClick={() => onCharacter(-1)} label="Previous skater" plain>
-            <ChevronLeft className="size-6" />
-          </IconButton>
-          <div className="text-center">
-            <p className="text-[10px] font-bold tracking-[0.2em] uppercase opacity-60">Skater</p>
-            <p className="g-display text-lg">{CHARACTERS[character]?.name ?? CHARACTERS[0].name}</p>
-          </div>
-          <IconButton onClick={() => onCharacter(1)} label="Next skater" plain>
-            <ChevronRight className="size-6" />
-          </IconButton>
+      <div className="pointer-events-auto mx-auto w-full max-w-md space-y-2.5 px-4 pb-[max(env(safe-area-inset-bottom),16px)] sm:pb-8 land:max-w-3xl land:space-y-1.5 land:pb-2">
+        <div className="space-y-2.5 land:flex land:items-stretch land:gap-2 land:space-y-0">
+        <div className="grid grid-cols-4 gap-1.5 land:flex-1">
+          {tiles.map((t) => (
+            <button
+              key={t.kind}
+              type="button"
+              onClick={() => onShop(t.kind)}
+              title={`${t.label}: ${t.value} — open the shop`}
+              className="g-hud flex min-w-0 flex-col items-center gap-0.5 px-1 py-1.5 text-center hover:brightness-110 focus-visible:outline-2 focus-visible:outline-[var(--accent)] land:py-1"
+            >
+              <span className="flex items-center gap-1 text-[10px] font-bold tracking-[0.12em] uppercase opacity-70">
+                {t.icon}
+                <span className="hidden min-[380px]:inline">{t.label}</span>
+              </span>
+              <span className="g-display w-full truncate text-[11px] leading-tight sm:text-xs">{t.value}</span>
+            </button>
+          ))}
         </div>
 
-        <BigButton onClick={onPlay} icon={<Play className="size-6 fill-current" />} autoFocus>
-          Play
-        </BigButton>
+        <div className="grid grid-cols-[1fr_auto] gap-2 land:w-60 land:shrink-0">
+          <BigButton onClick={onPlay} icon={<Play className="size-6 fill-current" />} autoFocus disabled={!!busy}>
+            {busy ? `${Math.round(busy.ratio * 100)}%` : "Play"}
+          </BigButton>
+          <button
+            type="button"
+            onClick={() => onShop()}
+            className="g-soft flex flex-col items-center justify-center gap-0.5 px-4 text-xs font-bold focus-visible:outline-2 focus-visible:outline-[var(--accent)] pointer-coarse:px-3"
+          >
+            <ShoppingBag className="size-5" />
+            Shop
+          </button>
+        </div>
+        </div>
 
         <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-bold">
-          <span className="g-hud inline-flex items-center gap-1.5 px-3 py-1.5">
+          <span className="g-hud inline-flex items-center gap-1.5 px-3 py-1.5 land:py-1">
             <Trophy className="size-3.5 text-amber-300" /> Best {formatNumber(best)}
           </span>
-          <span className="g-hud inline-flex items-center gap-1.5 px-3 py-1.5">
+          <span className="g-hud inline-flex items-center gap-1.5 px-3 py-1.5 land:py-1">
             <CoinIcon /> {formatNumber(bank)} coins
           </span>
           <button
             type="button"
             onClick={onHelp}
-            className="g-hud inline-flex items-center gap-1.5 px-3 py-1.5 hover:brightness-110 focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+            className="g-hud inline-flex items-center gap-1.5 px-3 py-1.5 hover:brightness-110 focus-visible:outline-2 focus-visible:outline-[var(--accent)] land:py-1"
           >
             <CircleHelp className="size-3.5" /> How to play
           </button>
         </div>
 
-        <p className="hidden text-center text-xs font-semibold text-white/85 [text-shadow:0_1px_4px_rgb(0_0_0/0.5)] sm:block">
-          ← → change lane · ↑ / Space jump · ↓ duck · Esc pause · M music
+        <p className="hidden text-center text-xs font-semibold text-white/85 [text-shadow:0_1px_4px_rgb(0_0_0/0.5)] sm:block land:hidden">
+          ← → change lane · ↑ / Space jump · ↓ duck · B shop · Esc pause · M music
         </p>
         <p className="text-center text-xs font-semibold text-white/85 [text-shadow:0_1px_4px_rgb(0_0_0/0.5)] sm:hidden">Swipe ← → to change lane · ↑ jump · ↓ duck</p>
       </div>
     </div>
+  );
+}
+
+function BoardIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
+      <rect x="2" y="8" width="20" height="6" rx="3" />
+      <circle cx="7" cy="17.5" r="1.6" />
+      <circle cx="17" cy="17.5" r="1.6" />
+    </svg>
   );
 }
 
@@ -390,14 +576,5 @@ function PowerChip({ icon, label, tone, left }: { icon: ReactNode; label: string
         </span>
       )}
     </div>
-  );
-}
-
-function CoinIcon({ large = false }: { large?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={`inline-block rounded-full bg-gradient-to-br from-yellow-200 via-amber-400 to-orange-500 ring-2 ring-amber-600/70 ${large ? "size-7" : "size-3.5"}`}
-    />
   );
 }

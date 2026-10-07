@@ -21,7 +21,8 @@
     "library:build": "node scripts/build-library.mjs",
     "decoders": "node scripts/copy-decoders.mjs",
     "android:build": "node scripts/build-android.mjs",
-    "games:backdrops": "node scripts/capture-backdrops.mjs"
+    "games:backdrops": "node scripts/capture-backdrops.mjs",
+    "playables:build": "node scripts/build-playables.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
@@ -45,6 +46,7 @@
     "@types/react-dom": "^19",
     "@types/three": "^0.186.0",
     "draco3dgltf": "^1.5.7",
+    "esbuild": "^0.25.12",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
     "fbx2gltf": "^0.9.7-p1",
