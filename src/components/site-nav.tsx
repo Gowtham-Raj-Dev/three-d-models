@@ -13,8 +13,7 @@ const LINKS = [
   // Shown as the call-to-action button on desktop, as a regular link in the mobile menu.
   { href: "/builder/", label: "Scene Builder", match: (p: string) => p.startsWith("/builder"), cta: true },
   { href: "/viewer/", label: "GLB Viewer", match: (p: string) => p.startsWith("/viewer") },
-  { href: "/license/", label: "Licensing", match: (p: string) => p.startsWith("/license") },
-  { href: "/#faq", label: "FAQ", match: () => false },
+  { href: "/developers/", label: "Developers", match: (p: string) => p.startsWith("/developers") },
 ];
 
 export function SiteNav() {
@@ -23,7 +22,7 @@ export function SiteNav() {
 
   return (
     <>
-      <nav className="hidden items-center gap-1 text-sm md:flex">
+      <nav className="hidden items-center gap-1 text-sm lg:flex">
         {LINKS.filter((link) => !link.cta).map((link) => (
           <Link
             key={link.href}
@@ -46,13 +45,13 @@ export function SiteNav() {
         aria-expanded={open}
         aria-controls="mobile-nav"
         aria-label={open ? "Close menu" : "Open menu"}
-        className="grid size-9 place-items-center rounded-lg border border-line text-muted md:hidden"
+        className="grid size-9 place-items-center rounded-lg border border-line text-muted lg:hidden"
       >
         {open ? <X className="size-4.5" /> : <Menu className="size-4.5" />}
       </button>
 
       {open && (
-        <nav id="mobile-nav" className="absolute inset-x-0 top-16 border-b border-line bg-surface px-4 py-3 shadow-2xl shadow-black/60 md:hidden">
+        <nav id="mobile-nav" className="absolute inset-x-0 top-16 border-b border-line bg-surface px-4 py-3 shadow-2xl shadow-black/60 lg:hidden">
           {LINKS.map((link) => (
             <Link
               key={link.href}

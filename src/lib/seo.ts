@@ -21,7 +21,7 @@ export function pageMetadata({
   path: string;
   image?: { url: string; alt: string };
   keywords?: string[];
-  /** Use the title as-is instead of the "%s | 3D Models" template. */
+  /** Use the title as-is instead of the "%s | models.codelove.in" template. */
   absoluteTitle?: boolean;
 }): Metadata {
   const ogImage = image ? { ...image, width: 1200, height: 630 } : DEFAULT_IMAGE;

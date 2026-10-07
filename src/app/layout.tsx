@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   creator: SITE.author,
   publisher: SITE.brand,
   formatDetection: { telephone: false, email: false, address: false },
-  appleWebApp: { title: SITE.name, statusBarStyle: "black-translucent" },
+  appleWebApp: { title: SITE.shortName, statusBarStyle: "black-translucent" },
   robots: {
     index: true,
     follow: true,
@@ -55,7 +55,7 @@ const websiteJsonLd = {
   "@context": "https://schema.org",
   "@type": "WebSite",
   name: SITE.brand,
-  alternateName: SITE.name,
+  alternateName: SITE.shortName,
   url: absoluteUrl("/"),
   description: SITE.description,
   inLanguage: "en",

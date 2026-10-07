@@ -28,7 +28,7 @@ export function Logo() {
   return (
     <span className="flex items-center gap-2.5">
       <LogoMark />
-      <span className="text-[17px] font-semibold tracking-tight">{SITE.name}</span>
+      <span className="text-[17px] font-semibold tracking-tight">{SITE.shortName}</span>
     </span>
   );
 }
@@ -37,7 +37,7 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6">
-        <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-accent" aria-label={`${SITE.name} — home`}>
+        <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-accent" aria-label={`${SITE.shortName} — home`}>
           <Logo />
         </Link>
         <SiteNav />

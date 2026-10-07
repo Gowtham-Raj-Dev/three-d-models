@@ -1,8 +1,11 @@
 /** Brand and SEO settings — change these to rename the site or move it to another domain. */
 export const SITE = {
-  name: "3D Models",
+  /** Site name in page titles, credits and metadata — all lowercase, like the domain. */
+  name: "models.codelove.in",
+  /** Short name in the header logo and on the installed app's home-screen icon. */
+  shortName: "3D Models",
   /** Publisher name shown in credits, Open Graph and structured data. */
-  brand: "Models.codelove.in",
+  brand: "models.codelove.in",
   /** Who made the site and its games. */
   author: "Gowtham",
   /** Production origin, no trailing slash. Override with NEXT_PUBLIC_SITE_URL. */
