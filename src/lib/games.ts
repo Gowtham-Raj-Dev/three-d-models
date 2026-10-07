@@ -74,6 +74,10 @@ export const GAME_BUTTONS: { action: string; icon: LucideIcon; fullscreen?: bool
   { action: "Fullscreen", icon: Expand, fullscreen: true },
 ];
 
+/** Genre for page titles, e.g. "Free 3D Kart Racing Game": title case, without a "3D" the title already says. */
+export const genreTitle = (game: GameEntry) =>
+  game.genre.replace(/^3D\s+/i, "").replace(/(^|[\s-])([a-z])/g, (_, sep: string, ch: string) => sep + ch.toUpperCase());
+
 /** Tips for the player's device: the touch ones on touch screens, when the game has them. */
 export const howToFor = (game: GameEntry, touch: boolean) => (touch && game.touchHowTo) || game.howTo;
 

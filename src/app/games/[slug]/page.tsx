@@ -9,7 +9,7 @@ import { androidApp } from "@/lib/game-apps";
 import { formatBytes, formatNumber } from "@/lib/catalog";
 import { gameDisplayClass } from "@/lib/game-fonts";
 import { gameDownloadBytes, gameModels } from "@/lib/game-models";
-import { GAME_BUTTONS, GAME_SHORTCUTS, games, getGame } from "@/lib/games";
+import { GAME_BUTTONS, GAME_SHORTCUTS, games, genreTitle, getGame } from "@/lib/games";
 import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl, GAME_CREDIT, SITE } from "@/lib/site";
 
@@ -32,11 +32,12 @@ export async function generateMetadata({ params }: PageProps<"/games/[slug]">): 
     };
   }
   const name = game.title.toLowerCase();
+  const genre = genreTitle(game).toLowerCase();
   const app = androidApp(game.slug);
   return {
     ...pageMetadata({
-      title: `${game.title} — Free 3D ${game.genre} Game in Your Browser`,
-      description: `${game.description} ${GAME_CREDIT}.`,
+      title: `${game.title} — Free 3D ${genreTitle(game)} Game Online`,
+      description: `Play ${game.title} free online — no ads, no download. ${game.description} ${GAME_CREDIT}.`,
       path: `/games/${game.slug}/`,
       image: { url: game.cover, alt: `${game.title} gameplay` },
       keywords: [
@@ -45,12 +46,17 @@ export async function generateMetadata({ params }: PageProps<"/games/[slug]">): 
         `play ${name} online`,
         `${name} free`,
         ...(app ? [`${name} apk`, `${name} android`] : []),
-        `free ${game.genre.toLowerCase()} game`,
-        `${game.genre.toLowerCase()} browser game`,
-        "free browser game",
-        "free online 3D game",
-        "no download game",
-        "three.js game",
+        `free 3D ${genre} game`,
+        `free ${genre} game`,
+        `${genre} game online`,
+        "free 3D games online",
+        "free 3D games",
+        "3D games",
+        "free games",
+        "free games online",
+        "ad-free games",
+        "free games without ads",
+        "free online games no download",
         `${SITE.author} games`,
         SITE.brand,
         ...game.collections,

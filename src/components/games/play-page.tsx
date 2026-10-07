@@ -5,7 +5,7 @@ import { Hourglass } from "lucide-react";
 import { JsonLd } from "@/components/json-ld";
 import { gameDisplayClass, gameFontVars } from "@/lib/game-fonts";
 import { modelSizes } from "@/lib/game-models";
-import type { GameEntry } from "@/lib/games";
+import { genreTitle, type GameEntry } from "@/lib/games";
 import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl, GAME_CREDIT, SITE } from "@/lib/site";
 
@@ -25,11 +25,20 @@ export function playMetadata(game: GameEntry): Metadata {
   }
   return {
     ...pageMetadata({
-      title: `Play ${game.title} — Free 3D ${game.genre} Game`,
-      description: `${game.description} ${GAME_CREDIT}.`,
+      title: `Play ${game.title} — Free 3D ${genreTitle(game)} Game`,
+      description: `Play ${game.title} free online — no ads, no download. ${game.description} ${GAME_CREDIT}.`,
       path: `/games/${game.slug}/play/`,
       image: { url: game.cover, alt: `${game.title} gameplay` },
-      keywords: [game.title, `play ${game.title.toLowerCase()}`, `${game.title.toLowerCase()} online`, `free ${game.genre.toLowerCase()} game`, "free browser game", SITE.brand],
+      keywords: [
+        game.title,
+        `play ${game.title.toLowerCase()}`,
+        `${game.title.toLowerCase()} online`,
+        `free 3D ${genreTitle(game).toLowerCase()} game`,
+        "free 3D games online",
+        "free games",
+        "ad-free games",
+        SITE.brand,
+      ],
     }),
     ...credits,
   };

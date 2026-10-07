@@ -180,9 +180,10 @@ export function llmsTxt(): string {
     `- [Scene builder](${absoluteUrl("/builder/")}): compose scenes from any model in the browser and export one .glb.`,
     `- [GLB viewer](${absoluteUrl("/viewer/")}): open a local .glb to preview, recolor and inspect it.`,
     `- [For developers & AI](${absoluteUrl("/developers/")}): these files explained, with code samples.`,
+    `- [Free 3D games online](${absoluteUrl("/games/")}): free, ad-free 3D games — no download, no sign-up, on PC or phone.`,
     ...games
       .filter((g) => !g.comingSoon)
-      .map((g) => `- [${g.title}](${absoluteUrl(`/games/${g.slug}/`)}): free browser game (${g.genre.toLowerCase()}) built only from these models — ${g.tagline}`),
+      .map((g) => `- [${g.title}](${absoluteUrl(`/games/${g.slug}/`)}): free ad-free 3D game (${g.genre.toLowerCase()}) built only from these models — ${g.tagline}`),
     "",
   ].join("\n");
 }

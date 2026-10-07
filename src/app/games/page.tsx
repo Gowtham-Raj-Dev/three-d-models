@@ -1,31 +1,50 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Boxes, Music, Smartphone } from "lucide-react";
+import { BadgeCheck, Ban, Boxes, Download, MonitorSmartphone, Music, Smartphone, UserX } from "lucide-react";
 import { GameCard } from "@/components/game-card";
+import { JsonLd } from "@/components/json-ld";
 import { Eyebrow } from "@/components/ui";
 import { formatNumber } from "@/lib/catalog";
 import { androidApp } from "@/lib/game-apps";
 import { gameModels } from "@/lib/game-models";
 import { games } from "@/lib/games";
 import { pageMetadata } from "@/lib/seo";
-import { SITE } from "@/lib/site";
+import { absoluteUrl, SITE } from "@/lib/site";
+
+const DESCRIPTION =
+  "Play free 3D games online — no ads, no download, no sign-up. Kart racing, skating, tower defense, a dungeon crawler, cooking, mini golf, puzzles and strategy, on PC or phone.";
 
 export const metadata: Metadata = {
   ...pageMetadata({
-    title: "Free 3D Browser Games — Made Only from Our Free 3D Models",
-    description:
-      "Play free 3D games in your browser — an endless skate runner, tower defense, naval battles, a dungeon roguelite, a burger cooking rush, a hex puzzle, kart racing and a village strategy game — every one built only from the free 3D models in this library. Created by Gowtham, published by models.codelove.in.",
+    title: "Free 3D Games Online — Play Ad-Free, No Download",
+    description: DESCRIPTION,
     path: "/games/",
     keywords: [
-      "free browser games",
       "free 3D games online",
-      "play games online no download",
-      "three.js games",
-      "HTML5 3D games",
-      "skate runner game",
-      "tower defense game",
-      "kart racing game",
-      "village strategy game",
+      "free 3D games",
+      "3D games",
+      "3D games online",
+      "free games",
+      "free games online",
+      "ad-free games",
+      "ad-free games online",
+      "free games without ads",
+      "games with no ads",
+      "free online games no download",
+      "play free games online",
+      "free games for PC",
+      "free games on phone",
+      "free Android games",
+      "3D games for Android",
+      "ad-free Android games",
+      "free 3D racing game",
+      "free kart racing game",
+      "free tower defense game",
+      "free endless runner game",
+      "free strategy game",
+      "free puzzle game",
+      "free cooking game",
+      "free mini golf game",
       "Gowtham games",
       "models.codelove.in games",
     ],
@@ -35,6 +54,52 @@ export const metadata: Metadata = {
   publisher: SITE.brand,
 };
 
+const PERKS = [
+  { icon: BadgeCheck, label: "100% free" },
+  { icon: Ban, label: "No ads" },
+  { icon: Download, label: "No download" },
+  { icon: UserX, label: "No sign-up" },
+  { icon: MonitorSmartphone, label: "PC & mobile" },
+  { icon: Smartphone, label: "Android app" },
+];
+
+/** "A", "A and B", "A, B and C". */
+const listNames = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);
+
+/** Questions shown on the page and in the FAQPage structured data. `android` names the games that have an APK today. */
+function faq(android: string[]) {
+  return [
+    {
+      q: "Are these 3D games really free?",
+      a: "Yes. Every game is free to play online, with no in-app purchases, no paid version and nothing locked behind a payment.",
+    },
+    {
+      q: "Do the games have ads?",
+      a: "No. These are ad-free games: no banner ads, no video ads before you play and no ads between levels.",
+    },
+    {
+      q: "Do I need to download or install anything?",
+      a: "No. Open a game and press Play — it starts on the page, on a PC, Mac, Chromebook, tablet or phone.",
+    },
+    {
+      q: "Is there an Android app?",
+      a: `${android.length ? `Yes — ${listNames(android)} can be installed as a free, ad-free Android app from ${android.length > 1 ? "each game's page" : "its game page"}.` : "Not yet."} Android apps for all the other games are coming in future updates.`,
+    },
+    {
+      q: "Do I need an account?",
+      a: "No sign-up, no login and no email. Your best scores and progress are saved on your own device.",
+    },
+    {
+      q: "Can I play on my phone?",
+      a: "Yes. Every game has touch controls, and the controls table on each game's page shows what to tap.",
+    },
+    {
+      q: "How are the games made?",
+      a: "Every game is built only from the free 3D models in this library — characters, vehicles, buildings and props you can download — with three.js, and music generated live in code.",
+    },
+  ];
+}
+
 export default function GamesPage() {
   const playable = games.filter((g) => !g.comingSoon);
   const upcoming = games.filter((g) => g.comingSoon);
@@ -42,17 +107,73 @@ export default function GamesPage() {
   const allModels = new Set(perGame.flatMap((g) => g.models.map((m) => m.slug)));
   const allPacks = new Set(perGame.flatMap((g) => g.models.map((m) => m.collectionKey)));
   const genres = new Set(playable.map((g) => g.genre));
+  const onAndroid = playable.filter((g) => androidApp(g.slug));
+  const questions = faq(onAndroid.map((g) => g.title));
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6 sm:pt-12">
-      <header className="mb-10 max-w-3xl space-y-4">
-        <Eyebrow>Play</Eyebrow>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">3D games made from our models</h1>
+      <JsonLd
+        data={[
+          {
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            name: "Free 3D Games Online",
+            description: DESCRIPTION,
+            url: absoluteUrl("/games/"),
+            isAccessibleForFree: true,
+            publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
+            mainEntity: {
+              "@type": "ItemList",
+              numberOfItems: playable.length,
+              itemListElement: playable.map((g, i) => ({
+                "@type": "ListItem",
+                position: i + 1,
+                url: absoluteUrl(`/games/${g.slug}/`),
+                name: g.title,
+              })),
+            },
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: questions.map(({ q, a }) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })),
+          },
+        ]}
+      />
+
+      <header className="mb-10 space-y-4">
+        <Eyebrow>Play free</Eyebrow>
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">Free 3D games online</h1>
         <p className="text-base leading-relaxed text-muted sm:text-lg">
-          Every game here is built <strong className="font-semibold text-fg">only from the free 3D models in this library</strong> — the same
-          characters, vehicles, buildings, props and terrain pieces you can download on this site. Nothing to install: they run in your browser
-          with a keyboard, mouse or touch screen, with music and sound generated live in code.
+          Play {playable.length} free 3D games — kart racing, skating, tower defense, a dungeon crawler, cooking, mini golf, puzzles and village
+          strategy. They are <strong className="font-semibold text-fg">ad-free games</strong> with no download and no sign-up: press Play and they
+          start right here, with a keyboard, mouse or touch screen. Every game is built only from the free 3D models in this library — the same
+          characters, vehicles, buildings and props you can download on this site.
         </p>
+        <ul className="flex flex-wrap gap-2 text-xs text-muted">
+          {PERKS.map(({ icon: Icon, label }) => (
+            <li key={label} className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5">
+              <Icon className="size-3.5 text-accent" /> {label}
+            </li>
+          ))}
+        </ul>
+        {onAndroid.length > 0 && (
+          <p className="flex items-start gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-muted">
+            <Smartphone className="mt-0.5 size-4 shrink-0 text-accent" />
+            <span>
+              <strong className="font-semibold text-fg">Android app:</strong>{" "}
+              {onAndroid.map((g, i) => (
+                <span key={g.slug}>
+                  {i > 0 && (i === onAndroid.length - 1 ? " and " : ", ")}
+                  <Link href={`/games/${g.slug}/`} className="text-fg underline underline-offset-2 hover:text-accent">
+                    {g.title}
+                  </Link>
+                </span>
+              ))}{" "}
+              {onAndroid.length > 1 ? "are" : "is"} available as a free Android app today. Android apps for all the other games are coming soon.
+            </span>
+          </p>
+        )}
       </header>
 
       <dl className="mb-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -127,6 +248,18 @@ export default function GamesPage() {
           </Link>
           .
         </p>
+      </section>
+
+      <section className="mt-16 mb-4">
+        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Free 3D games — questions</h2>
+        <dl className="mt-6 grid gap-4 md:grid-cols-2">
+          {questions.map(({ q, a }) => (
+            <div key={q} className="rounded-2xl border border-line bg-surface p-5">
+              <dt className="font-semibold text-fg">{q}</dt>
+              <dd className="mt-1.5 text-sm leading-relaxed text-muted">{a}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
     </div>
   );
