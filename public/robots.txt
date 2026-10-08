@@ -1,0 +1,26 @@
+# robots.txt for https://models.codelove.in
+# Every page is open to search engines. The sitemap lists them all (made by scripts/build-sitemap.mjs on every build).
+
+User-agent: *
+Allow: /
+
+# AI assistants' crawlers, named so it's explicit they're welcome: their search indexes and training data are how
+# ChatGPT, Claude, Perplexity, Gemini and others learn to suggest the site. /llms.txt points them to the catalog.
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-SearchBot
+User-agent: Claude-User
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: meta-externalagent
+User-agent: Amazonbot
+User-agent: DuckAssistBot
+User-agent: MistralAI-User
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://models.codelove.in/sitemap.xml

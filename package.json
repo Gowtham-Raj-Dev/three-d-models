@@ -7,10 +7,12 @@
   },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/build-sitemap.mjs",
     "build": "next build",
     "postbuild": "node scripts/fix-static-export.mjs",
     "start": "npx serve@latest out",
     "lint": "eslint",
+    "sitemap": "node scripts/build-sitemap.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "models:fetch": "node scripts/fetch-rocketbox.mjs",
     "models:build": "node scripts/build-models.mjs",
