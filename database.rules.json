@@ -1,0 +1,78 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "cove": {
+      "rooms": {
+        ".read": true,
+        ".indexOn": ["p"],
+        "$code": {
+          ".write": true,
+          ".validate": "$code.matches(/^[A-Z2-9]{5}$/) && newData.hasChildren(['h', 's', 'p'])",
+          "h": { ".validate": "newData.isString() && newData.val().length <= 24" },
+          "p": { ".validate": "newData.val() === 0 || newData.val() === 1" },
+          "s": { ".validate": "newData.val() === 'lobby' || newData.val() === 'play'" },
+          "r": { ".validate": "newData.isNumber()" },
+          "t": { ".validate": "newData.isNumber()" },
+          "u": { ".validate": "newData.isNumber()" },
+          "st": { ".validate": "newData.isNumber()" },
+          "en": { ".validate": "newData.isNumber()" },
+          "sd": { ".validate": "newData.isNumber()" },
+          "g": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 20" },
+          "mn": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10" },
+          "m": {
+            "$pid": {
+              ".validate": "$pid.length <= 24 && newData.hasChildren(['n', 'k', 'c', 'j'])",
+              "n": { ".validate": "newData.isString() && newData.val().length <= 16" },
+              "k": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2" },
+              "c": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5" },
+              "j": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
+          },
+          "res": {
+            "$i": {
+              ".validate": "$i.length <= 1 && newData.hasChildren(['id', 'n', 'k', 'd'])",
+              "id": { ".validate": "newData.isString() && newData.val().length <= 24" },
+              "n": { ".validate": "newData.isString() && newData.val().length <= 16" },
+              "k": { ".validate": "newData.isNumber()" },
+              "d": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
+          },
+          "$other": { ".validate": false }
+        }
+      },
+      "sig": {
+        "$code": {
+          ".write": true,
+          "$to": {
+            ".read": true,
+            "$msg": {
+              ".validate": "newData.hasChildren(['f', 'y', 'd']) && newData.child('d').isString() && newData.child('d').val().length < 8000"
+            }
+          }
+        }
+      },
+      "relay": {
+        "$code": {
+          ".write": true,
+          "$pid": {
+            ".read": true,
+            ".validate": "newData.isString() && newData.val().length < 240"
+          }
+        }
+      },
+      "rev": {
+        "$code": {
+          ".read": true,
+          ".write": true,
+          ".indexOn": [".key"],
+          "$e": {
+            ".validate": "newData.hasChildren(['f', 'd']) && newData.child('d').isString() && newData.child('d').val().length < 1500"
+          }
+        }
+      }
+    }
+  }
+}

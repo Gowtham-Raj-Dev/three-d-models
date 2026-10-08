@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   Anchor,
   CircleHelp,
@@ -11,6 +11,9 @@ import {
   Gauge,
   Hammer,
   Home,
+  Map as MapIcon,
+  Navigation,
+  Package,
   Pause,
   Play,
   RotateCcw,
@@ -22,10 +25,14 @@ import {
   Swords,
   Timer,
   Trophy,
+  Users,
   Wind,
   Wrench,
 } from "lucide-react";
 import type { LoadProgress } from "../shared/assets";
+import { audio } from "../shared/audio";
+import { music } from "../shared/music";
+import { SEA_SHANTY } from "../shared/songs";
 import { box, ControlLayer, ControlsButton, ControlsEditor, createControls, type Placed } from "../shared/touch-layout";
 import {
   BigButton,
@@ -49,10 +56,15 @@ import {
   useStore,
   type Store,
 } from "../shared/ui";
-import { CannonCoveGame, EMPTY_HUD, type Card, type Hud, type Offer, type Phase, type UpgradeId, type VoyageResult } from "./engine";
+import { CannonCoveGame, EMPTY_HUD, type Card, type Hud, type Offer, type Phase, type PortView, type UpgradeId, type VoyageResult, type WreckReport } from "./engine";
 import { GAME } from "./manifest";
+import { Career, type CareerSave } from "./trade";
+import { ChartScreen, DockButton, PortScreen, Tracker, zoneTone } from "./trade-ui";
+import { OnlineHudView, OnlinePanel, roomFromUrl } from "./online-ui";
 
 const records = createRecords("cannon-cove:v1", { bestWave: 0, bestGold: 0, mostSunk: 0, voyages: 0 });
+/** The Open Sea trading career (one save). */
+const career = createRecords<{ save: CareerSave | null }>("cannon-cove:trade:v1", { save: null });
 
 const STYLES = `
 @keyframes cove-hint { 0% { opacity: 0; transform: translateY(8px); } 8%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
@@ -72,18 +84,36 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
   const [error, setError] = useState<string | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   const [result, setResult] = useState<(VoyageResult & { newBest: boolean }) | null>(null);
+  const [port, setPort] = useState<PortView | null>(null);
+  const [wreck, setWreck] = useState<WreckReport | null>(null);
+  const [chart, setChart] = useState(false);
+  /** Sailing the Open Sea (not the wave battles). */
+  const [trade, setTrade] = useState(false);
+  /** Online battles: the panel is open (a room code from an invite link opens it straight away). */
+  const [online, setOnline] = useState<{ code: string | null } | null>(() => {
+    const code = roomFromUrl();
+    return code ? { code } : null;
+  });
+  const [onlineMenu, setOnlineMenu] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [confirmNew, setConfirmNew] = useState(false);
   const [help, setHelp] = useState(false);
   const [editing, setEditing] = useState(false);
   const [touch, setTouch] = useState(false);
   const [runKey, setRunKey] = useState(0);
   const saved = useRecords(records);
+  const voyage = useRecords(career);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const game = new CannonCoveGame(canvas, {
       progress: setProgress,
-      phase: setPhase,
+      phase: (next) => {
+        setPhase(next);
+        // The chart closes whenever the game leaves the sea or the port.
+        if (next !== "chart" && next !== "port") setChart(false);
+      },
       hud: hud.set,
       offer: setOffer,
       error: setError,
@@ -98,8 +128,12 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
         });
         setResult({ ...run, newBest });
       },
+      port: setPort,
+      save: (data) => career.set({ save: data }),
+      wrecked: setWreck,
     });
     gameRef.current = game;
+    if (process.env.NODE_ENV !== "production") Object.assign(window, { __cannonCove: { game, records, career, audio, music, song: SEA_SHANTY } });
     game.setOverlay(overlayRef.current);
     // Floating texts over the 3D view use the game's display face.
     game.setFont(getComputedStyle(canvas).getPropertyValue("--game-display"));
@@ -109,6 +143,15 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
       game.dispose();
     };
   }, [hud, modelSizes]);
+
+  // Chart the open sea in the background once the title screen is up, so setting sail is instant.
+  const warmed = useRef(false);
+  useEffect(() => {
+    if (phase !== "menu" || warmed.current) return;
+    warmed.current = true;
+    const id = window.setTimeout(() => gameRef.current?.warmSea(), 1800);
+    return () => window.clearTimeout(id);
+  }, [phase]);
 
   useEffect(() => {
     // Touch controls on phones and tablets (and as soon as anyone touches the screen).
@@ -131,14 +174,51 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
     setResult(null);
     setOffer(null);
     setHelp(false);
+    setWreck(null);
+    setTrade(false);
     setRunKey((k) => k + 1);
     game.start();
+  };
+
+  /** Open Sea: continue the saved career, or start a new one. */
+  const sail = (fresh: boolean) => {
+    const game = gameRef.current;
+    if (!game) return;
+    (document.activeElement as HTMLElement | null)?.blur();
+    setResult(null);
+    setOffer(null);
+    setHelp(false);
+    setWreck(null);
+    setConfirmNew(false);
+    setTrade(true);
+    setPreparing(true);
+    // Let "Charting the seas…" paint before the open sea is built.
+    window.setTimeout(() => {
+      gameRef.current?.startTrade(fresh ? null : career.get().save);
+      setPreparing(false);
+      setRunKey((k) => k + 1);
+    }, 60);
   };
 
   const toMenu = () => {
     setResult(null);
     setOffer(null);
+    setWreck(null);
+    setChart(false);
+    setTrade(false);
     gameRef.current?.toMenu();
+  };
+
+  const openChart = () => {
+    const game = gameRef.current;
+    if (!game) return;
+    if (phase === "playing") game.openChart();
+    if (phase === "playing" || phase === "port") setChart(true);
+  };
+
+  const closeChart = () => {
+    setChart(false);
+    gameRef.current?.closeChart();
   };
 
   const pauseOrResume = () => {
@@ -152,12 +232,21 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
       setEditing(false);
       return;
     }
+    if (chart) {
+      closeChart();
+      return;
+    }
+    // Online the battle never stops: Esc opens the battle menu instead.
+    if (game?.onlineActive) {
+      setOnlineMenu((open) => !open);
+      return;
+    }
     if (phase === "playing") game?.pause();
     else if (phase === "paused") game?.resume();
   };
 
   const openHelp = () => {
-    if (phase === "playing") gameRef.current?.pause();
+    if (phase === "playing" && !gameRef.current?.onlineActive) gameRef.current?.pause();
     setHelp(true);
   };
 
@@ -172,6 +261,13 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
       const onButton = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       const confirm = k === "Enter" || k === " ";
+      if (k === "c" && !e.repeat && (phase === "playing" || phase === "port" || phase === "chart") && trade) {
+        e.preventDefault();
+        if (chart) closeChart();
+        else openChart();
+        return;
+      }
+      if (chart) return;
       if (phase === "playing") {
         let used = true;
         if (k === "a" || k === "ArrowLeft") game.setSteerKey("left", true);
@@ -182,20 +278,28 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
         else if (k === "q" || k === "j") game.setFire(1, true);
         else if (k === "e" || k === "l") game.setFire(-1, true);
         else if (k === "z") game.zoomStep();
+        else if (k === "g" && trade) game.toggleAutopilot();
+        else if (confirm && !onButton) game.dock();
         else used = k === " ";
         if (used) e.preventDefault();
       } else if (phase === "upgrade") {
         if (k === "1" || k === "2" || k === "3") game.choose(Number(k) - 1);
         else if (k === "r") game.repair();
+      } else if (phase === "port") {
+        if (k === "Enter" && !onButton) {
+          e.preventDefault();
+          game.setSail();
+        }
       } else if (phase === "paused") {
         if (confirm && !onButton) {
           e.preventDefault();
           game.resume();
         }
-      } else if (phase === "menu" || phase === "over") {
+      } else if ((phase === "menu" && !online) || phase === "over") {
         if (confirm && !onButton) {
           e.preventDefault();
-          start();
+          if (phase === "menu") sail(false);
+          else start();
         }
       }
     };
@@ -220,7 +324,7 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
   useEffect(() => {
     const pause = () => {
       gameRef.current?.releaseInput();
-      gameRef.current?.pause();
+      if (!gameRef.current?.onlineActive) gameRef.current?.pause();
     };
     const onVisibility = () => document.hidden && pause();
     document.addEventListener("visibilitychange", onVisibility);
@@ -233,7 +337,12 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
 
   const onMinimap = useCallback((canvas: HTMLCanvasElement | null) => gameRef.current?.setMinimap(canvas), []);
 
-  const running = phase === "playing" || phase === "paused" || phase === "upgrade" || phase === "sinking";
+  const running = phase === "playing" || phase === "paused" || phase === "upgrade" || phase === "sinking" || phase === "chart";
+  const summary = useMemo(() => {
+    if (!voyage.save) return null;
+    const c = new Career(voyage.save);
+    return { rank: c.rankInfo().name, gold: c.gold, ship: c.ship.name, ports: c.visited.length };
+  }, [voyage.save]);
 
   return (
     <GameRoot game={GAME} className="bg-[#9fd3ee]" onWheel={(e) => running && gameRef.current?.zoomBy(e.deltaY * 0.0009)}>
@@ -243,15 +352,64 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
 
       <LoadingScreen game={GAME} progress={progress} error={error} ready={phase !== "loading" && phase !== "error"} />
 
-      {phase === "menu" && !editing && <MenuScreen best={saved.bestWave} bestGold={saved.bestGold} touch={touch} onPlay={start} onHelp={() => setHelp(true)} onControls={() => setEditing(true)} />}
+      {online && phase !== "loading" && phase !== "error" && (
+        <OnlinePanel
+          game={gameRef}
+          code={online.code}
+          menuOpen={onlineMenu}
+          onMenuClose={() => setOnlineMenu(false)}
+          onExit={() => {
+            setOnline(null);
+            setOnlineMenu(false);
+            // An invite link has done its job.
+            if (window.location.search.includes("room=")) window.history.replaceState(null, "", window.location.pathname);
+          }}
+        />
+      )}
+      {phase === "menu" && !editing && !preparing && !online && (
+        <MenuScreen
+          best={saved.bestWave}
+          summary={summary}
+          touch={touch}
+          onSail={() => sail(false)}
+          onNew={() => (summary ? setConfirmNew(true) : sail(true))}
+          onWaves={start}
+          onOnline={() => setOnline({ code: null })}
+          onHelp={() => setHelp(true)}
+          onControls={() => setEditing(true)}
+        />
+      )}
+      {preparing && (
+        <div className="absolute inset-0 grid place-items-center bg-black/30">
+          <p className="g-hud g-display animate-[cove-pulse_1s_ease_infinite] px-5 py-2 text-xl">Charting the seas…</p>
+        </div>
+      )}
       {/* Controls editor from the title screen: the HUD shows behind it so controls keep clear of it. */}
-      {phase === "menu" && editing && <HudOverlay store={hud} paused={false} touch={touch} onPause={() => {}} onMinimap={onMinimap} />}
+      {phase === "menu" && editing && <HudOverlay store={hud} paused={false} touch={touch} onPause={() => {}} onMinimap={onMinimap} onChart={() => {}} onDock={() => {}} />}
 
-      {running && <HudOverlay store={hud} paused={phase === "paused"} touch={touch} onPause={pauseOrResume} onMinimap={onMinimap} />}
+      {running && <HudOverlay store={hud} paused={phase === "paused"} touch={touch} onPause={pauseOrResume} onMinimap={onMinimap} onChart={openChart} onDock={() => gameRef.current?.dock()} onAuto={() => gameRef.current?.toggleAutopilot()} />}
       {phase === "playing" && touch && <TouchControls game={gameRef} store={hud} />}
-      {phase === "playing" && saved.voyages < 3 && <ControlsHint key={runKey} touch={touch} />}
+      {phase === "playing" && !trade && saved.voyages < 3 && <ControlsHint key={runKey} touch={touch} />}
+      {phase === "playing" && trade && (voyage.save?.stats.played ?? 0) < 240 && <TradeHint key={runKey} touch={touch} />}
 
       {phase === "upgrade" && offer && !help && <UpgradeModal offer={offer} onPick={(i) => gameRef.current?.choose(i)} onRepair={() => gameRef.current?.repair()} />}
+
+      {phase === "port" && port && !help && <PortScreen view={port} game={gameRef} onChart={openChart} onMenu={toMenu} onHelp={() => setHelp(true)} />}
+      {chart && (phase === "chart" || phase === "port") && (
+        <ChartScreen
+          game={gameRef}
+          onClose={closeChart}
+          onSail={
+            phase === "chart"
+              ? (target) => {
+                  closeChart();
+                  gameRef.current?.setWaypoint(target);
+                  gameRef.current?.setAutopilot(true);
+                }
+              : undefined
+          }
+        />
+      )}
 
       {phase === "paused" && !help && !editing && (
         <Modal title="Anchors dropped">
@@ -259,9 +417,21 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
             Resume
           </BigButton>
           <div className="grid grid-cols-3 gap-2">
-            <SoftButton onClick={start} icon={<RotateCcw className="size-4" />}>
-              Restart
-            </SoftButton>
+            {trade ? (
+              <SoftButton
+                onClick={() => {
+                  gameRef.current?.resume();
+                  openChart();
+                }}
+                icon={<MapIcon className="size-4" />}
+              >
+                Chart
+              </SoftButton>
+            ) : (
+              <SoftButton onClick={start} icon={<RotateCcw className="size-4" />}>
+                Restart
+              </SoftButton>
+            )}
             <SoftButton onClick={() => setHelp(true)} icon={<CircleHelp className="size-4" />}>
               Help
             </SoftButton>
@@ -269,6 +439,7 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
               Menu
             </SoftButton>
           </div>
+          {trade && <p className="g-muted text-center text-xs">Your voyage is saved — Menu keeps it for later.</p>}
           {touch && (
             <SoftButton onClick={() => setEditing(true)} icon={<Gamepad2 className="size-4" />}>
               Edit controls
@@ -310,6 +481,31 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
         </Modal>
       )}
 
+      {phase === "wrecked" && wreck && !help && (
+        <Modal title="Shipwrecked!">
+          <p className="text-center text-sm">The pirates got you. The guild towed what was left of your ship back to {wreck.port}.</p>
+          <div className="grid grid-cols-3 gap-2">
+            <Stat label="Cargo lost" value={formatNumber(wreck.lostGoods)} />
+            <Stat label="Contracts lost" value={wreck.failed} />
+            <Stat label="Towing fee" value={formatNumber(wreck.fee)} />
+          </div>
+          <p className="g-muted text-center text-xs">Your ships, upgrades and rank are safe. Repair the hull before you sail again.</p>
+          <BigButton onClick={() => gameRef.current?.recover()} icon={<Anchor className="size-5" />} autoFocus>
+            Back to {wreck.port}
+          </BigButton>
+        </Modal>
+      )}
+
+      {confirmNew && (
+        <Modal title="Start a new voyage?">
+          <p className="text-center text-sm">Your saved career — gold, ships, rank and contracts — will be gone for good.</p>
+          <BigButton onClick={() => sail(true)} icon={<Sailboat className="size-5" />}>
+            Start over
+          </BigButton>
+          <SoftButton onClick={() => setConfirmNew(false)}>Keep my voyage</SoftButton>
+        </Modal>
+      )}
+
       {help && <HowToPlay game={GAME} onClose={() => setHelp(false)} />}
     </GameRoot>
   );
@@ -317,7 +513,27 @@ export function CannonCove({ sizes }: { sizes: Record<string, number> }) {
 
 // --- Menu ----------------------------------------------------------------------------------------
 
-function MenuScreen({ best, bestGold, touch, onPlay, onHelp, onControls }: { best: number; bestGold: number; touch: boolean; onPlay: () => void; onHelp: () => void; onControls: () => void }) {
+function MenuScreen({
+  best,
+  summary,
+  touch,
+  onSail,
+  onNew,
+  onWaves,
+  onOnline,
+  onHelp,
+  onControls,
+}: {
+  best: number;
+  summary: { rank: string; gold: number; ship: string; ports: number } | null;
+  touch: boolean;
+  onSail: () => void;
+  onNew: () => void;
+  onWaves: () => void;
+  onOnline: () => void;
+  onHelp: () => void;
+  onControls: () => void;
+}) {
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col">
       <div className="pointer-events-auto flex items-center justify-end p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
@@ -325,33 +541,67 @@ function MenuScreen({ best, bestGold, touch, onPlay, onHelp, onControls }: { bes
           <ControlsButton onClick={onControls} />
         </SystemButtons>
       </div>
-      <div className="px-4 pt-2 text-center sm:pt-4">
+      <div className="px-4 pt-2 text-center sm:pt-4 land:pt-0">
         <GameTitle game={GAME} />
-        <p className="g-hud g-display mx-auto mt-4 inline-block px-4 py-1 text-base sm:text-lg">Sail with the wind · fire broadsides · plunder the cove</p>
+        <p className="g-hud g-display mx-auto mt-4 inline-block px-4 py-1 text-base sm:text-lg land:mt-2 land:text-sm">Trade across the open sea · fight off pirates · build a fleet</p>
       </div>
       <div className="flex-1" />
-      <div className="pointer-events-auto mx-auto w-full max-w-md space-y-3 px-4 pb-[max(env(safe-area-inset-bottom),16px)] sm:pb-8">
-        <BigButton onClick={onPlay} icon={<Sailboat className="size-6" />} autoFocus>
-          Set sail
+      <div className="pointer-events-auto mx-auto w-full max-w-md space-y-2.5 px-4 pb-[max(env(safe-area-inset-bottom),16px)] sm:pb-8 land:space-y-1.5">
+        <BigButton onClick={summary ? onSail : onNew} icon={<Sailboat className="size-6" />} autoFocus>
+          {summary ? "Continue voyage" : "Set sail — Open Sea"}
         </BigButton>
-        <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-          <span className="g-hud g-display inline-flex items-center gap-1.5 px-3 py-1">
-            <Trophy className="size-4 text-amber-700" /> Best wave {best}
-          </span>
-          <span className="g-hud g-display inline-flex items-center gap-1.5 px-3 py-1">
-            <Coins className="size-4 text-amber-700" /> Best haul {formatNumber(bestGold)}
-          </span>
-          <button
-            type="button"
-            onClick={onHelp}
-            className="g-hud g-display inline-flex items-center gap-1.5 px-3 py-1 hover:brightness-105 focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-          >
-            <CircleHelp className="size-4" /> How to play
+        {summary && (
+          <p className="g-hud g-display mx-auto flex w-fit flex-wrap items-center justify-center gap-x-3 px-3 py-1 text-sm land:text-xs">
+            <span>{summary.rank}</span>
+            <span className="inline-flex items-center gap-1">
+              <Coins className="size-3.5 text-amber-700" /> {formatNumber(summary.gold)}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Ship className="size-3.5" /> {summary.ship}
+            </span>
+            <span>
+              {summary.ports}/10 ports
+            </span>
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <SoftButton onClick={onOnline} icon={<Users className="size-4" />}>
+            Online battle
+          </SoftButton>
+          <SoftButton onClick={onWaves} icon={<Swords className="size-4" />}>
+            Battle waves{best ? ` · best ${best}` : ""}
+          </SoftButton>
+        </div>
+        <div className="flex justify-center gap-2">
+          {summary && (
+            <button type="button" onClick={onNew} className="g-hud g-display inline-flex items-center gap-1.5 px-3 py-1 text-xs hover:brightness-105">
+              <RotateCcw className="size-3.5" /> New voyage
+            </button>
+          )}
+          <button type="button" onClick={onHelp} className="g-hud g-display inline-flex items-center gap-1.5 px-3 py-1 text-xs hover:brightness-105">
+            <CircleHelp className="size-3.5" /> How to play
           </button>
         </div>
-        <p className="g-hud mx-auto w-fit px-3 py-1 text-center text-xs font-semibold">
-          {touch ? "Left stick steers and sets sails · buttons fire each side" : "A D steer · W S sails · Q fire left · E fire right · Esc pause"}
+        <p className="g-hud mx-auto w-fit px-3 py-1 text-center text-xs font-semibold land:hidden">
+          {touch ? "Left stick steers and sets sails · buttons fire each side" : "A D steer · W S sails · Q E fire · Space dock · C chart · Esc pause"}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function TradeHint({ touch }: { touch: boolean }) {
+  return (
+    <div
+      className={`pointer-events-none absolute inset-x-0 flex animate-[cove-hint_10s_ease_forwards] justify-center px-4 ${touch ? "top-[38%] land:top-[20%]" : "bottom-[max(calc(env(safe-area-inset-bottom)+150px),170px)]"}`}
+    >
+      <div className={`g-panel text-center font-semibold ${touch ? "max-w-xs px-3 py-2 text-xs" : "max-w-md px-5 py-3 text-sm"}`}>
+        <p className={`g-panel-title ${touch ? "mb-1 text-lg" : "mb-1.5 text-2xl"}`}>Follow the gold arrow</p>
+        <p>
+          It points to your course — or tap <b>Auto-sail</b>
+          {touch ? "" : " (G)"} and the ship sails there and docks by itself. The {touch ? "map button" : <Kbd>C</Kbd>} opens the sea chart.
+        </p>
+        <p className={`g-muted mt-1.5 ${touch ? "text-[10px]" : "text-xs"}`}>Pirates prowl far from home — run, or turn side-on and fire.</p>
       </div>
     </div>
   );
@@ -396,12 +646,18 @@ function HudOverlay({
   touch,
   onPause,
   onMinimap,
+  onChart,
+  onDock,
+  onAuto,
 }: {
   store: Store<Hud>;
   paused: boolean;
   touch: boolean;
   onPause: () => void;
   onMinimap: (canvas: HTMLCanvasElement | null) => void;
+  onChart: () => void;
+  onDock: () => void;
+  onAuto?: () => void;
 }) {
   const hud = useStore(store);
   const hullFrac = hud.maxHull ? hud.hull / hud.maxHull : 0;
@@ -427,19 +683,39 @@ function HudOverlay({
             />
           </div>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <HudChip icon={<Coins className="size-4 text-amber-700" />}>{formatNumber(hud.gold)}</HudChip>
-          <HudChip icon={<Flag className="size-4" />}>Wave {hud.wave}</HudChip>
-          <HudChip icon={<Swords className="size-4 text-red-700" />}>{hud.enemies} left</HudChip>
-          <HudChip icon={<Skull className="size-4" />} wide>
-            {hud.sunk} sunk
-          </HudChip>
-        </div>
+        {hud.online ? null : hud.trade ? (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              <HudChip icon={<Coins className="size-4 text-amber-700" />}>{formatNumber(hud.gold)}</HudChip>
+              <HudChip icon={<Package className="size-4" />}>
+                {hud.trade.cargo}/{hud.trade.cap}
+              </HudChip>
+              <HudChip icon={<Flag className="size-4" />}>
+                <span className={zoneTone(hud.trade.danger)}>{hud.trade.zone}</span>
+              </HudChip>
+            </div>
+            <Tracker trade={hud.trade} touch={touch} />
+          </>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            <HudChip icon={<Coins className="size-4 text-amber-700" />}>{formatNumber(hud.gold)}</HudChip>
+            <HudChip icon={<Flag className="size-4" />}>Wave {hud.wave}</HudChip>
+            <HudChip icon={<Swords className="size-4 text-red-700" />}>{hud.enemies} left</HudChip>
+            <HudChip icon={<Skull className="size-4" />} wide>
+              {hud.sunk} sunk
+            </HudChip>
+          </div>
+        )}
       </div>
 
       {/* Top-right: pause and system buttons (desktop), minimap. */}
       <div data-avoid className="absolute top-0 right-0 flex flex-col items-end gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] sm:p-5">
         <div className="pointer-events-auto flex items-center gap-2">
+          {hud.trade && (
+            <IconButton onClick={onChart} label="Sea chart (C)">
+              <MapIcon className="size-5" />
+            </IconButton>
+          )}
           <IconButton onClick={onPause} label={paused ? "Resume (Esc)" : "Pause (Esc)"}>
             {paused ? <Play className="size-5 fill-current" /> : <Pause className="size-5 fill-current" />}
           </IconButton>
@@ -455,7 +731,7 @@ function HudOverlay({
       </div>
 
       {/* Banner and boss bar. */}
-      <div className="absolute inset-x-0 top-[max(env(safe-area-inset-top),12px)] flex flex-col items-center gap-2 px-3 pt-36 sm:pt-4">
+      <div className={`absolute inset-x-0 top-[max(env(safe-area-inset-top),12px)] flex flex-col items-center gap-2 px-3 ${hud.online ? "pt-36 sm:pt-28" : "pt-36 sm:pt-4"}`}>
         {hud.boss && (
           <div className="g-hud w-[min(86vw,420px)] px-4 py-1.5 pointer-coarse:w-[min(70vw,280px)] pointer-coarse:px-3 pointer-coarse:py-1">
             <p className="g-display text-center text-lg leading-tight text-emerald-900 pointer-coarse:text-xs">{hud.boss.name}</p>
@@ -467,6 +743,9 @@ function HudOverlay({
         {hud.banner && <BannerView key={hud.banner.id} banner={hud.banner} />}
       </div>
 
+      {hud.trade && !paused && <DockButton trade={hud.trade} touch={touch} onDock={onDock} />}
+      {hud.online && <OnlineHudView online={hud.online} touch={touch} />}
+
       {hud.warn && (
         <div className="absolute inset-x-0 top-[46%] flex justify-center px-4">
           <p className="g-hud g-display animate-[cove-pulse_1s_ease_infinite] px-4 py-1.5 text-lg text-red-800 pointer-coarse:px-3 pointer-coarse:py-1 pointer-coarse:text-sm">{hud.warn}</p>
@@ -477,13 +756,13 @@ function HudOverlay({
       {!touch && (
         <div className="absolute inset-x-0 bottom-[max(env(safe-area-inset-bottom),16px)] flex items-end justify-center gap-3 px-4">
           <ReloadGauge label="Port" keyName="Q" value={hud.reloadL} guns={hud.guns} />
-          <HelmPanel hud={hud} />
+          <HelmPanel hud={hud} onAuto={onAuto} />
           <ReloadGauge label="Starboard" keyName="E" value={hud.reloadR} guns={hud.guns} />
         </div>
       )}
       {touch && (
         <div className="absolute inset-x-0 bottom-[calc(max(env(safe-area-inset-bottom),16px)+108px)] flex justify-center">
-          <HelmPanel hud={hud} compact />
+          <HelmPanel hud={hud} compact onAuto={onAuto} />
         </div>
       )}
     </div>
@@ -535,7 +814,7 @@ function ReloadGauge({ label, keyName, value, guns }: { label: string; keyName: 
   );
 }
 
-function HelmPanel({ hud, compact = false }: { hud: Hud; compact?: boolean }) {
+function HelmPanel({ hud, compact = false, onAuto }: { hud: Hud; compact?: boolean; onAuto?: () => void }) {
   const effColor = hud.trimEff > 0.85 ? "text-emerald-800" : hud.trimEff > 0.5 ? "text-amber-800" : "text-red-800";
   return (
     <div data-avoid={compact || undefined} className={`g-hud flex items-center ${compact ? "gap-2 px-2 py-0.5" : "gap-3 px-3.5 py-1.5"}`}>
@@ -569,6 +848,24 @@ function HelmPanel({ hud, compact = false }: { hud: Hud; compact?: boolean }) {
           )}
         </div>
       </div>
+      {hud.trade && onAuto && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.currentTarget.blur();
+            onAuto();
+          }}
+          data-active={hud.trade.auto}
+          title={hud.trade.waypoint ? "Auto-sail to your course (G)" : "Set a course on the chart first"}
+          className={`g-soft pointer-events-auto inline-flex shrink-0 items-center font-bold ${compact ? "px-1.5 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs"} ${hud.trade.auto ? "animate-[cove-pulse_1.4s_ease_infinite]" : ""}`}
+        >
+          <span className="g-unskew gap-1">
+            <Navigation className={compact ? "size-3" : "size-3.5"} />
+            {hud.trade.auto ? "Auto on" : "Auto-sail"}
+            {!compact && <Kbd>G</Kbd>}
+          </span>
+        </button>
+      )}
     </div>
   );
 }

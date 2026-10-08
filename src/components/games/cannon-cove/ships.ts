@@ -89,6 +89,8 @@ interface SailRig {
   y: number;
   top: number;
   scale: THREE.Vector3;
+  /** Fore-and-aft sails (sailboats) swing round their mast with the wind. */
+  boom: THREE.Object3D | null;
 }
 
 interface FlagRig {
@@ -102,6 +104,8 @@ let nextId = 1;
 export class Ship {
   readonly id = nextId++;
   readonly root = new THREE.Group();
+  /** Which pool the engine returns this ship to (its model key). */
+  pool = "";
   readonly wake: Wake;
   model: THREE.Object3D | null = null;
   private materials: THREE.MeshStandardMaterial[] = [];
@@ -109,8 +113,13 @@ export class Ship {
   private flags: FlagRig[] = [];
   private emissiveBase = new THREE.Color(0, 0, 0);
   private deckGuns: THREE.Group | null = null;
+  /** Containers / deck cargo that show as the hold fills (cargo ships). */
+  private cargoNodes: THREE.Object3D[] = [];
   /** Deck cannon positions in model space (player ship only). */
   gunSlots: DeckSlot[] = [];
+  /** Engines instead of sails: the wind doesn't matter. */
+  steam = false;
+  private waterline = WATERLINE;
 
   stats: ShipStats;
   kind: ShipClass;
@@ -160,18 +169,25 @@ export class Ship {
     this.wake = new Wake(wakeMaterial);
   }
 
-  /** Swaps in a (new) ship model; materials are cloned so hit flashes stay per ship. */
-  setModel(proto: Proto, scale: number, tint?: THREE.Color) {
+  /**
+   * Swaps in a (new) ship model; materials are cloned so hit flashes stay per ship. `waterline` (model
+   * units above the keel) and `beam` (metres) default to the Pirate Kit ships'.
+   */
+  setModel(proto: Proto, scale: number, tint?: THREE.Color, { waterline = WATERLINE, beam = 3.8 * scale, steam = false } = {}) {
     if (this.model) {
       this.root.remove(this.model);
       this.materials.forEach((m) => m.dispose());
     }
     const model = proto.object.clone();
     model.scale.setScalar(scale);
-    model.position.y = -WATERLINE * scale;
+    model.position.y = -waterline * scale;
+    this.waterline = waterline;
+    this.steam = steam;
     this.materials = [];
     this.sails = [];
     this.flags = [];
+    this.cargoNodes = [];
+    const sails: THREE.Object3D[] = [];
     const cache = new Map<THREE.Material, THREE.MeshStandardMaterial>();
     model.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -191,9 +207,12 @@ export class Ship {
         mesh.castShadow = true;
       }
       const name = o.name.toLowerCase();
-      if (name.startsWith("sail")) this.sails.push(this.rig(o));
+      if (name.startsWith("sail")) sails.push(o);
       else if (name.startsWith("flag")) this.flags.push({ node: o, base: o.rotation.y, phase: Math.random() * 6 });
+      else if (name.startsWith("cargo")) this.cargoNodes.push(o);
     });
+    // Rigged after the walk: a swinging sail gets a new parent.
+    this.sails = sails.map((o) => this.rig(o));
     this.emissiveBase.copy(tint ?? new THREE.Color(0, 0, 0));
     this.model = model;
     this.deckGuns = null;
@@ -201,7 +220,14 @@ export class Ship {
     this.root.add(model);
     this.scale = scale;
     this.length = proto.size.z * scale * 0.92;
-    this.beam = 3.8 * scale;
+    this.beam = beam;
+  }
+
+  /** Shows the deck containers in proportion to how full the hold is (0..1). */
+  setCargo(frac: number) {
+    const n = this.cargoNodes.length;
+    const show = frac <= 0 ? 0 : Math.max(1, Math.round(frac * n));
+    this.cargoNodes.forEach((node, i) => (node.visible = i < show));
   }
 
   private rig(node: THREE.Object3D): SailRig {
@@ -215,7 +241,34 @@ export class Ship {
       if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
       box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, mesh.matrixWorld)));
     });
-    return { node, y: node.position.y, top: box.isEmpty() ? node.position.y : box.max.y, scale: node.scale.clone() };
+    let boom: THREE.Object3D | null = null;
+    const size = box.getSize(new THREE.Vector3());
+    if (!box.isEmpty() && node.parent && size.x < size.z * 0.4) {
+      // A fore-and-aft sail: hang it from its mast (the highest point of the rig) so it can swing.
+      const mast = new THREE.Vector3();
+      const v = new THREE.Vector3();
+      let best = -Infinity;
+      node.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const m = new THREE.Matrix4().multiplyMatrices(inv, mesh.matrixWorld);
+        const pos = mesh.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(m);
+          if (v.y > best) {
+            best = v.y;
+            mast.copy(v);
+          }
+        }
+      });
+      boom = new THREE.Group();
+      boom.position.set(mast.x, 0, mast.z);
+      node.parent.add(boom);
+      node.position.x -= mast.x;
+      node.position.z -= mast.z;
+      boom.add(node);
+    }
+    return { node, y: node.position.y, top: box.isEmpty() ? node.position.y : box.max.y, scale: node.scale.clone(), boom };
   }
 
   reset(x: number, z: number, heading: number) {
@@ -269,9 +322,9 @@ export class Ship {
       this.sailVis = damp(this.sailVis, this.sail / 3, 1.5, dt);
       const from = -(this.fx * wind.x + this.fz * wind.z);
       this.alpha = Math.acos(clamp(from, -1, 1));
-      const eff = Math.max(minPolar, polar(this.alpha));
+      const eff = this.steam ? 1 : Math.max(minPolar, polar(this.alpha));
       const top = this.stats.speed * speedMul;
-      const target = top * this.sailVis * eff * wind.strength;
+      const target = top * this.sailVis * eff * (this.steam ? 1 : wind.strength);
       this.speed = damp(this.speed, target, target > this.speed ? 0.45 : 0.32, dt);
       const grip = clamp(0.3 + (0.7 * this.speed) / (0.5 * top), 0.3, 1);
       const turn = this.stats.turn * turnMul * grip * (1 - 0.3 * this.sailVis);
@@ -312,9 +365,13 @@ export class Ship {
     this.root.rotation.set(this.pitch, this.heading, this.roll);
 
     const reef = 0.2 + 0.8 * this.sailVis;
+    // The boom swings out to leeward: a little close-hauled, far out running before the wind.
+    const swing = clamp((this.alpha - 0.45) * 0.55, 0.08, 1.2) * (0.35 + 0.65 * this.sailVis);
+    const boom = windSide >= 0 ? -swing : swing;
     for (const s of this.sails) {
       s.node.scale.set(s.scale.x, s.scale.y * reef, s.scale.z * (0.55 + 0.45 * reef));
       s.node.position.y = s.top - (s.top - s.y) * reef;
+      if (s.boom) s.boom.rotation.y = damp(s.boom.rotation.y, boom, 2.2, dt);
     }
     const wlx = wind.x * lx + wind.z * lz;
     const wlz = wind.x * fx + wind.z * fz;
@@ -357,7 +414,7 @@ export class Ship {
       // Fire from the mounted deck guns.
       const slot = this.gunSlots[Math.round(t * (this.gunSlots.length - 1))];
       lz = slot.z * this.scale;
-      ly = (slot.y - WATERLINE + 0.4) * this.scale;
+      ly = (slot.y - this.waterline + 0.4) * this.scale;
     }
     // From the ship's state rather than its matrix, so it is right even before the next render.
     const c = Math.cos(this.heading);

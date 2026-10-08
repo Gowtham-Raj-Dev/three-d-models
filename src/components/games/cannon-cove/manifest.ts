@@ -65,6 +65,38 @@ export const LOOT = {
   chest: P("chest"),
 } as const;
 
+/** Open Sea: the merchant ships you can buy beyond the Pirate Kit's, and passing traffic. */
+export const TRADE_SHIPS = {
+  sailA: "watercraft-kit/boat-sail-a",
+  sailB: "watercraft-kit/boat-sail-b",
+  fishing: "watercraft-kit/boat-fishing-small",
+  cargoA: "watercraft-kit/ship-cargo-a",
+  cargoB: "watercraft-kit/ship-cargo-b",
+  liner: "watercraft-kit/ship-ocean-liner",
+} as const;
+
+const F = (name: string) => `fantasy-town-kit/${name}`;
+
+/** Open Sea port towns: Fantasy Town houses and stalls, Pirate Kit castles, Watercraft Kit cargo. */
+export const TOWN = {
+  wallWood: F("wall-wood"),
+  wallWoodDoor: F("wall-wood-door"),
+  wallWoodWindow: F("wall-wood-window-shutters"),
+  wallStone: F("wall"),
+  wallStoneDoor: F("wall-door"),
+  wallStoneWindow: F("wall-window-shutters"),
+  roof: F("roof-point"),
+  roofHigh: F("roof-high-point"),
+  stallRed: F("stall-red"),
+  stallGreen: F("stall-green"),
+  lantern: F("lantern"),
+  cart: F("cart"),
+  castleWall: P("castle-wall"),
+  castleGate: P("castle-gate"),
+  cargoPileA: "watercraft-kit/cargo-pile-a",
+  cargoPileB: "watercraft-kit/cargo-pile-b",
+} as const;
+
 /** Load order matters: the menu needs the player's ship and the islands first. */
 export const MODELS: string[] = [
   SHIPS.playerSmall,
@@ -80,48 +112,57 @@ export const MODELS: string[] = [
   SHIPS.playerMedium,
   SHIPS.playerLarge,
   SHIPS.ghost,
+  ...Object.values(TRADE_SHIPS),
+  ...Object.values(TOWN),
 ];
 
 export const GAME: GameEntry = {
   slug: "cannon-cove",
   title: "Cannon Cove",
-  tagline: "Sail with the wind, fire broadsides, plunder the cove.",
+  tagline: "Trade across the open sea, build a fleet, battle friends online.",
   description:
-    "A 3D naval battle game. Captain a pirate ship around a tropical archipelago, use the wind to outsail navy frigates, fire port and starboard broadsides, dodge fort cannons and loot the wrecks to upgrade your ship — until the ghost ship rises.",
-  genre: "Naval action",
+    "A 3D open-world sailing and trading game. Captain a merchant ship between ten island ports: buy goods cheap where they're made and sell them where they're wanted, take freight, express, bounty and salvage contracts, and follow bottled maps to buried treasure. Earn gold to buy bigger ships — from a little sailboat to galleons and steam freighters — while pirates prowl the far waters and a ghost ship haunts her sea. Auto-sail steers you to any port and docks. Online, make a room and battle friends with its code, or quick-match against captains from anywhere; the classic cove battle against waves of navy ships is still there too.",
+  genre: "Naval trading & action",
   accent: "#38bdf8",
   cover: "/games/cannon-cove/cover.webp",
+  trailer: { src: "/games/cannon-cove/trailer.mp4", hd: "/games/cannon-cove/trailer-1080.mp4", poster: "/games/cannon-cove/trailer-poster.webp", seconds: 39 },
+  preview: "/games/cannon-cove/card-loop.mp4",
   models: MODELS,
-  collections: ["Pirate Kit", "Watercraft Kit"],
+  collections: ["Pirate Kit", "Watercraft Kit", "Fantasy Town Kit"],
   controls: [
     { action: "Steer", keys: ["A", "D", "←", "→"], touch: "Left stick" },
     { action: "Raise / lower sails", keys: ["W", "S", "↑", "↓"], touch: "Push the stick up / down" },
     { action: "Fire left broadside", keys: ["Q", "J"], touch: "◀ Left button (hold to keep firing)" },
     { action: "Fire right broadside", keys: ["E", "L"], touch: "Right ▶ button" },
-    { action: "Pick an upgrade between waves", keys: ["1", "2", "3"], touch: "Tap a card" },
-    { action: "Repair with gold between waves", keys: ["R"], touch: "Tap Repair" },
+    { action: "Dock at a port (inside its gold rings)", keys: ["Space", "Enter"], touch: "Dock button" },
+    { action: "Sea chart", keys: ["C"], touch: "Map button" },
+    { action: "Auto-sail to your course (and dock)", keys: ["G"], touch: "Auto-sail button" },
+    { action: "Set sail from port", keys: ["Enter"], touch: "Set sail" },
+    { action: "Pick an upgrade between waves (Battle waves)", keys: ["1", "2", "3"], touch: "Tap a card" },
     { action: "Zoom the camera", keys: ["Mouse wheel", "Z"] },
   ],
   howTo: [
-    "Sink every enemy ship in a wave to win it, and survive as many waves as you can.",
-    "Your cannons point sideways: turn side-on to an enemy, then fire left (Q) or right (E). Your gunners aim at the nearest target on that side — hold the key to fire again as soon as they reload.",
-    "Watch the wind arrow: sailing across the wind (beam reach) is fastest, straight into it is painfully slow.",
-    "More sail means more speed but wider turns. Drop to battle sails to turn tight.",
-    "A red ! means an enemy is about to fire — change speed or turn hard and their shots splash behind you.",
-    "Sunk ships leave barrels, crates and chests: sail through them for gold and repairs. Island forts shoot back too — knock them down for a big bounty.",
-    "Every 5th wave the ghost ship rises: sail out of the green rings before her shots land.",
-    "After each wave pick one of three upgrades — faster reloads, more cannons, a stronger hull, bigger sails or a bigger ship — and spend gold on repairs.",
+    "Open Sea: you start at Port Haven with a little sailboat and 300 gold. Each port makes some goods (cheap) and wants others (it pays more) — buy low, sail, sell high.",
+    "Contracts pay well: freight and express runs to other ports, orders for goods a port needs, bounties on pirate captains and salvage from wrecks. Their clocks only run while you sail.",
+    "Press C for the sea chart: click a port to see what it trades, then Set course — a gold arrow points the way. Press G (Auto-sail) and the ship sails there, tacking against the wind, and docks by itself — or sail into the gold rings and press Space.",
+    "Spend your gold on bigger ships (more hold, more cannons), upgrades and repairs. Guild ranks unlock bigger ships and more contracts at once — up to steam freighters that ignore the wind.",
+    "Pirates prowl far from home, and more often when your hold is full. Your cannons point sideways: turn side-on, then fire left (Q) or right (E). Sunk pirates drop gold and cargo.",
+    "Sailing across the wind is fastest, straight into it is painfully slow. More sail means more speed but wider turns.",
+    "Pick up messages in bottles for treasure maps. In the Haunted Sea the Drowned Queen rises — sink her for a fortune and her ship.",
+    "Online battle: Quick match drops you into a battle with captains online; Play with friends makes a private room — share its code or invite link. Sinks score points, sunk ships come back after 5 seconds, first to the goal wins.",
+    "Battle waves: the classic mode — sink every navy ship in each wave, pick an upgrade between waves, and survive the ghost ship every 5th wave.",
   ],
   touchHowTo: [
-    "Sink every enemy ship in a wave to win it, and survive as many waves as you can.",
-    "Your cannons point sideways: turn side-on to an enemy, then tap ◀ Left or Right ▶. Your gunners aim at the nearest target on that side — hold the button to fire again as soon as the ring shows they've reloaded.",
-    "Watch the wind arrow above the stick: sailing across the wind (beam reach) is fastest, straight into it is painfully slow.",
-    "Push the stick up for more sail — more speed but wider turns. Push it down to drop to battle sails and turn tight. Let the stick come back to the middle between pushes.",
-    "A red ! means an enemy is about to fire — change speed or turn hard and their shots splash behind you.",
-    "Sunk ships leave barrels, crates and chests: sail through them for gold and repairs. Island forts shoot back too — knock them down for a big bounty.",
-    "Every 5th wave the ghost ship rises: sail out of the green rings before her shots land.",
-    "After each wave tap one of three upgrades — faster reloads, more cannons, a stronger hull, bigger sails or a bigger ship — and tap Repair to spend gold on the hull.",
+    "Open Sea: you start at Port Haven with a little sailboat and 300 gold. Each port makes some goods (cheap) and wants others (it pays more) — buy low, sail, sell high.",
+    "Contracts pay well: freight and express runs to other ports, orders for goods a port needs, bounties on pirate captains and salvage from wrecks. Their clocks only run while you sail.",
+    "Tap the map button for the sea chart: tap a port to see what it trades, then Auto-sail there — the ship sails, tacks against the wind and docks by itself. Or follow the gold arrow into the gold rings and tap Dock.",
+    "Spend your gold on bigger ships (more hold, more cannons), upgrades and repairs. Guild ranks unlock bigger ships and more contracts at once — up to steam freighters that ignore the wind.",
+    "Pirates prowl far from home, and more often when your hold is full. Your cannons point sideways: turn side-on, then tap ◀ Left or Right ▶. Sunk pirates drop gold and cargo.",
+    "Sailing across the wind is fastest, straight into it is painfully slow. Push the stick up for more sail (faster, wider turns), down to turn tight.",
+    "Pick up messages in bottles for treasure maps. In the Haunted Sea the Drowned Queen rises — sink her for a fortune and her ship.",
+    "Online battle: Quick match drops you into a battle with captains online; Play with friends makes a private room — share its code or invite link. Sinks score points, sunk ships come back after 5 seconds, first to the goal wins.",
+    "Battle waves: the classic mode — sink every navy ship in each wave, tap an upgrade between waves, and survive the ghost ship every 5th wave.",
   ],
-  features: ["Wind-driven sailing", "Port & starboard broadsides", "Forts, frigates & a ghost ship boss", "Ship upgrades between waves"],
+  features: ["Open sea with 10 trading ports", "12 goods, 5 kinds of contracts", "12 ships, from sailboat to steam freighter", "Auto-sail to any port", "Online battles: rooms with friends or quick match", "Pirates, bounties, treasure maps & a ghost ship"],
   music: "Salt & Cannon",
 };

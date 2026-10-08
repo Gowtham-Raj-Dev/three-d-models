@@ -30,6 +30,7 @@ export const GAME: GameEntry = {
   accent: "#e2563b",
   cover: "/games/patti-veedu/cover.webp",
   trailer: { src: "/games/patti-veedu/trailer.mp4", hd: "/games/patti-veedu/trailer-1080.mp4", poster: "/games/patti-veedu/trailer-poster.webp", seconds: 50 },
+  preview: "/games/patti-veedu/card-loop.mp4",
   models: MODELS,
   collections: ["Avatar Garden", "Avatar Show", "Halloween Bits"],
   ownShell: true,

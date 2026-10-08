@@ -10,6 +10,8 @@ export const FIREBASE_CONFIG = {
   messagingSenderId: "919514664227",
   appId: "1:919514664227:web:d73acc2d535463aed95096",
   measurementId: "G-65L0LB1CJT",
+  /** Realtime Database (Singapore): Cannon Cove's online battle rooms. */
+  databaseURL: "https://d-models-bfb95-default-rtdb.asia-southeast1.firebasedatabase.app",
 };
 
 let analytics: Promise<void> | undefined;

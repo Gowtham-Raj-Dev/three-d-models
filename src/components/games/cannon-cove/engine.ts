@@ -6,10 +6,41 @@ import { music } from "../shared/music";
 import { SEA_SHANTY } from "../shared/songs";
 import { Sfx } from "./audio";
 import { createWakeMaterial, Particles, Rings } from "./fx";
-import { ARMS, ISLAND, LOOT, MODELS, PROPS, SHIPS } from "./manifest";
-import { HAUNTED, Ocean, sea, Sky, SUNNY, waveHeight } from "./ocean";
+import { ARMS, ISLAND, LOOT, MODELS, PROPS, SHIPS, TOWN, TRADE_SHIPS } from "./manifest";
+import { HAUNTED, MAX_SHOALS, Ocean, sea, Sky, SUNNY, waveHeight } from "./ocean";
 import { ENEMY_STATS, PLAYER_STATS, pointOfSail, polar, Ship, type DeckSlot, type ShipClass, type ShipStats, type Side, type Wind } from "./ships";
-import { ARENA, World, type FortSite } from "./world";
+import {
+  BOUNDS,
+  Career,
+  compass,
+  contractText,
+  danger,
+  GOOD_IDS,
+  GOODS,
+  HAUNTED_SEA,
+  inHauntedSea,
+  metres,
+  PORT,
+  PORTS,
+  RANKS,
+  SHIP_DEFS,
+  SHIP_ORDER,
+  TRADE_UPGRADE_ORDER,
+  TRADE_UPGRADES,
+  zoneName,
+  type CareerSave,
+  type Contract,
+  type GoodId,
+  type KnownPrices,
+  type Notice,
+  type PirateClass,
+  type PortId,
+  type ShipDef,
+  type ShipId,
+  type TradeUpgradeId,
+} from "./trade";
+import { ARENA, COVE, openSeaLayout, World, type FortSite, type PortSite } from "./world";
+import { ONLINE_SHIPS, PLAYER_COLORS, type NetEvent } from "./online";
 
 // --- Tuning ---------------------------------------------------------------------------------------
 
@@ -34,7 +65,10 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 // --- Public types ---------------------------------------------------------------------------------
 
-export type Phase = "loading" | "menu" | "playing" | "paused" | "upgrade" | "sinking" | "over" | "error";
+export type Phase = "loading" | "menu" | "playing" | "paused" | "upgrade" | "sinking" | "over" | "error" | "port" | "chart" | "wrecked";
+
+/** "waves": the cove battle. "trade": the Open Sea trading career. "online": battles against other players. */
+export type Mode = "waves" | "trade" | "online";
 
 export type UpgradeId = "reload" | "guns" | "hull" | "sails" | "shot" | "range" | "ship" | "carpenter" | "plunder";
 
@@ -86,6 +120,210 @@ export interface Hud {
   banner: Banner | null;
   warn: string | null;
   combat: boolean;
+  mode: Mode;
+  trade: TradeHud | null;
+  online: OnlineHud | null;
+}
+
+export interface OnlineHud {
+  /** Seconds left in the round (and to its start, while counting down). */
+  left: number;
+  countdown: number;
+  goal: number;
+  scores: { id: string; name: string; color: string; k: number; d: number; me: boolean }[];
+  feed: { id: number; text: string }[];
+  /** Seconds until you're back on the water after sinking. */
+  respawn: number | null;
+}
+
+/** Another player in the battle, as the engine needs to show them. */
+export interface OnlinePeer {
+  id: string;
+  name: string;
+  ship: number;
+  color: number;
+}
+
+/** Setting up a battle: who you are, the round's clock, and how to reach the other players. */
+export interface OnlineSetup {
+  me: string;
+  name: string;
+  ship: number;
+  color: number;
+  start: number;
+  end: number;
+  goal: number;
+  seed: number;
+  peers: OnlinePeer[];
+  now: () => number;
+  send: (state: number[]) => void;
+  emit: (e: NetEvent) => void;
+}
+
+interface Snap {
+  t: number;
+  x: number;
+  z: number;
+  h: number;
+  s: number;
+  sl: number;
+  hp: number;
+  mx: number;
+  al: boolean;
+  k: number;
+  d: number;
+}
+
+interface Remote {
+  id: string;
+  name: string;
+  color: number;
+  cls: number;
+  ship: Ship;
+  buf: Snap[];
+  k: number;
+  d: number;
+  /** When they last sank (database clock): older "afloat" reports are ignored. */
+  sunkAt: number;
+}
+
+/** One objective in the contract tracker. */
+export interface TrackLine {
+  id: string;
+  text: string;
+  /** Seconds left (null: no hurry shown). */
+  left: number | null;
+  dist: number | null;
+  urgent: boolean;
+}
+
+export interface TradeHud {
+  cargo: number;
+  cap: number;
+  zone: string;
+  danger: number;
+  /** Port you can dock at right now. */
+  dock: string | null;
+  /** Why you can't dock yet. */
+  dockBlocked: string | null;
+  track: TrackLine[];
+  rank: string;
+  waypoint: { label: string; dist: number } | null;
+  steam: boolean;
+  /** Auto-sail is steering towards the course. */
+  auto: boolean;
+}
+
+export interface MarketRow {
+  id: GoodId;
+  name: string;
+  icon: string;
+  buy: number | null;
+  sell: number;
+  have: number;
+  /** Average price paid for what you carry. */
+  paid: number | null;
+  wanted: boolean;
+  local: boolean;
+  maxBuy: number;
+}
+
+export interface OfferRow {
+  c: Contract;
+  title: string;
+  line: string;
+  detail: string;
+  dist: number;
+  blocked: string | null;
+}
+
+export interface ShipRow {
+  def: ShipDef;
+  owned: boolean;
+  active: boolean;
+  sold: boolean;
+  blocked: string | null;
+  cap: number;
+  hull: number;
+  guns: number;
+}
+
+export interface UpgradeRow {
+  id: TradeUpgradeId;
+  title: string;
+  text: string;
+  level: number;
+  max: number;
+  cost: number | null;
+}
+
+export interface PortView {
+  id: PortId;
+  name: string;
+  blurb: string;
+  produces: GoodId[];
+  wants: GoodId[];
+  yard: boolean;
+  gold: number;
+  cargo: number;
+  cap: number;
+  hull: number;
+  maxHull: number;
+  repairCost: number;
+  ship: ShipDef;
+  rank: ReturnType<Career["rankInfo"]>;
+  market: MarketRow[];
+  offers: OfferRow[];
+  active: OfferRow[];
+  maxContracts: number;
+  refresh: number;
+  ships: ShipRow[];
+  upgrades: UpgradeRow[];
+  goals: ReturnType<Career["goals"]>;
+  stats: Career["stats"];
+  notices: Notice[];
+  maps: number;
+  visited: number;
+  fleet: number;
+  /** The captain's guide is switched off. */
+  guideOff: boolean;
+  /** Exact totals for buying / selling `qty` here (prices creep as you trade). */
+  quote: (g: GoodId, qty: number) => { buy: number | null; sell: number };
+  /** Ports that want a good, nearest first, with the price last seen there. */
+  wantedAt: (g: GoodId) => { name: string; dist: number; price: number | null }[];
+}
+
+export interface ChartPort {
+  id: PortId;
+  name: string;
+  x: number;
+  z: number;
+  visited: boolean;
+  produces: GoodId[];
+  wants: GoodId[];
+  prices: KnownPrices | null;
+  yard: boolean;
+  here: boolean;
+}
+
+export interface ChartView {
+  bounds: number;
+  islands: { x: number; z: number; r: number; treasure: boolean }[];
+  ports: ChartPort[];
+  player: { x: number; z: number; h: number };
+  targets: { x: number; z: number; label: string; kind: "port" | "bounty" | "salvage" | "treasure" }[];
+  waypoint: { x: number; z: number; label: string } | null;
+  haunted: { x: number; z: number; r: number };
+  time: number;
+  live: boolean;
+}
+
+export interface WreckReport {
+  lostGoods: number;
+  lostValue: number;
+  failed: number;
+  fee: number;
+  port: string;
 }
 
 export interface VoyageResult {
@@ -103,6 +341,12 @@ export interface GameEvents {
   offer(offer: Offer | null): void;
   over(result: VoyageResult): void;
   error(message: string): void;
+  /** Open Sea: the port screen's contents (null when you set sail). */
+  port(view: PortView | null): void;
+  /** Open Sea: save the career. */
+  save(data: CareerSave): void;
+  /** Open Sea: your ship sank. */
+  wrecked(report: WreckReport): void;
 }
 
 export const EMPTY_HUD: Hud = {
@@ -126,6 +370,9 @@ export const EMPTY_HUD: Hud = {
   banner: null,
   warn: null,
   combat: false,
+  mode: "waves",
+  trade: null,
+  online: null,
 };
 
 // --- Upgrades -------------------------------------------------------------------------------------
@@ -222,6 +469,8 @@ interface Ball {
   ghost: boolean;
   trailT: number;
   age: number;
+  /** Online: the player who fired it. */
+  owner: string | null;
 }
 
 interface Shot {
@@ -240,12 +489,19 @@ interface Shot {
   damage: number;
   ghost: boolean;
   quiet: boolean;
+  owner?: string | null;
 }
 
-type LootKind = "barrel" | "crate" | "bottles" | "chest";
+type LootKind = "barrel" | "crate" | "bottles" | "chest" | "bottle";
 
 interface Loot {
   kind: LootKind;
+  /** Open Sea: goods in a crate, the salvage contract it belongs to, a treasure map in a bottle. */
+  good?: GoodId;
+  qty?: number;
+  contract?: string;
+  keep?: boolean;
+  scale: number;
   obj: THREE.Object3D;
   x: number;
   z: number;
@@ -280,7 +536,26 @@ interface Target {
   heading: number;
 }
 
-const LOOT_KEYS: Record<LootKind, string> = { barrel: LOOT.barrel, crate: LOOT.crate, bottles: LOOT.bottles, chest: LOOT.chest };
+const LOOT_KEYS: Record<LootKind, string> = { barrel: LOOT.barrel, crate: LOOT.crate, bottles: LOOT.bottles, chest: LOOT.chest, bottle: PROPS.bottle };
+const LOOT_SCALE: Partial<Record<LootKind, number>> = { bottle: 2.6 };
+
+/** Open Sea pirates fly the skull: the Pirate Kit's black-sailed ships. */
+const PIRATE_MODELS: Record<Exclude<ShipClass, "player">, string[]> = {
+  sloop: [SHIPS.playerSmall, SHIPS.sloop],
+  brig: [SHIPS.playerMedium, SHIPS.brig],
+  frigate: [SHIPS.playerLarge, SHIPS.frigate],
+  ghost: [SHIPS.ghost, SHIPS.frigate],
+};
+const PIRATE_NAMES: Record<Exclude<ShipClass, "player" | "ghost">, string> = { sloop: "Pirate sloop", brig: "Pirate brig", frigate: "Pirate frigate" };
+/** Merchant traffic on the open sea (ship looks borrowed from the shipyard). */
+const TRAFFIC: ShipId[] = ["skiff", "cutter", "sloop", "brig", "galleon", "skiff", "sloop"];
+const BIG_TRAFFIC: ShipId[] = ["steamer", "indiaman"];
+
+interface Traffic {
+  ship: Ship;
+  to: PortId;
+  def: ShipId;
+}
 
 // --- Game -----------------------------------------------------------------------------------------
 
@@ -314,7 +589,7 @@ export class CannonCoveGame {
   private phase: Phase = "loading";
   private player!: Ship;
   private enemies: Ship[] = [];
-  private readonly shipPool = new Map<ShipClass, Ship[]>();
+  private readonly shipPool = new Map<string, Ship[]>();
   private forts: Fort[] = [];
   private balls: Ball[] = [];
   private shots: Shot[] = [];
@@ -376,6 +651,58 @@ export class CannonCoveGame {
   private readonly circleBuf2: number[] = [0, 0, 0, 0, 0, 0];
   private readonly slotCache = new Map<string, DeckSlot[]>();
 
+  // Open Sea.
+  private mode: Mode = "waves";
+  private cove: World | null = null;
+  private sea: World | null = null;
+  private coveForts: Fort[] = [];
+  private career: Career | null = null;
+  /** Port you are moored at (port phase), and the one whose harbour you're in (playing). */
+  private docked: PortSite | null = null;
+  private dockable: PortSite | null = null;
+  private dockBlocked: string | null = null;
+  private traffic: Traffic[] = [];
+  private readonly trafficPool = new Map<ShipId, Ship[]>();
+  private trafficT = 2;
+  private encounterT = 25;
+  private flotsamT = 20;
+  private saveT = 10;
+  private shoalT = 0;
+  private ringT = 0;
+  private threat = 1;
+  private readonly bounties = new Map<Ship, string>();
+  private readonly salvageOut = new Set<string>();
+  private queen: Ship | null = null;
+  private bannerQueue: { title: string; sub: string; tone: Banner["tone"]; seconds: number }[] = [];
+  private portNotices: Notice[] = [];
+  private lastX = 0;
+  private lastZ = 0;
+  /** Port screen open: slide the picture left (or up) so the ship isn't under the panel. */
+  private showcase = 0;
+  private showcaseY = 0;
+  private portAngle = 0;
+  private fullT = -10;
+  /** Open Sea auto-sail: steers to the course, tacking upwind, and docks on arrival. */
+  private autopilot = false;
+  private tackSide = 0;
+  private tackT = 0;
+  // Online battles.
+  private net: OnlineSetup | null = null;
+  private readonly remotes = new Map<string, Remote>();
+  private readonly remotePool = new Map<string, Ship[]>();
+  private kills = 0;
+  private deaths = 0;
+  private lastBy: string | null = null;
+  private respawnT = 0;
+  private invulnT = 0;
+  private sendT = 0;
+  private feed: { id: number; text: string; t: number }[] = [];
+  private feedId = 0;
+  private startShown = false;
+  /** Columns of gold light over every harbour's docking ring. */
+  private readonly beacons = new THREE.Group();
+  private beaconMaterial: THREE.ShaderMaterial | null = null;
+
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly events: GameEvents,
@@ -435,8 +762,10 @@ export class CannonCoveGame {
         if (m) this.protos.set(key, makeProto(m.scene, m.animations, fit, opts));
       };
       for (const key of Object.values(SHIPS)) proto(key, { scale: 1 });
+      for (const key of Object.values(TRADE_SHIPS)) proto(key, { scale: 1 });
       for (const key of Object.values(ISLAND)) proto(key, { scale: 1 }, { receive: true });
       for (const key of Object.values(PROPS)) proto(key, { scale: 1 }, { receive: true });
+      for (const key of Object.values(TOWN)) proto(key, { scale: 1 }, { receive: true });
       proto(ARMS.cannon, { scale: 0.6 });
       proto(ARMS.fortCannon, { scale: 1.3 });
       proto(ARMS.ball, { height: 0.62 }, { shadows: false });
@@ -463,8 +792,9 @@ export class CannonCoveGame {
   }
 
   private buildWorld() {
-    const world = new World(this.protos);
+    const world = new World(this.protos, COVE);
     this.world = world;
+    this.cove = world;
     this.scene.add(world.group);
     this.ocean.setShoals(world.shoals.filter((s) => !s.dock).map((s) => ({ x: s.x, z: s.z, r: s.r * 0.88 })));
     const towerSmall = this.protos.get(PROPS.towerSmall);
@@ -486,6 +816,64 @@ export class CannonCoveGame {
       this.scene.add(tower, g);
       this.forts.push({ site, tower, gun: g, x: site.x, z: site.z, gx, gz, height: proto.size.y * s + 0.85, hp: 90, maxHp: 90, reload: 3, aimT: -1, gunYaw: site.yaw, down: false, downWave: 0, fallT: 0 });
     }
+    this.coveForts = this.forts;
+  }
+
+  /** Builds the open sea ahead of time (hidden), so starting a voyage is instant. */
+  warmSea() {
+    if (this.sea || this.disposed || !this.protos.size) return;
+    this.buildSea();
+    this.sea!.group.visible = this.mode === "trade";
+    this.beacons.visible = this.mode === "trade";
+  }
+
+  private buildSea() {
+    const sea = new World(this.protos, openSeaLayout());
+    this.sea = sea;
+    this.scene.add(sea.group);
+    // A soft column of light marks where to dock, seen from across the water.
+    this.beaconMaterial = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: "varying float vY; void main() { vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+      fragmentShader: [
+        "uniform float uTime; varying float vY;",
+        "void main() {",
+        "  float k = clamp(vY / 70.0, 0.0, 1.0);",
+        "  float a = (1.0 - k) * (1.0 - k) * (0.16 + 0.05 * sin(uTime * 2.0 - vY * 0.15));",
+        "  gl_FragColor = vec4(1.0, 0.85, 0.4, a);",
+        "}",
+      ].join("\n"),
+    });
+    const geometry = new THREE.CylinderGeometry(2.6, 3.4, 70, 24, 1, true);
+    geometry.translate(0, 35, 0);
+    for (const site of sea.ports) {
+      const m = new THREE.Mesh(geometry, this.beaconMaterial);
+      m.position.set(site.zone.x, -1, site.zone.z);
+      m.renderOrder = 3;
+      this.beacons.add(m);
+    }
+    this.scene.add(this.beacons);
+  }
+
+  /** Shows the cove (wave battles, title screen) or the open sea (trading), building the sea the first time. */
+  private useWorld(mode: Mode) {
+    if (mode === "trade" && !this.sea) this.buildSea();
+    this.mode = mode;
+    const trade = mode === "trade";
+    if (this.cove) this.cove.group.visible = !trade;
+    if (this.sea) this.sea.group.visible = trade;
+    this.beacons.visible = trade;
+    // Forts only fight in the wave battles (online, every player would see a different one fall).
+    const forts = mode === "waves";
+    for (const f of this.coveForts) f.tower.visible = f.gun.visible = forts;
+    this.forts = forts ? this.coveForts : [];
+    this.world = trade ? this.sea : this.cove;
+    if (!trade && this.cove) this.ocean.setShoals(this.cove.shoals.filter((s) => !s.dock).map((s) => ({ x: s.x, z: s.z, r: s.r * 0.88 })));
+    this.shoalT = 0;
   }
 
   private buildArms() {
@@ -509,7 +897,7 @@ export class CannonCoveGame {
         if ((o as THREE.Mesh).isMesh && !m) m = o as THREE.Mesh;
       });
       this.scene.add(obj);
-      this.balls.push({ obj, mesh: m, active: false, p: new THREE.Vector3(), v: new THREE.Vector3(), hostile: false, damage: 0, ghost: false, trailT: 0, age: 0 });
+      this.balls.push({ obj, mesh: m, active: false, p: new THREE.Vector3(), v: new THREE.Vector3(), hostile: false, damage: 0, ghost: false, trailT: 0, age: 0, owner: null });
     }
   }
 
@@ -517,6 +905,9 @@ export class CannonCoveGame {
 
   start() {
     audio.unlock();
+    this.career = null;
+    this.net = null;
+    this.useWorld("waves");
     this.resetRun();
     this.player.sail = 2;
     this.player.sailVis = 2 / 3;
@@ -534,6 +925,7 @@ export class CannonCoveGame {
     music.duck(true);
     this.sfx.ambience(0, 0, 0);
     this.setPhase("paused");
+    this.save();
   }
 
   resume() {
@@ -544,6 +936,12 @@ export class CannonCoveGame {
   }
 
   toMenu() {
+    this.save();
+    this.career = null;
+    this.net = null;
+    this.docked = null;
+    this.events.port(null);
+    this.useWorld("waves");
     this.resetRun();
     this.camSnap = true;
     music.play(SEA_SHANTY, 0);
@@ -642,7 +1040,14 @@ export class CannonCoveGame {
     this.timer.dispose();
     this.sfx.dispose();
     music.stop();
-    this.world?.dispose();
+    this.cove?.dispose();
+    this.sea?.dispose();
+    (this.beacons.children[0] as THREE.Mesh | undefined)?.geometry.dispose();
+    this.beaconMaterial?.dispose();
+    for (const t of this.traffic) t.ship.dispose();
+    for (const list of this.trafficPool.values()) for (const s of list) s.dispose();
+    for (const r of this.remotes.values()) r.ship.dispose();
+    for (const list of this.remotePool.values()) for (const s of list) s.dispose();
     for (const proto of this.protos.values()) disposeTree(proto.object);
     this.envTexture?.dispose();
     this.ocean.dispose();
@@ -669,6 +1074,23 @@ export class CannonCoveGame {
   private resetRun() {
     for (const e of this.enemies) this.releaseShip(e);
     this.enemies = [];
+    for (const t of this.traffic) this.releaseTraffic(t);
+    this.traffic = [];
+    this.bounties.clear();
+    this.salvageOut.clear();
+    this.queen = null;
+    this.autopilot = false;
+    for (const r of this.remotes.values()) this.releaseRemote(r);
+    this.remotes.clear();
+    this.feed = [];
+    this.kills = this.deaths = 0;
+    this.respawnT = 0;
+    this.bannerQueue = [];
+    this.dockable = null;
+    this.dockBlocked = null;
+    this.encounterT = 25;
+    this.flotsamT = 20;
+    this.trafficT = 2;
     for (const b of this.balls) {
       b.active = false;
       b.obj.visible = false;
@@ -700,11 +1122,16 @@ export class CannonCoveGame {
     this.updateWindVector();
 
     const p = this.player;
-    p.stats = { ...PLAYER_STATS };
-    p.setModel(this.protos.get(SHIP_MODELS[0])!, 1);
-    this.mountGuns();
+    if (this.mode === "trade" && this.career) this.applyTradeShip();
+    else if (this.mode === "online" && this.net) this.applyOnlineShip();
+    else {
+      p.stats = { ...PLAYER_STATS };
+      p.setModel(this.protos.get(SHIP_MODELS[0])!, 1);
+      this.mountGuns();
+    }
     p.reset(0, 0, 0.35);
-    p.maxHp = p.hp = this.maxHull();
+    p.maxHp = this.maxHull();
+    p.hp = this.mode === "trade" && this.career ? Math.max(1, p.maxHp * this.career.s.hull) : p.maxHp;
     p.sail = 1;
     p.sailVis = 1 / 3;
     p.speed = 2;
@@ -716,36 +1143,65 @@ export class CannonCoveGame {
 
   // --- Derived player stats -------------------------------------------------------------------
 
+  /** The trading career, when sailing the open sea. */
+  private get trade() {
+    return this.mode === "trade" ? this.career : null;
+  }
+
+  /** Your ship's class in an online battle. */
+  private get onlineShip() {
+    return this.mode === "online" && this.net ? ONLINE_SHIPS[this.net.ship] ?? ONLINE_SHIPS[0] : null;
+  }
+
   private maxHull() {
+    if (this.onlineShip) return this.onlineShip.hull;
+    if (this.trade) return this.trade.maxHull();
     return 100 + this.up.hull * 25 + [0, 40, 90][this.up.ship];
   }
 
   private guns() {
+    if (this.onlineShip) return this.onlineShip.guns;
+    if (this.trade) return this.trade.guns();
     return 3 + this.up.guns + this.up.ship;
   }
 
   private reloadTime() {
+    if (this.onlineShip) return this.onlineShip.reload;
+    if (this.trade) return 3.2 * Math.pow(0.85, this.trade.level("reload"));
     return 3.2 * Math.pow(0.82, this.up.reload);
   }
 
   private range() {
+    if (this.onlineShip) return 50;
+    if (this.trade) return 46 * (1 + 0.15 * this.trade.level("range"));
     return 46 * (1 + 0.18 * this.up.range);
   }
 
   private damage() {
+    if (this.trade) return 10 * (1 + 0.2 * this.trade.level("shot"));
     return 10 * (1 + 0.25 * this.up.shot);
   }
 
   private speedMul() {
+    if (this.onlineShip) return 1;
+    if (this.trade) return 1 + 0.05 * this.trade.level("sails");
     return (1 + 0.1 * this.up.sails) * (1 - 0.03 * this.up.ship);
   }
 
   private turnMul() {
+    if (this.onlineShip) return 1;
+    if (this.trade) return 1 + 0.06 * this.trade.level("sails");
     return (1 + 0.08 * this.up.sails) * (1 - 0.06 * this.up.ship);
   }
 
   private goldMul() {
+    if (this.trade) return 1;
     return 1 + 0.5 * this.up.plunder;
+  }
+
+  /** Combat difficulty: the wave number in the cove, the local threat on the open sea. */
+  private lvl() {
+    return this.mode === "trade" ? this.threat : this.wave;
   }
 
   private repairCost() {
@@ -775,7 +1231,8 @@ export class CannonCoveGame {
 
   /** Shows the player's cannons on deck — one per gun, so upgrades are visible. */
   private mountGuns() {
-    this.player.setDeckGuns(this.protos.get(ARMS.cannon), this.deckSlots(SHIP_MODELS[this.up.ship]), this.guns());
+    const key = this.onlineShip ? this.onlineShip.model : this.trade ? this.trade.ship.model : SHIP_MODELS[this.up.ship];
+    this.player.setDeckGuns(this.protos.get(ARMS.cannon), this.deckSlots(key), this.guns());
   }
 
   /** Free spots along the main deck's rail of a ship model (found by casting rays down onto it). */
@@ -889,8 +1346,8 @@ export class CannonCoveGame {
 
   private scaledStats(kind: Exclude<ShipClass, "player">): ShipStats {
     const base = ENEMY_STATS[kind];
-    const n = this.wave - 1;
-    const hp = kind === "ghost" ? base.hp + 150 * (Math.floor(this.wave / 5) - 1) : base.hp * (1 + 0.07 * n);
+    const n = this.lvl() - 1;
+    const hp = kind === "ghost" ? (this.trade ? base.hp + 120 * this.trade.rank : base.hp + 150 * (Math.floor(this.wave / 5) - 1)) : base.hp * (1 + 0.07 * n);
     return {
       ...base,
       hp: Math.round(hp),
@@ -901,6 +1358,7 @@ export class CannonCoveGame {
   }
 
   private shipKey(kind: ShipClass) {
+    if (this.mode === "trade" && kind !== "player") return PIRATE_MODELS[kind].find((k) => this.protos.has(k))!;
     const map: Record<ShipClass, string[]> = {
       player: [SHIPS.playerSmall],
       sloop: [SHIPS.sloop],
@@ -914,8 +1372,7 @@ export class CannonCoveGame {
   private spawnEnemy(kind: ShipClass) {
     if (kind === "player") return;
     const stats = this.scaledStats(kind);
-    const ship = this.shipPool.get(kind)?.pop() ?? this.createShip(kind, stats);
-    ship.stats = stats;
+    const ship = this.takeShip(kind, stats);
     const p = this.player;
     const shoals = this.world?.shoals ?? [];
     let x = 0;
@@ -936,11 +1393,30 @@ export class CannonCoveGame {
       x = Math.sin(a) * (ARENA - 30);
       z = Math.cos(a) * (ARENA - 30);
     }
+    this.launchEnemy(ship, x, z);
+    if (kind === "ghost") {
+      // It rises from the deep in a burst of green fire.
+      this.glow.burst(this.v1.set(x, 1, z), 40, 6, 6, { color: "#58ffb8", size: 2.4, grow: 0.4, life: 1.4, gravity: -2, drag: 1.5, alpha: 0.9, spread: 6 });
+      this.smoke.burst(this.v1.set(x, 1, z), 30, 4, 3, { color: "#4c6b62", size: 4, grow: 10, life: 3, gravity: -1.5, drag: 1.2, alpha: 0.6, spread: 8 });
+    }
+  }
+
+  /** A pooled enemy ship of this class (the model depends on the mode). */
+  private takeShip(kind: ShipClass, stats: ShipStats) {
+    const key = this.shipKey(kind);
+    const ship = this.shipPool.get(key)?.pop() ?? this.createShip(kind, stats, key);
+    ship.stats = stats;
+    return ship;
+  }
+
+  /** Puts an enemy on the water at (x, z), turned towards the player and ready to fight. */
+  private launchEnemy(ship: Ship, x: number, z: number) {
+    const p = this.player;
     ship.reset(x, z, Math.atan2(p.x - x, p.z - z) + rand(-0.4, 0.4));
-    ship.maxHp = ship.hp = stats.hp;
+    ship.maxHp = ship.hp = ship.stats.hp;
     ship.sail = 3;
     ship.sailVis = 1;
-    ship.speed = stats.speed * 0.6;
+    ship.speed = ship.stats.speed * 0.6;
     ship.reload[1] = rand(1, 3);
     ship.reload[-1] = rand(1, 3);
     ship.side = Math.random() < 0.5 ? 1 : -1;
@@ -950,24 +1426,22 @@ export class CannonCoveGame {
     this.enemies.push(ship);
     this.scene.add(ship.root, ship.wake.mesh);
     ship.pose(0, this.elapsed, this.wind);
-    if (kind === "ghost") {
-      // It rises from the deep in a burst of green fire.
-      this.glow.burst(this.v1.set(x, 1, z), 40, 6, 6, { color: "#58ffb8", size: 2.4, grow: 0.4, life: 1.4, gravity: -2, drag: 1.5, alpha: 0.9, spread: 6 });
-      this.smoke.burst(this.v1.set(x, 1, z), 30, 4, 3, { color: "#4c6b62", size: 4, grow: 10, life: 3, gravity: -1.5, drag: 1.2, alpha: 0.6, spread: 8 });
-    }
   }
 
-  private createShip(kind: ShipClass, stats: ShipStats) {
+  private createShip(kind: ShipClass, stats: ShipStats, key: string) {
     const ship = new Ship(kind, stats, this.wakeMaterial);
-    ship.setModel(this.protos.get(this.shipKey(kind))!, stats.scale, kind === "ghost" ? GHOST_TINT : undefined);
+    ship.setModel(this.protos.get(key)!, stats.scale, kind === "ghost" ? GHOST_TINT : undefined);
+    ship.pool = key;
     return ship;
   }
 
   private releaseShip(ship: Ship) {
     this.scene.remove(ship.root, ship.wake.mesh);
     ship.wake.reset();
-    let list = this.shipPool.get(ship.kind);
-    if (!list) this.shipPool.set(ship.kind, (list = []));
+    if (ship === this.queen) this.queen = null;
+    this.bounties.delete(ship);
+    let list = this.shipPool.get(ship.pool);
+    if (!list) this.shipPool.set(ship.pool, (list = []));
     list.push(ship);
   }
 
@@ -980,15 +1454,17 @@ export class CannonCoveGame {
     const dt = Math.min(this.timer.getDelta(), 1 / 20);
     if (this.phase === "loading" || this.phase === "error") return;
 
-    const live = this.phase !== "paused";
+    const live = this.phase !== "paused" && this.phase !== "chart";
     if (live) {
       this.elapsed += dt;
       sea.time += dt;
       if (this.phase === "playing") this.updatePlaying(dt);
       else if (this.phase === "menu") this.updateMenu(dt);
-      else if (this.phase === "sinking" || this.phase === "over") this.updateSinking(dt);
+      else if (this.phase === "port") this.updatePort(dt);
+      else if (this.phase === "sinking" || this.phase === "over" || this.phase === "wrecked") this.updateSinking(dt);
       this.updateVisuals(dt);
     }
+    if (this.mode === "trade") this.updateSeaView(dt);
     this.updateCamera(live ? dt : 0);
     this.ocean.update(this.camLook);
     this.renderer.render(this.scene, this.camera);
@@ -1027,17 +1503,22 @@ export class CannonCoveGame {
     this.updateShots(dt);
     this.updateBalls(dt);
     this.updateLoot(dt);
-    this.updateWaves(dt);
-    // Ship's carpenter.
-    if (this.up.carpenter && p.alive && this.runTime - p.lastHit > 5 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 1.6 * dt);
+    if (this.mode === "trade") this.updateTrade(dt);
+    else if (this.mode === "online") this.updateOnline(dt);
+    else this.updateWaves(dt);
+    // Ship's carpenter (online: everyone mends slowly out of the fight).
+    const carpenter = this.mode === "online" ? 1 : this.trade ? this.trade.level("carpenter") : this.up.carpenter;
+    if (carpenter && p.alive && this.runTime - p.lastHit > 5 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + (this.trade ? p.maxHp * 0.012 : 1.6) * dt);
     if (this.bannerT > 0) {
       this.bannerT -= dt;
       if (this.bannerT <= 0) {
         this.banner = null;
+        const next = this.bannerQueue.shift();
+        if (next) this.showBanner(next.title, next.sub, next.tone, next.seconds);
         this.emitHud(true);
       }
     }
-    const combat = this.enemies.some((e) => e.alive && (e.kind === "ghost" || Math.hypot(e.x - p.x, e.z - p.z) < COMBAT_RANGE));
+    const combat = this.foes().some((e) => e.alive && (e.kind === "ghost" || Math.hypot(e.x - p.x, e.z - p.z) < COMBAT_RANGE));
     music.setIntensity(combat ? 2 : 1);
     this.combat = combat;
   }
@@ -1054,6 +1535,10 @@ export class CannonCoveGame {
     this.updateBalls(dt);
     this.updateLoot(dt);
     for (const e of this.enemies) if (e.sinkT >= 0) e.sinkT += dt;
+    if (this.phase === "sinking" && this.deathT > 3.6 && this.mode === "trade") {
+      this.wreck();
+      return;
+    }
     if (this.phase === "sinking" && this.deathT > 3.6) {
       this.setPhase("over");
       this.sfx.gameOver();
@@ -1078,6 +1563,16 @@ export class CannonCoveGame {
         this.enemies.splice(i, 1);
       }
     }
+    for (const tr of this.traffic) {
+      tr.ship.pose(dt, t, this.wind);
+      this.shipFx(tr.ship, dt);
+    }
+    for (const r of this.remotes.values()) {
+      if (!r.ship.root.visible) continue;
+      if (r.ship.sinkT >= 0) r.ship.sinkT += dt;
+      r.ship.pose(dt, t, this.wind);
+      this.shipFx(r.ship, dt);
+    }
     for (const f of this.forts) this.fortVisual(f, dt);
     this.updateTexts(dt);
     this.world?.update(t);
@@ -1086,12 +1581,12 @@ export class CannonCoveGame {
     this.rings.update(dt);
     (this.wakeMaterial.uniforms.uTime as { value: number }).value = t;
     this.applyAtmosphere(false, dt);
-    if (this.phase === "upgrade") {
-      // Loot keeps bobbing behind the upgrade cards.
+    if (this.phase === "upgrade" || this.phase === "port") {
+      // Loot keeps bobbing behind the upgrade cards and the port screen.
       for (const l of this.loot) this.poseLoot(l, dt);
     }
     const speedK = clamp(p.speed / 12, 0, 1);
-    const playing = this.phase === "playing" || this.phase === "upgrade" || this.phase === "menu";
+    const playing = this.phase === "playing" || this.phase === "upgrade" || this.phase === "menu" || this.phase === "port";
     this.sfx.ambience(playing ? 0.8 + this.haunt * 0.5 : 0.5, playing ? this.wind.strength * (0.4 + p.sailVis * 0.6) : 0.2, playing ? speedK : 0);
     this.shake = Math.max(0, this.shake - dt * 1.6);
   }
@@ -1099,6 +1594,15 @@ export class CannonCoveGame {
   // --- Wind ---------------------------------------------------------------------------------------
 
   private updateWind(dt: number) {
+    if (this.net) {
+      // Every player sees the same wind: it follows the round's seed and clock.
+      const t = (this.net.now() - this.net.start) / 1000;
+      const base = ((this.net.seed % 628) / 100) * 1;
+      this.wind.angle = base + 0.5 * Math.sin(t / 45) + 0.25 * Math.sin(t / 17 + 1);
+      this.wind.strength = 1 + 0.1 * Math.sin(t / 31);
+      this.updateWindVector();
+      return;
+    }
     this.windTimer -= dt;
     if (this.windTimer <= 0) {
       this.windTimer = rand(20, 34);
@@ -1121,22 +1625,34 @@ export class CannonCoveGame {
     const p = this.player;
     if (!p.alive) return;
     const k = (this.keys.right ? 1 : 0) - (this.keys.left ? 1 : 0);
-    p.steerIn = clamp(k + this.stick, -1, 1);
+    const manual = clamp(k + this.stick, -1, 1);
+    // Touching the helm takes back control from auto-sail.
+    if (this.autopilot && manual !== 0) this.setAutopilot(false);
+    p.steerIn = this.autopilot ? this.autoSteer(dt) : manual;
     for (const side of [1, -1] as Side[]) {
       const before = p.reload[side];
       p.reload[side] = Math.max(0, before - dt);
       if (before > 0 && p.reload[side] === 0) this.sfx.reloaded();
       if (this.fireHeld[side] && p.reload[side] === 0) this.firePlayer(side);
     }
-    const r = Math.hypot(p.x, p.z);
-    this.warn = r > ARENA - 14 ? "Turn back — you're leaving the cove" : null;
+    if (this.mode === "trade") this.warn = Math.max(Math.abs(p.x), Math.abs(p.z)) > BOUNDS - 30 ? "Uncharted waters — turn back" : null;
+    else this.warn = Math.hypot(p.x, p.z) > ARENA - 14 ? "Turn back — you're leaving the cove" : null;
   }
 
   private firePlayer(side: Side) {
     const p = this.player;
     if (p.reload[side] > 0 || !p.alive) return;
+    if (this.net && this.net.now() < this.net.start) return;
     p.reload[side] = this.reloadTime();
+    const first = this.shots.length;
     this.broadside(p, side, this.pickTarget(side), false, this.guns(), this.range(), this.damage());
+    if (this.net) {
+      const mine = this.shots.slice(first);
+      for (const s of mine) s.owner = this.net.me;
+      const r1 = (v: number) => Math.round(v * 10) / 10;
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      this.net.emit({ k: "f", sd: side, n: mine.length, sh: mine.map((s) => [r1(s.tx), r2(s.ty), r1(s.tz), r2(s.T), r2(s.t)]), dmg: this.damage() });
+    }
     this.shake = Math.max(this.shake, 0.18);
     this.emitHud(true);
   }
@@ -1162,7 +1678,7 @@ export class CannonCoveGame {
         best = t;
       }
     };
-    for (const e of this.enemies) {
+    for (const e of this.foes()) {
       if (!e.alive) continue;
       consider(e.x, e.z, { x: e.x, y: 0, z: e.z, vx: e.fx * e.speed, vz: e.fz * e.speed, len: e.length, heading: e.heading });
     }
@@ -1173,21 +1689,39 @@ export class CannonCoveGame {
     return best;
   }
 
-  private damagePlayer(amount: number, at: THREE.Vector3 | null) {
+  private damagePlayer(amount: number, at: THREE.Vector3 | null, by: string | null = null) {
     const p = this.player;
     if (!p.alive || this.phase !== "playing") return;
+    if (this.net) {
+      if (this.invulnT > 0) return;
+      if (by) this.lastBy = by;
+    }
     p.hp -= amount;
     p.hitFlash = 1;
     p.lastHit = this.runTime;
     this.shake = Math.max(this.shake, 0.45);
     this.sfx.hurt();
     if (at) this.splinters(at, 1.2);
-    if (p.hp <= 0) {
+    if (p.hp <= 0 && this.net) {
+      // Online: you sink, the others hear who did it, and you're back in a few seconds.
+      p.hp = 0;
+      this.sinkShip(p);
+      this.releaseInput();
+      this.deaths++;
+      const by = this.lastBy && this.remotes.has(this.lastBy) ? this.lastBy : null;
+      this.net.emit({ k: "s", by });
+      this.addFeed(by ? `${this.remotes.get(by)!.name} sank you` : "You ran aground");
+      this.respawnT = 5;
+      this.bannerQueue = [];
+      this.showBanner("Sunk!", by ? `${this.remotes.get(by)!.name} got you — back in 5 seconds` : "Back in 5 seconds", "bad", 3);
+      this.sendState();
+    } else if (p.hp <= 0) {
       p.hp = 0;
       this.sinkShip(p);
       this.releaseInput();
       this.deathT = 0;
-      this.showBanner("Your ship is going down!", `Wave ${this.wave} · ${this.sunk} ships sunk`, "bad", 5);
+      this.bannerQueue = [];
+      this.showBanner("Your ship is going down!", this.trade ? "The cargo is lost to the sea" : `Wave ${this.wave} · ${this.sunk} ships sunk`, "bad", 5);
       this.setPhase("sinking");
     }
     this.emitHud(true);
@@ -1256,7 +1790,7 @@ export class CannonCoveGame {
         if (e.reload[side] > 0) continue;
         const cos = (dx * e.sideX(side) + dz * e.sideZ(side)) / dist;
         if (cos > 0.84) {
-          e.aimT = Math.max(0.6, 1.05 - this.wave * 0.025);
+          e.aimT = Math.max(0.6, 1.05 - this.lvl() * 0.025);
           e.aimSide = side;
           this.sfx.fuse(this.near(e.x, e.z));
           break;
@@ -1280,6 +1814,7 @@ export class CannonCoveGame {
       const px = e.x + Math.sin(out) * probe;
       const pz = e.z + Math.cos(out) * probe;
       for (const s of shoals) {
+        if (Math.abs(px - s.x) > s.r + 7 || Math.abs(pz - s.z) > s.r + 7) continue;
         if (Math.hypot(px - s.x, pz - s.z) < s.r + 7) {
           const toShoal = Math.atan2(s.x - e.x, s.z - e.z);
           const a = wrap(out - toShoal);
@@ -1298,10 +1833,12 @@ export class CannonCoveGame {
         if (Math.abs(a) < 1.2) out = to + (a >= 0 ? 1.2 : -1.2);
       }
     }
-    const r = Math.hypot(e.x, e.z);
-    if (r > ARENA - 35) {
+    const trade = this.mode === "trade";
+    const r = trade ? Math.max(Math.abs(e.x), Math.abs(e.z)) : Math.hypot(e.x, e.z);
+    const edge = trade ? BOUNDS - 60 : ARENA - 35;
+    if (r > edge) {
       const home = Math.atan2(-e.x, -e.z);
-      out += wrap(home - out) * clamp((r - (ARENA - 35)) / 20, 0, 1);
+      out += wrap(home - out) * clamp((r - edge) / 20, 0, 1);
     }
     return out;
   }
@@ -1340,7 +1877,7 @@ export class CannonCoveGame {
         const along = (n <= 1 ? 0 : i / (n - 1) - 0.5) * target.len * 0.75;
         tx = target.x + target.vx * T0 * lead + Math.sin(target.heading) * along;
         tz = target.z + target.vz * T0 * lead + Math.cos(target.heading) * along;
-        const err = hostile ? (1.6 + d0 * 0.05) * Math.max(0.7, 1 - this.wave * 0.02) : 0.7 + d0 * 0.022;
+        const err = hostile ? (1.6 + d0 * 0.05) * Math.max(0.7, 1 - this.lvl() * 0.02) : 0.7 + d0 * 0.022;
         tx += gauss() * err;
         tz += gauss() * err;
       } else {
@@ -1381,17 +1918,18 @@ export class CannonCoveGame {
         dirZ = Math.cos(f.gunYaw);
         m.set(f.gx + dirX * 1.4, 2.1, f.gz + dirZ * 1.4);
       }
-      this.launch(m, shot.tx, shot.ty, shot.tz, Math.max(0.3, shot.T), shot.hostile, shot.damage, shot.ghost);
+      this.launch(m, shot.tx, shot.ty, shot.tz, Math.max(0.3, shot.T), shot.hostile, shot.damage, shot.ghost, shot.owner ?? null);
       this.muzzleFx(m, dirX, dirZ, shot.ghost);
       if (!shot.quiet) this.sfx.cannon(shot.hostile ? this.near(m.x, m.z) * 0.85 : 1);
       return false;
     });
   }
 
-  private launch(from: THREE.Vector3, tx: number, ty: number, tz: number, T: number, hostile: boolean, damage: number, ghost: boolean) {
+  private launch(from: THREE.Vector3, tx: number, ty: number, tz: number, T: number, hostile: boolean, damage: number, ghost: boolean, owner: string | null = null) {
     const b = this.balls.find((x) => !x.active);
     if (!b) return;
     b.active = true;
+    b.owner = owner;
     b.hostile = hostile;
     b.damage = damage;
     b.ghost = ghost;
@@ -1432,7 +1970,24 @@ export class CannonCoveGame {
 
   private ballCollide(b: Ball) {
     const { p } = b;
-    if (b.hostile) {
+    if (this.net) {
+      // Online: each player decides the hits on their own ship; hits on others are only for show.
+      const pl = this.player;
+      if (b.owner !== this.net.me && pl.alive && pl.contains(p.x, p.y, p.z)) {
+        this.killBall(b);
+        if (this.invulnT > 0) this.splinters(p, 0.6);
+        else this.damagePlayer(b.damage, p, b.owner);
+        return;
+      }
+      for (const r of this.remotes.values()) {
+        if (r.id === b.owner || !r.ship.alive || !r.ship.root.visible || !r.ship.contains(p.x, p.y, p.z)) continue;
+        this.killBall(b);
+        this.splinters(p, 1);
+        r.ship.hitFlash = 1;
+        this.sfx.hit(this.near(p.x, p.z));
+        return;
+      }
+    } else if (b.hostile) {
       const pl = this.player;
       if (pl.alive && pl.contains(p.x, p.y, p.z)) {
         this.killBall(b);
@@ -1501,8 +2056,12 @@ export class CannonCoveGame {
     this.glow.burst(at, 26, 7, 6, { color: s.kind === "ghost" ? "#5dffb8" : "#ffa040", size: 2.2, grow: 0.5, life: 0.7, gravity: 3, drag: 2, alpha: 1, spread: 3 });
     this.smoke.burst(at, 22, 4, 5, { color: "#4a4440", size: 2.5, grow: 8, life: 3.2, gravity: -1.5, drag: 1.4, alpha: 0.65, spread: 3 });
     this.splinters(at, 2.2);
-    if (s === this.player) return;
+    if (s === this.player || this.mode === "online") return;
     this.sunk++;
+    if (this.mode === "trade") {
+      this.pirateDown(s);
+      return;
+    }
     this.addGold(s.stats.bounty, s.x, s.y + 9 * s.scale, s.z);
     const boss = s.kind === "ghost";
     for (let i = 0; i < s.stats.loot; i++) {
@@ -1620,14 +2179,15 @@ export class CannonCoveGame {
 
   // --- Loot ---------------------------------------------------------------------------------------
 
-  private spawnLoot(kind: LootKind, x: number, z: number, vx: number, vz: number) {
+  private spawnLoot(kind: LootKind, x: number, z: number, vx: number, vz: number, extra: Pick<Loot, "good" | "qty" | "contract" | "keep"> = {}) {
     const proto = this.protos.get(LOOT_KEYS[kind]);
     if (!proto) return;
     const obj = this.lootPool.get(kind)?.pop() ?? proto.object.clone();
+    const scale = LOOT_SCALE[kind] ?? 1;
     obj.visible = true;
-    obj.scale.setScalar(1);
+    obj.scale.setScalar(scale);
     this.scene.add(obj);
-    this.loot.push({ kind, obj, x, z, vx, vz, age: 0, phase: rand(0, TAU), yaw: rand(0, TAU), spin: rand(-0.6, 0.6), taken: -1, size: proto.size.y });
+    this.loot.push({ kind, obj, x, z, vx, vz, age: 0, phase: rand(0, TAU), yaw: rand(0, TAU), spin: rand(-0.6, 0.6), taken: -1, size: proto.size.y * scale, scale, ...extra });
   }
 
   private releaseLoot(l: Loot) {
@@ -1644,7 +2204,7 @@ export class CannonCoveGame {
       if (l.taken >= 0) {
         l.taken += dt;
         const k = l.taken / 0.35;
-        l.obj.scale.setScalar(Math.max(0.01, (1 - k) * (1 + k)));
+        l.obj.scale.setScalar(Math.max(0.01, (1 - k) * (1 + k)) * l.scale);
         l.obj.position.y += dt * 5;
         if (k < 1) return true;
         this.releaseLoot(l);
@@ -1662,10 +2222,7 @@ export class CannonCoveGame {
           l.x += (dx / d) * pull * dt;
           l.z += (dz / d) * pull * dt;
         }
-        if (d < p.beam * 0.5 + 2.6 || p.contains(l.x, p.y + 0.5, l.z, 1.4)) {
-          this.collect(l);
-          return true;
-        }
+        if ((d < p.beam * 0.5 + 2.6 || p.contains(l.x, p.y + 0.5, l.z, 1.4)) && this.collect(l)) return true;
       }
       l.x += l.vx * dt;
       l.z += l.vz * dt;
@@ -1681,6 +2238,7 @@ export class CannonCoveGame {
           alpha: 0.9,
         });
       }
+      if (l.keep) return true;
       if (l.age > 50) {
         this.releaseLoot(l);
         return false;
@@ -1698,7 +2256,9 @@ export class CannonCoveGame {
     l.obj.rotation.set(Math.sin(t * 1.7 + l.phase) * 0.18, l.yaw, Math.cos(t * 1.3 + l.phase) * 0.2);
   }
 
-  private collect(l: Loot) {
+  /** Sailing through floating loot. False when it can't be taken (a full hold). */
+  private collect(l: Loot): boolean {
+    if (this.trade) return this.collectTrade(l);
     l.taken = 0;
     const p = this.player;
     const at = this.v1.set(l.x, waveHeight(l.x, l.z) + 1, l.z);
@@ -1716,25 +2276,33 @@ export class CannonCoveGame {
       this.glow.burst(at, l.kind === "chest" ? 24 : 12, 3.5, 5, { color: "#ffd34d", size: 0.9, grow: 0.2, life: 0.8, gravity: 3, drag: 1.5 });
     }
     this.emitHud(true);
+    return true;
   }
 
   private addGold(amount: number, x: number, y: number, z: number) {
     const value = Math.round(amount * this.goldMul());
-    this.gold += value;
-    this.totalGold += value;
-    this.text(`+${value} gold`, "#fcd34d", x, y, z, value >= 50);
+    if (this.trade) this.trade.earn(value);
+    else {
+      this.gold += value;
+      this.totalGold += value;
+    }
+    this.text(`+${value.toLocaleString("en-US")} gold`, "#fcd34d", x, y, z, value >= 50);
   }
 
   // --- Collisions ---------------------------------------------------------------------------------
 
   private collide() {
-    const ships = [this.player, ...this.enemies].filter((s) => s.alive);
+    const remotes = [...this.remotes.values()].map((r) => r.ship).filter((s) => s.root.visible);
+    const ships = [this.player, ...this.enemies, ...this.traffic.map((t) => t.ship), ...remotes].filter((s) => s.alive);
     const shoals = this.world?.shoals ?? [];
+    const trade = this.mode === "trade";
     for (const s of ships) {
       const c = s.circles(this.circleBuf);
       const r = s.radius * 0.9;
+      const reach = s.length * 0.3 + r + 2;
       for (let k = 0; k < 3; k++) {
         for (const sh of shoals) {
+          if (Math.abs(s.x - sh.x) > sh.r + reach || Math.abs(s.z - sh.z) > sh.r + reach) continue;
           const dx = c[k * 2] - sh.x;
           const dz = c[k * 2 + 1] - sh.z;
           const d = Math.hypot(dx, dz) || 1;
@@ -1762,11 +2330,20 @@ export class CannonCoveGame {
           }
         }
       }
-      const rr = Math.hypot(s.x, s.z);
-      if (rr > ARENA + 10) {
-        s.x *= (ARENA + 10) / rr;
-        s.z *= (ARENA + 10) / rr;
-        s.speed *= 0.97;
+      if (trade) {
+        const lim = BOUNDS + 10;
+        if (Math.abs(s.x) > lim || Math.abs(s.z) > lim) {
+          s.x = clamp(s.x, -lim, lim);
+          s.z = clamp(s.z, -lim, lim);
+          s.speed *= 0.97;
+        }
+      } else {
+        const rr = Math.hypot(s.x, s.z);
+        if (rr > ARENA + 10) {
+          s.x *= (ARENA + 10) / rr;
+          s.z *= (ARENA + 10) / rr;
+          s.speed *= 0.97;
+        }
       }
     }
     // Ship against ship: push apart, ramming hurts both.
@@ -1792,7 +2369,14 @@ export class CannonCoveGame {
             b.x -= (dx / d) * push;
             b.z -= (dz / d) * push;
             const rel = Math.hypot(a.fx * a.speed - b.fx * b.speed, a.fz * a.speed - b.fz * b.speed);
-            if (rel > 3 && a.bumpCd <= 0 && b.bumpCd <= 0) {
+            // Merchant traffic just bumps and slows.
+            const friendly = this.traffic.some((t) => t.ship === a || t.ship === b) || remotes.includes(a) || remotes.includes(b);
+            if (friendly && rel > 3 && a.bumpCd <= 0 && b.bumpCd <= 0) {
+              a.bumpCd = b.bumpCd = 1;
+              a.speed *= 0.6;
+              b.speed *= 0.6;
+              if (a === this.player || b === this.player) this.sfx.bump();
+            } else if (rel > 3 && a.bumpCd <= 0 && b.bumpCd <= 0) {
               a.bumpCd = b.bumpCd = 1;
               const dmg = 2 + rel * 0.7;
               a.speed *= 0.5;
@@ -1922,10 +2506,1406 @@ export class CannonCoveGame {
     this.emitHud(true);
   }
 
+  // --- Online battles -----------------------------------------------------------------------------
+
+  /** Starts (or restarts) an online round in the cove. */
+  startOnline(setup: OnlineSetup) {
+    audio.unlock();
+    this.career = null;
+    this.net = setup;
+    this.useWorld("online");
+    this.resetRun();
+    this.setOnlinePeers(setup.peers);
+    this.respawn(true);
+    this.invulnT = Math.max(0, (setup.start - setup.now()) / 1000) + 3;
+    this.startShown = false;
+    this.camSnap = true;
+    music.play(SEA_SHANTY, 1);
+    music.duck(false);
+    this.setPhase("playing");
+    const wait = Math.ceil((setup.start - setup.now()) / 1000);
+    this.showBanner(wait > 0 ? "Get ready!" : "Battle on!", wait > 0 ? "Cannons are cold until the start" : `First to ${setup.goal} sinks wins`, "info", Math.max(2.5, wait));
+  }
+
+  /** Leaves the battle: back to the title screen's cove. */
+  stopOnline() {
+    if (!this.net) return;
+    this.net = null;
+    this.useWorld("waves");
+    this.resetRun();
+    this.camSnap = true;
+    music.setIntensity(0);
+    this.setPhase("menu");
+  }
+
+  get onlineActive() {
+    return !!this.net;
+  }
+
+  /** Everyone's score now: yours, and the others' as their ships report them. */
+  onlineResults() {
+    const net = this.net;
+    if (!net) return [];
+    return [{ id: net.me, name: net.name, k: this.kills, d: this.deaths }, ...[...this.remotes.values()].map((r) => ({ id: r.id, name: r.name, k: r.k, d: r.d }))].sort((a, b) => b.k - a.k || a.d - b.d);
+  }
+
+  /** The players in the room changed (joined, left, picked another ship). */
+  setOnlinePeers(peers: OnlinePeer[]) {
+    const net = this.net;
+    if (!net) return;
+    const ids = new Set(peers.map((p) => p.id));
+    for (const [id, r] of this.remotes) {
+      if (ids.has(id)) continue;
+      this.releaseRemote(r);
+      this.remotes.delete(id);
+      this.addFeed(`${r.name} left`);
+    }
+    for (const peer of peers) {
+      if (peer.id === net.me) continue;
+      const cls = Math.min(ONLINE_SHIPS.length - 1, Math.max(0, peer.ship | 0));
+      const cur = this.remotes.get(peer.id);
+      if (cur && cur.cls === cls) {
+        cur.name = peer.name;
+        cur.color = peer.color;
+        continue;
+      }
+      if (cur) this.releaseRemote(cur);
+      else if (this.phase === "playing") this.addFeed(`${peer.name} joined`);
+      const ship = this.takeRemote(cls);
+      ship.root.visible = false;
+      this.remotes.set(peer.id, { id: peer.id, name: peer.name, color: peer.color, cls, ship, buf: [], k: cur?.k ?? 0, d: cur?.d ?? 0, sunkAt: 0 });
+    }
+  }
+
+  /** A position report from another player: [time, x, z, heading, speed, sail, hull, max hull, afloat, sinks, sunk, ship]. */
+  onlineState(id: string, a: number[]) {
+    const r = this.remotes.get(id);
+    if (!r || a.length < 11) return;
+    const snap: Snap = { t: a[0], x: a[1], z: a[2], h: a[3], s: a[4], sl: a[5], hp: a[6], mx: a[7], al: a[8] === 1, k: a[9], d: a[10] };
+    if (r.buf.length && snap.t <= r.buf[r.buf.length - 1].t) return;
+    r.buf.push(snap);
+    if (r.buf.length > 30) r.buf.shift();
+    r.k = snap.k;
+    r.d = snap.d;
+  }
+
+  onlineEvent(id: string, e: NetEvent) {
+    const r = this.remotes.get(id);
+    const net = this.net;
+    if (!r || !net) return;
+    if (e.k === "f") {
+      // Their broadside, replayed from their ship as we see it.
+      e.sh.slice(0, 12).forEach(([tx, ty, tz, T, t], i) => {
+        this.shots.push({ t: t ?? i * 0.08, ship: r.ship, fort: null, side: e.sd, i, n: e.n, tx, ty: ty ?? 0, tz, T, hostile: true, damage: Math.min(20, e.dmg || 10), ghost: false, quiet: i > 1, owner: id });
+      });
+    } else if (e.k === "s") {
+      r.sunkAt = net.now();
+      if (r.ship.alive && r.ship.root.visible) {
+        r.ship.hp = 0;
+        this.sinkShip(r.ship);
+      }
+      if (e.by === net.me) {
+        this.kills++;
+        this.addFeed(`You sank ${r.name}!`);
+        this.text("Sunk!", "#fcd34d", r.ship.x, r.ship.y + 10, r.ship.z, true);
+        this.queueBanner(`You sank ${r.name}!`, `${this.kills} of ${net.goal} sinks`, "good", 2.4);
+        this.sfx.waveClear();
+      } else {
+        const killer = e.by ? this.remotes.get(e.by)?.name : null;
+        this.addFeed(killer ? `${killer} sank ${r.name}` : `${r.name} sank`);
+      }
+    }
+  }
+
+  private takeRemote(cls: number) {
+    const def = ONLINE_SHIPS[cls];
+    const ship = this.remotePool.get(def.model)?.pop() ?? new Ship("sloop", { ...PLAYER_STATS }, this.wakeMaterial);
+    if (!ship.model) {
+      ship.setModel(this.protos.get(def.model) ?? this.protos.get(SHIPS.playerSmall)!, 1);
+      ship.setDeckGuns(this.protos.get(ARMS.cannon), this.deckSlots(def.model), def.guns);
+    }
+    ship.pool = def.model;
+    ship.stats = { ...PLAYER_STATS, hp: def.hull, guns: def.guns, speed: def.speed, turn: def.turn };
+    ship.maxHp = ship.hp = def.hull;
+    ship.sinkT = -1;
+    this.scene.add(ship.root, ship.wake.mesh);
+    return ship;
+  }
+
+  private releaseRemote(r: Remote) {
+    this.scene.remove(r.ship.root, r.ship.wake.mesh);
+    r.ship.wake.reset();
+    let list = this.remotePool.get(r.ship.pool);
+    if (!list) this.remotePool.set(r.ship.pool, (list = []));
+    list.push(r.ship);
+  }
+
+  private applyOnlineShip() {
+    const def = this.onlineShip;
+    if (!def) return;
+    const p = this.player;
+    p.stats = { ...PLAYER_STATS, name: def.name, hp: def.hull, speed: def.speed, turn: def.turn, guns: def.guns, reload: def.reload };
+    p.setModel(this.protos.get(def.model) ?? this.protos.get(SHIPS.playerSmall)!, 1);
+    this.mountGuns();
+  }
+
+  /** Back on the water at the spawn point furthest from everyone else. */
+  private respawn(first = false) {
+    const p = this.player;
+    let best = { x: 0, z: 0, d: -1 };
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU + (first ? rand(0, 0.5) : 0);
+      const x = Math.sin(a) * 150;
+      const z = Math.cos(a) * 150;
+      if ((this.world?.shoals ?? []).some((s) => Math.hypot(s.x - x, s.z - z) < s.r + 14)) continue;
+      let d = Infinity;
+      for (const r of this.remotes.values()) if (r.ship.root.visible) d = Math.min(d, Math.hypot(r.ship.x - x, r.ship.z - z));
+      if (d === Infinity) d = rand(0, 100);
+      if (d > best.d) best = { x, z, d };
+    }
+    p.reset(best.x, best.z, Math.atan2(-best.x, -best.z));
+    p.maxHp = p.hp = this.maxHull();
+    p.sail = 2;
+    p.sailVis = 2 / 3;
+    p.speed = 4;
+    p.lastHit = -10;
+    this.lastBy = null;
+    this.invulnT = 3;
+    this.camSnap = true;
+  }
+
+  private addFeed(text: string) {
+    this.feed.push({ id: ++this.feedId, text, t: this.elapsed });
+    if (this.feed.length > 4) this.feed.shift();
+    this.emitHud(true);
+  }
+
+  private sendState() {
+    const net = this.net;
+    if (!net) return;
+    const p = this.player;
+    const r1 = (v: number) => Math.round(v * 10) / 10;
+    net.send([Math.round(net.now()), r1(p.x), r1(p.z), Math.round(p.heading * 1000) / 1000, r1(p.speed), p.sail, Math.ceil(p.hp), p.maxHp, p.alive ? 1 : 0, this.kills, this.deaths, net.ship]);
+  }
+
+  private updateOnline(dt: number) {
+    const net = this.net!;
+    const p = this.player;
+    this.invulnT = Math.max(0, this.invulnT - dt);
+    if (!this.startShown && net.now() >= net.start) {
+      this.startShown = true;
+      this.queueBanner("Battle on!", `First to ${net.goal} sinks wins`, "boss", 2.5);
+      this.sfx.boss();
+    }
+    if (!p.alive) {
+      p.sinkT += dt;
+      this.respawnT -= dt;
+      if (this.respawnT <= 0 && p.sinkT > 2) this.respawn();
+    }
+    // Others' ships glide between their reports, a moment in the past.
+    const t = net.now() - 140;
+    for (const r of this.remotes.values()) {
+      const buf = r.buf;
+      const s = r.ship;
+      if (!buf.length) continue;
+      let a = buf[0];
+      let b = buf[0];
+      for (let i = buf.length - 1; i >= 0; i--) {
+        if (buf[i].t <= t) {
+          a = buf[i];
+          b = buf[i + 1] ?? buf[i];
+          break;
+        }
+      }
+      while (buf.length > 3 && buf[1].t < t - 500) buf.shift();
+      const newest = buf[buf.length - 1];
+      // Back afloat after a sinking (or seen for the first time): jump straight there.
+      if (newest.al && newest.t > r.sunkAt + 1500 && (!s.alive || !s.root.visible)) {
+        s.reset(newest.x, newest.z, newest.h);
+        s.root.visible = true;
+        s.sail = newest.sl;
+        s.sailVis = newest.sl / 3;
+        buf.splice(0, buf.length - 1);
+        continue;
+      }
+      if (!newest.al && s.alive && s.root.visible) {
+        // Sunk (in case the message about it went missing).
+        r.sunkAt = Math.max(r.sunkAt, newest.t);
+        s.hp = 0;
+        this.sinkShip(s);
+      }
+      if (!s.alive) continue;
+      const k = b.t > a.t ? clamp((t - a.t) / (b.t - a.t), 0, 1) : 1;
+      let x = lerp(a.x, b.x, k);
+      let z = lerp(a.z, b.z, k);
+      const h = a.h + wrap(b.h - a.h) * k;
+      if (t > newest.t) {
+        // Late report: carry on a little along the last heading.
+        const ahead = Math.min(0.35, (t - newest.t) / 1000);
+        x = newest.x + Math.sin(newest.h) * newest.s * ahead;
+        z = newest.z + Math.cos(newest.h) * newest.s * ahead;
+      }
+      s.yawRate = b.t > a.t ? (wrap(b.h - a.h) / (b.t - a.t)) * 1000 : 0;
+      s.x = x;
+      s.z = z;
+      s.heading = h;
+      s.speed = lerp(a.s, b.s, k);
+      s.sail = b.sl;
+      s.sailVis = damp(s.sailVis, s.sail / 3, 1.5, dt);
+      s.hp = b.hp;
+      s.maxHp = b.mx;
+      s.steer = 0;
+      const from = -(s.fx * this.wind.x + s.fz * this.wind.z);
+      s.alpha = Math.acos(clamp(from, -1, 1));
+    }
+    // Invulnerable just after (re)spawning: the ship blinks.
+    p.root.visible = this.invulnT <= 0 || Math.floor(this.elapsed * 8) % 2 === 0 || !p.alive;
+    this.sendT -= dt;
+    if (this.sendT <= 0) {
+      this.sendT = 0.1;
+      this.sendState();
+    }
+    if (this.feed.length && this.elapsed - this.feed[0].t > 7) {
+      this.feed.shift();
+      this.emitHud(true);
+    }
+    this.warn = Math.hypot(p.x, p.z) > ARENA - 14 && p.alive ? "Turn back — you're leaving the cove" : null;
+  }
+
+  private onlineHud(): OnlineHud {
+    const net = this.net!;
+    const now = net.now();
+    const scores = [
+      { id: net.me, name: net.name, color: PLAYER_COLORS[net.color % PLAYER_COLORS.length], k: this.kills, d: this.deaths, me: true },
+      ...[...this.remotes.values()].map((r) => ({ id: r.id, name: r.name, color: PLAYER_COLORS[r.color % PLAYER_COLORS.length], k: r.k, d: r.d, me: false })),
+    ].sort((a, b) => b.k - a.k || a.d - b.d);
+    return {
+      left: Math.max(0, Math.ceil((net.end - Math.max(now, net.start)) / 1000)),
+      countdown: Math.max(0, Math.ceil((net.start - now) / 1000)),
+      goal: net.goal,
+      scores,
+      feed: this.feed.map((f) => ({ id: f.id, text: f.text })),
+      respawn: this.player.alive ? null : Math.max(0, Math.ceil(this.respawnT)),
+    };
+  }
+
+  /** The ships to aim at: the other players online, the AI everywhere else. */
+  private foes(): Ship[] {
+    if (!this.net) return this.enemies;
+    const out: Ship[] = [];
+    for (const r of this.remotes.values()) if (r.ship.root.visible) out.push(r.ship);
+    return out;
+  }
+
+  // --- Open Sea -----------------------------------------------------------------------------------
+
+  /** Open Sea: start a new trading career (null) or continue a saved one. */
+  startTrade(save: CareerSave | null) {
+    audio.unlock();
+    this.net = null;
+    this.career = new Career(save);
+    this.useWorld("trade");
+    this.resetRun();
+    this.events.offer(null);
+    music.play(SEA_SHANTY, 1);
+    music.setIntensity(1);
+    music.duck(false);
+    this.camSnap = true;
+    const c = this.career;
+    const p = this.player;
+    const at = c.s.sea;
+    if (at) {
+      p.reset(at.x, at.z, at.h);
+      p.sail = 2;
+      p.sailVis = 2 / 3;
+      p.speed = 3;
+      this.lastX = p.x;
+      this.lastZ = p.z;
+      this.setPhase("playing");
+      this.showBanner("Back at sea", zoneName(p.x, p.z), "info", 3);
+    } else {
+      this.moor(c.s.port);
+      this.snapToBerth();
+
+    }
+  }
+
+  get isTrade() {
+    return this.mode === "trade";
+  }
+
+  /** Sail into a harbour's ring, then dock. */
+  dock() {
+    if (!this.trade || this.phase !== "playing" || !this.dockable) return;
+    if (this.dockBlocked) {
+      this.sfx.empty();
+      return;
+    }
+    this.sfx.pick();
+    this.moor(this.dockable.id);
+  }
+
+  setSail() {
+    const c = this.career;
+    if (this.phase !== "port" || !this.docked || !c) return;
+    const p = this.player;
+    const b = this.berth(this.docked);
+    p.x = b.x;
+    p.z = b.z;
+    p.heading = b.h;
+    p.speed = 3;
+    p.sail = 2;
+    this.lastX = p.x;
+    this.lastZ = p.z;
+    this.docked = null;
+    this.portNotices = [];
+    this.events.port(null);
+    this.saveT = 12;
+    this.sfx.sail(true);
+    this.setPhase("playing");
+    this.save();
+  }
+
+  tradeBuy(g: GoodId, qty: number) {
+    const c = this.career;
+    const site = this.docked;
+    if (!c || !site || this.phase !== "port") return;
+    const n = c.buy(site.id, g, qty);
+    if (n) this.sfx.coin();
+    else this.sfx.empty();
+    this.portAct(n > 0);
+  }
+
+  tradeSell(g: GoodId, qty: number) {
+    const c = this.career;
+    const site = this.docked;
+    if (!c || !site || this.phase !== "port") return;
+    const r = c.sell(site.id, g, qty);
+    if (r.n) this.sfx.coin(r.income >= 500);
+    else this.sfx.empty();
+    this.portAct(r.n > 0);
+  }
+
+  acceptContract(id: string) {
+    const c = this.career;
+    const site = this.docked;
+    if (!c || !site || this.phase !== "port") return;
+    const ct = c.accept(site.id, id);
+    if (ct) {
+      this.sfx.pick();
+      const tgt = this.contractTarget(ct);
+      if (tgt && ct.to !== site.id) c.s.waypoint = { x: tgt.x, z: tgt.z, label: ct.kind === "bounty" ? ct.captain ?? "Bounty" : ct.kind === "salvage" ? "Wreck" : PORT[ct.to].name };
+    } else this.sfx.empty();
+    this.portAct(!!ct);
+  }
+
+  abandonContract(id: string) {
+    const c = this.career;
+    if (!c || this.phase !== "port") return;
+    c.abandon(id);
+    this.portAct(true);
+  }
+
+  buyShip(id: ShipId) {
+    const c = this.career;
+    const site = this.docked;
+    if (!c || !site || this.phase !== "port") return;
+    const ok = c.buyShip(id, site.id);
+    if (ok) {
+      this.applyTradeShip();
+      this.sfx.waveClear();
+    } else this.sfx.empty();
+    this.portAct(ok);
+  }
+
+  switchShip(id: ShipId) {
+    const c = this.career;
+    if (!c || this.phase !== "port") return;
+    const ok = c.switchShip(id);
+    if (ok) {
+      this.applyTradeShip();
+      this.sfx.sail(true);
+    } else this.sfx.empty();
+    this.portAct(ok);
+  }
+
+  buyUpgrade(id: TradeUpgradeId) {
+    const c = this.career;
+    if (!c || this.phase !== "port") return;
+    c.s.hull = clamp(this.player.hp / this.player.maxHp, 0.01, 1);
+    const ok = c.buyUpgrade(id);
+    if (ok) {
+      this.applyTradeShip();
+      this.sfx.repair();
+    } else this.sfx.empty();
+    this.portAct(ok);
+  }
+
+  portRepair() {
+    const c = this.career;
+    if (!c || this.phase !== "port") return;
+    const ok = c.repair();
+    if (ok) {
+      this.player.hp = this.player.maxHp * c.s.hull;
+      this.sfx.repair();
+    } else this.sfx.empty();
+    this.portAct(ok);
+  }
+
+  /** Auto-sail on / off (needs a course set on the chart). */
+  setAutopilot(on: boolean) {
+    const c = this.trade;
+    const next = on && !!c?.s.waypoint && this.phase === "playing" && this.player.alive;
+    if (next === this.autopilot) {
+      if (on && !next) this.queueBanner("No course set", "Open the chart, pick a port and press Set course", "info", 3);
+      return;
+    }
+    this.autopilot = next;
+    this.tackSide = 0;
+    if (next) {
+      this.player.sail = 3;
+      this.sfx.sail(true);
+    } else if (on) this.queueBanner("No course set", "Open the chart, pick a port and press Set course", "info", 3);
+    this.emitHud(true);
+  }
+
+  toggleAutopilot() {
+    this.setAutopilot(!this.autopilot);
+  }
+
+  /** Steering for auto-sail: head for the course, tack when it lies upwind, steer round islands. */
+  private autoSteer(dt: number) {
+    const c = this.trade;
+    const p = this.player;
+    const wp = c?.s.waypoint;
+    if (!wp) {
+      this.setAutopilot(false);
+      return 0;
+    }
+    const d = Math.hypot(wp.x - p.x, wp.z - p.z);
+    let desired = Math.atan2(wp.x - p.x, wp.z - p.z);
+    if (!p.steam) {
+      const from = this.wind.angle + Math.PI;
+      const rel = wrap(desired - from);
+      // Short tacks close in, so it doesn't stall head to wind next to the harbour.
+      const tack = d < 90 ? 0.95 : 0.82;
+      this.tackT -= dt;
+      if (Math.abs(rel) < tack) {
+        // The course lies upwind: zig-zag, switching tack once the course has crossed to the other side.
+        if (this.tackSide === 0) this.tackSide = rel >= 0 ? 1 : -1;
+        else if (rel * this.tackSide < -0.22 && this.tackT <= 0) {
+          this.tackSide = -this.tackSide as 1 | -1;
+          this.tackT = d < 90 ? 3 : 6;
+        }
+        desired = from + this.tackSide * tack;
+      } else this.tackSide = 0;
+    }
+    desired = this.avoid(p, desired);
+    p.sail = d < 35 ? 2 : 3;
+    return clamp(-wrap(desired - p.heading) * 1.8, -1, 1);
+  }
+
+  /** The sea chart (pauses the voyage when opened at sea). */
+  openChart() {
+    if (!this.trade || this.phase !== "playing") return;
+    this.releaseInput();
+    music.duck(true);
+    this.setPhase("chart");
+    this.save();
+  }
+
+  closeChart() {
+    if (this.phase !== "chart") return;
+    music.duck(false);
+    this.setPhase("playing");
+  }
+
+  chart(): ChartView | null {
+    const c = this.career;
+    const sea = this.sea;
+    if (!c || !sea || !this.trade) return null;
+    const p = this.player;
+    const targets: ChartView["targets"] = [];
+    for (const ct of c.s.contracts) {
+      const tgt = this.contractTarget(ct);
+      if (!tgt) continue;
+      const kind = ct.kind === "bounty" ? "bounty" : ct.kind === "salvage" && ct.loaded < ct.qty ? "salvage" : "port";
+      targets.push({ x: tgt.x, z: tgt.z, label: contractText(ct).line, kind });
+    }
+    for (const id of c.s.maps) {
+      const isl = sea.islands[id];
+      if (isl) targets.push({ x: isl.x, z: isl.z, label: "Treasure", kind: "treasure" });
+    }
+    return {
+      bounds: BOUNDS,
+      islands: sea.islands.map((i) => ({ x: i.x, z: i.z, r: i.r, treasure: c.s.maps.includes(i.id) })),
+      ports: PORTS.map((pt) => ({
+        id: pt.id,
+        name: pt.name,
+        x: pt.x,
+        z: pt.z,
+        visited: c.visited.includes(pt.id),
+        produces: pt.produces,
+        wants: pt.wants,
+        prices: c.pricesFor(pt.id),
+        yard: pt.yard.length > 0,
+        here: this.docked?.id === pt.id,
+      })),
+      player: { x: p.x, z: p.z, h: p.heading },
+      targets,
+      waypoint: c.s.waypoint,
+      haunted: HAUNTED_SEA,
+      time: c.time,
+      live: c.level("spyglass") > 0,
+    };
+  }
+
+  setWaypoint(w: { x: number; z: number; label: string } | null) {
+    const c = this.career;
+    if (!c) return;
+    c.s.waypoint = w;
+    if (!w) this.autopilot = false;
+    this.emitHud(true);
+    this.save();
+  }
+
+  /** Switches the captain's guide on the port screen off (or on). */
+  setGuide(on: boolean) {
+    const c = this.career;
+    if (!c) return;
+    c.s.guideOff = !on;
+    this.portAct(true);
+  }
+
+  /** Sells every good in the hold that this port wants. */
+  sellWanted() {
+    const c = this.career;
+    const site = this.docked;
+    if (!c || !site || this.phase !== "port") return;
+    let income = 0;
+    for (const g of site.def.wants) income += c.sell(site.id, g, c.have(g)).income;
+    if (income) this.sfx.coin(true);
+    else this.sfx.empty();
+    this.portAct(income > 0);
+  }
+
+  /** After a wreck: towed back to the last port. */
+  recover() {
+    const c = this.career;
+    if (this.phase !== "wrecked" || !c) return;
+    const p = this.player;
+    p.reset(p.x, p.z, p.heading);
+    this.applyTradeShip();
+    this.moor(c.s.port);
+    this.snapToBerth();
+    music.setIntensity(1);
+  }
+
+  /** Port screen open: how many pixels it covers on the right, or at the bottom (the 3D picture slides away from it). */
+  setShowcase(px: number, py = 0) {
+    if (Math.abs(px - this.showcase) < 1 && Math.abs(py - this.showcaseY) < 1) return;
+    this.showcase = px;
+    this.showcaseY = py;
+    this.resize();
+  }
+
+  private snapToBerth() {
+    if (!this.docked) return;
+    const p = this.player;
+    const b = this.berth(this.docked);
+    p.x = b.x;
+    p.z = b.z;
+    p.heading = b.h;
+    p.sailVis = 0;
+    this.camSnap = true;
+  }
+
+  /** Where a ship lies alongside a port's jetty (on its starboard side, bow out to sea). */
+  private berth(site: PortSite) {
+    const p = this.player;
+    const L = p.length;
+    const d = Math.max(site.r * 0.25 + L / 2 + 1, site.len - L / 2 - 1);
+    const off = 2.4 + p.beam / 2;
+    return { x: site.jx + Math.sin(site.h) * d - Math.cos(site.h) * off, z: site.jz + Math.cos(site.h) * d + Math.sin(site.h) * off, h: site.h };
+  }
+
+  private moor(id: PortId) {
+    const c = this.career;
+    const site = this.sea?.ports.find((s) => s.id === id);
+    if (!c || !site) return;
+    const p = this.player;
+    // Pirates give up at the harbour mouth.
+    for (const e of this.enemies) this.releaseShip(e);
+    this.enemies = [];
+    this.shots = [];
+    for (const b of this.balls) {
+      b.active = false;
+      b.obj.visible = false;
+    }
+    this.releaseInput();
+    if (p.alive) c.s.hull = clamp(p.hp / p.maxHp, 0.01, 1);
+    this.docked = site;
+    this.dockable = null;
+    this.dockBlocked = null;
+    this.autopilot = false;
+    this.bannerQueue = [];
+    this.banner = null;
+    this.warn = null;
+    this.portNotices = [...c.arrive(id), ...c.takeNotices()];
+    const wp = c.s.waypoint;
+    if (wp && Math.hypot(wp.x - site.x, wp.z - site.z) < 140) c.s.waypoint = null;
+    this.portAngle = site.h + 0.75;
+    p.sail = 0;
+    p.speed = 0;
+    p.setCargo(c.used() / c.cap());
+    this.setPhase("port");
+    this.emitPort();
+    this.save();
+  }
+
+  /** After a port action: refresh the port screen and save. */
+  private portAct(changed: boolean) {
+    const c = this.career;
+    if (!c) return;
+    if (changed) {
+      this.portNotices = [...this.portNotices, ...c.takeNotices()].slice(-5);
+      this.player.setCargo(c.used() / c.cap());
+      this.save();
+    }
+    this.emitPort();
+    this.emitHud(true);
+  }
+
+  /** Puts the career's current ship on the water: its model, stats and deck guns. */
+  private applyTradeShip() {
+    const c = this.career;
+    if (!c) return;
+    const def = c.ship;
+    const p = this.player;
+    const proto = this.protos.get(def.model) ?? this.protos.get(SHIPS.playerSmall)!;
+    p.stats = { ...PLAYER_STATS, name: def.name, hp: def.hull, speed: def.speed, turn: def.turn, guns: def.guns };
+    p.setModel(proto, def.scale, def.ghost ? GHOST_TINT : undefined, { waterline: def.waterline, beam: def.beam, steam: def.steam });
+    this.mountGuns();
+    p.maxHp = this.maxHull();
+    p.hp = Math.max(1, p.maxHp * c.s.hull);
+    p.setCargo(c.used() / c.cap());
+    this.emitHud(true);
+  }
+
+  private save() {
+    const c = this.trade;
+    if (!c) return;
+    const p = this.player;
+    const atSea = !this.docked && p.alive && (this.phase === "playing" || this.phase === "paused" || this.phase === "chart");
+    if (atSea) {
+      c.s.sea = { x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10, h: Math.round(p.heading * 1000) / 1000 };
+      c.s.hull = clamp(p.hp / p.maxHp, 0.05, 1);
+    }
+    this.events.save(c.toSave());
+  }
+
+  private wreck() {
+    const c = this.career;
+    if (!c) return;
+    const r = c.wrecked();
+    for (const id of this.salvageOut) this.dropSalvage(id);
+    this.setPhase("wrecked");
+    this.sfx.gameOver();
+    music.setIntensity(0);
+    this.events.wrecked({ ...r, port: PORT[r.port].name });
+    this.save();
+  }
+
+  private notify(notices: Notice[]) {
+    for (const n of notices) this.queueBanner(n.title, n.text, n.tone === "bad" ? "bad" : n.tone === "good" ? "good" : "info", 3.6);
+  }
+
+  private queueBanner(title: string, sub: string, tone: Banner["tone"], seconds: number) {
+    if (this.banner && this.bannerT > 0) {
+      if (this.bannerQueue.length < 5) this.bannerQueue.push({ title, sub, tone, seconds });
+    } else this.showBanner(title, sub, tone, seconds);
+  }
+
+  /** At sea: contract clocks, pirates, merchants, flotsam, salvage, treasure, the harbour rings, autosave. */
+  private updateTrade(dt: number) {
+    const c = this.career;
+    const sea = this.sea;
+    if (!c || !sea) return;
+    const p = this.player;
+    const moved = Math.hypot(p.x - this.lastX, p.z - this.lastZ);
+    this.lastX = p.x;
+    this.lastZ = p.z;
+    const failed = c.tick(dt, moved < 50 ? moved : 0);
+    for (const f of failed) {
+      this.queueBanner("Contract failed", `${contractText(f).title} — out of time`, "bad", 3.6);
+      this.dropSalvage(f.id);
+    }
+    if (failed.length) {
+      this.sfx.empty();
+      p.setCargo(c.used() / c.cap());
+    }
+    const dz = danger(p.x, p.z);
+    this.threat = 1 + c.rank * 0.8 + dz * 5;
+    this.updateEncounters(dt, dz);
+    this.updateBounties();
+    this.updateSalvage();
+    this.updateTreasure();
+    this.updateTraffic(dt);
+    this.updateFlotsam(dt);
+
+    // Docking.
+    this.dockable = null;
+    this.dockBlocked = null;
+    for (const site of sea.ports) {
+      if (Math.hypot(p.x - site.zone.x, p.z - site.zone.z) < site.zone.r + p.length * 0.3) {
+        this.dockable = site;
+        break;
+      }
+    }
+    if (this.dockable && this.enemies.some((e) => e.alive && Math.hypot(e.x - p.x, e.z - p.z) < 75)) this.dockBlocked = "Shake off the pirates first!";
+    const wp = c.s.waypoint;
+    // Auto-sail docks by itself when it brings you near the harbour it was heading for.
+    const target = this.autopilot && wp ? sea.ports.find((s) => Math.hypot(wp.x - s.zone.x, wp.z - s.zone.z) < 120) : undefined;
+    if (target && Math.hypot(p.x - target.zone.x, p.z - target.zone.z) < target.zone.r + 22 && !this.enemies.some((e) => e.alive && Math.hypot(e.x - p.x, e.z - p.z) < 75)) {
+      this.autopilot = false;
+      this.dockable = target;
+      this.dockBlocked = null;
+      this.dock();
+      return;
+    }
+    if (wp && !target && Math.hypot(wp.x - p.x, wp.z - p.z) < 30) {
+      c.s.waypoint = null;
+      if (this.autopilot) {
+        this.autopilot = false;
+        this.queueBanner("Arrived", "Auto-sail brought you to the marked spot", "info", 2.5);
+      }
+    }
+    // Gold rings pulse on the water where you can dock.
+    this.ringT -= dt;
+    if (this.ringT <= 0) {
+      this.ringT = 1.1;
+      for (const site of sea.ports) {
+        if (Math.hypot(site.zone.x - p.x, site.zone.z - p.z) > 260) continue;
+        this.rings.spawn(site.zone.x, site.zone.z, { r0: site.zone.r * 0.3, r1: site.zone.r * 0.85, life: 2.2, color: "#ffe9a3", alpha: 0.38 });
+      }
+    }
+    this.notify(c.takeNotices());
+    this.saveT -= dt;
+    if (this.saveT <= 0) {
+      this.saveT = 12;
+      this.save();
+    }
+  }
+
+  /** Moored: the ship eases alongside the jetty while merchants sail past. */
+  private updatePort(dt: number) {
+    this.updateWind(dt);
+    const site = this.docked;
+    if (!site) return;
+    const p = this.player;
+    const b = this.berth(site);
+    p.x = damp(p.x, b.x, 1.6, dt);
+    p.z = damp(p.z, b.z, 1.6, dt);
+    p.heading = dampAngle(p.heading, b.h, 1.6, dt);
+    p.speed = 0;
+    p.yawRate = 0;
+    p.sailVis = damp(p.sailVis, 0, 1.5, dt);
+    this.updateTraffic(dt);
+  }
+
+  /** Every frame on the open sea: only nearby islands are drawn, and the water's shallows follow the camera. */
+  private updateSeaView(dt: number) {
+    this.shoalT -= dt;
+    const sea = this.sea;
+    if (this.shoalT > 0 || !sea) return;
+    this.shoalT = 0.3;
+    const cx = this.camLook.x;
+    const cz = this.camLook.z;
+    sea.cull(cx, cz, 420);
+    // Seen from afar only: up close (and from the port screen) the column would fill the view.
+    const cam = this.camera.position;
+    for (const b of this.beacons.children) {
+      const d = Math.hypot(b.position.x - cam.x, b.position.z - cam.z);
+      b.visible = this.phase !== "port" && d < 480 && d > 60;
+    }
+    if (this.beaconMaterial) (this.beaconMaterial.uniforms.uTime as { value: number }).value = this.elapsed;
+    const near = sea.shoals
+      .filter((s) => !s.dock && Math.abs(s.x - cx) < 380 && Math.abs(s.z - cz) < 380)
+      .sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))
+      .slice(0, MAX_SHOALS);
+    this.ocean.setShoals(near.map((s) => ({ x: s.x, z: s.z, r: s.r * 0.88 })));
+  }
+
+  private updateEncounters(dt: number, dz: number) {
+    const c = this.career!;
+    const p = this.player;
+    // Pirates left far behind give up the chase.
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const e = this.enemies[i];
+      if (!e.alive) continue;
+      const far = e === this.queen ? Math.hypot(p.x - HAUNTED_SEA.x, p.z - HAUNTED_SEA.z) > HAUNTED_SEA.r + 160 : Math.hypot(e.x - p.x, e.z - p.z) > (this.bounties.has(e) ? 460 : 340);
+      if (!far) continue;
+      this.releaseShip(e);
+      this.enemies.splice(i, 1);
+    }
+    // The Drowned Queen rises in her sea.
+    if (!this.queen && c.time >= c.s.queenAt && Math.hypot(p.x - HAUNTED_SEA.x, p.z - HAUNTED_SEA.z) < HAUNTED_SEA.r - 70) {
+      const a = p.heading + rand(-0.8, 0.8);
+      const x = p.x + Math.sin(a) * 85;
+      const z = p.z + Math.cos(a) * 85;
+      if (!(this.world?.shoals ?? []).some((s) => Math.hypot(s.x - x, s.z - z) < s.r + 14)) {
+        const ship = this.takeShip("ghost", this.scaledStats("ghost"));
+        this.launchEnemy(ship, x, z);
+        this.queen = ship;
+        // She rises from the deep in a burst of green fire.
+        this.glow.burst(this.v1.set(x, 1, z), 40, 6, 6, { color: "#58ffb8", size: 2.4, grow: 0.4, life: 1.4, gravity: -2, drag: 1.5, alpha: 0.9, spread: 6 });
+        this.smoke.burst(this.v1.set(x, 1, z), 30, 4, 3, { color: "#4c6b62", size: 4, grow: 10, life: 3, gravity: -1.5, drag: 1.2, alpha: 0.6, spread: 8 });
+        this.queueBanner("The Drowned Queen rises!", "Sail out of the green rings before her shots land", "boss", 4.2);
+        this.sfx.boss();
+      }
+    }
+    // Pirates roam where the guild's ships don't — more often when your hold is full of riches.
+    const riches = Math.min(1, c.cargoValue() / 5000);
+    this.encounterT -= dt * (0.35 + dz * 1.8) * (1 + riches * 0.6);
+    if (this.encounterT > 0) return;
+    this.encounterT = rand(30, 50);
+    if (dz < 0.08) return;
+    const hostile = this.enemies.filter((e) => e.alive && e !== this.queen).length;
+    const cap = Math.min(3, 1 + Math.floor(dz * 2.6));
+    if (hostile >= cap) return;
+    const n = Math.min(cap - hostile, 1 + (Math.random() < dz * 0.7 ? 1 : 0) + (Math.random() < dz * 0.3 ? 1 : 0));
+    const a0 = p.heading + Math.PI + rand(-1.5, 1.5);
+    let spawned = 0;
+    for (let i = 0; i < n; i++) if (this.spawnPirate(this.pirateClass(), a0 + i * 0.4, 175, 215, null)) spawned++;
+    if (!spawned) return;
+    this.queueBanner(spawned > 1 ? "Pirates!" : "A pirate sail!", spawned > 1 ? `${spawned} ships flying the skull — run or fight` : "Flying the skull and closing in — run or fight", "bad", 3.4);
+    this.sfx.waveStart();
+  }
+
+  private pirateClass(): PirateClass {
+    const L = this.threat;
+    const r = Math.random();
+    const frigate = clamp((L - 5) * 0.07, 0, 0.45);
+    const brig = clamp((L - 1.5) * 0.14, 0, 0.55);
+    return r < frigate ? "frigate" : r < frigate + brig ? "brig" : "sloop";
+  }
+
+  /** A pirate around the player (or at a bounty site), out of the way of islands and harbours. */
+  private spawnPirate(kind: PirateClass, angle: number, dMin: number, dMax: number, at: { x: number; z: number } | null) {
+    const p = this.player;
+    const shoals = this.world?.shoals ?? [];
+    const cx = at ? at.x : p.x;
+    const cz = at ? at.z : p.z;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const a = angle + rand(-0.5, 0.5) * (1 + attempt * 0.15);
+      const d = rand(dMin, dMax);
+      const x = cx + Math.sin(a) * d;
+      const z = cz + Math.cos(a) * d;
+      if (Math.max(Math.abs(x), Math.abs(z)) > BOUNDS - 40) continue;
+      if (shoals.some((s) => Math.abs(s.x - x) < s.r + 12 && Math.abs(s.z - z) < s.r + 12 && Math.hypot(s.x - x, s.z - z) < s.r + 12)) continue;
+      if (PORTS.some((pt) => Math.hypot(pt.x - x, pt.z - z) < 150)) continue;
+      if (this.enemies.some((e) => Math.hypot(e.x - x, e.z - z) < 22)) continue;
+      const stats = this.scaledStats(kind);
+      stats.name = PIRATE_NAMES[kind];
+      stats.bounty = Math.round(stats.bounty * (2.5 + this.threat * 0.4));
+      const ship = this.takeShip(kind, stats);
+      this.launchEnemy(ship, x, z);
+      return ship;
+    }
+    return null;
+  }
+
+  /** Bounty targets appear when you sail near the spot they were seen. */
+  private updateBounties() {
+    const c = this.career!;
+    const p = this.player;
+    const hunted = new Set(this.bounties.values());
+    for (const ct of c.s.contracts) {
+      if (ct.kind !== "bounty" || !ct.site || hunted.has(ct.id)) continue;
+      if (Math.hypot(ct.site.x - p.x, ct.site.z - p.z) > 300) continue;
+      const ship = this.spawnPirate(ct.pirate ?? "sloop", rand(0, TAU), 0, 30, ct.site);
+      if (!ship) continue;
+      ship.stats.name = `${ct.captain}'s ${ct.pirate}`;
+      ship.maxHp = ship.hp = Math.round(ship.hp * 1.6);
+      ship.stats.damage *= 1.15;
+      ship.stats.bounty = Math.round(ship.stats.bounty * 1.5);
+      this.bounties.set(ship, ct.id);
+      this.queueBanner(`${ct.captain}!`, "The bounty target is in sight — sink that ship", "boss", 3.6);
+      this.sfx.boss();
+    }
+  }
+
+  /** Salvage crates float at the wreck site while you're near it. */
+  private updateSalvage() {
+    const c = this.career!;
+    const p = this.player;
+    for (const id of [...this.salvageOut]) if (!c.s.contracts.some((ct) => ct.id === id)) this.dropSalvage(id);
+    for (const ct of c.s.contracts) {
+      if (ct.kind !== "salvage" || !ct.site || !ct.load || ct.load === "mail" || ct.load === "passengers") continue;
+      const d = Math.hypot(ct.site.x - p.x, ct.site.z - p.z);
+      if (!this.salvageOut.has(ct.id) && ct.loaded < ct.qty && d < 230) {
+        this.salvageOut.add(ct.id);
+        for (let i = ct.loaded; i < ct.qty; i++) {
+          const a = rand(0, TAU);
+          const r = rand(3, 13);
+          this.spawnLoot("crate", ct.site.x + Math.sin(a) * r, ct.site.z + Math.cos(a) * r, 0, 0, { good: ct.load, qty: 1, contract: ct.id, keep: true });
+        }
+        if (d > 60) this.queueBanner("Wreckage ahead", `Crates of ${GOODS[ct.load].name.toLowerCase()} float at the marked spot`, "info", 3);
+      } else if (this.salvageOut.has(ct.id) && d > 520) this.dropSalvage(ct.id);
+    }
+  }
+
+  private dropSalvage(id: string) {
+    this.salvageOut.delete(id);
+    this.loot = this.loot.filter((l) => {
+      if (l.contract !== id || l.taken >= 0) return true;
+      this.releaseLoot(l);
+      return false;
+    });
+  }
+
+  /** Sail close to the island on a treasure map and the crew digs it up. */
+  private updateTreasure() {
+    const c = this.career!;
+    const sea = this.sea!;
+    const p = this.player;
+    for (const id of [...c.s.maps]) {
+      const isl = sea.islands[id];
+      if (!isl || Math.hypot(isl.x - p.x, isl.z - p.z) > isl.r + 24) continue;
+      const gold = c.dig(id);
+      if (!gold) continue;
+      const at = this.v1.set(p.x, p.y + 4, p.z);
+      this.text(`+${gold.toLocaleString("en-US")} gold`, "#fcd34d", at.x, at.y + 6, at.z, true);
+      this.glow.burst(at, 40, 5, 7, { color: "#ffd34d", size: 1.2, grow: 0.2, life: 1.1, gravity: 4, drag: 1.2 });
+      this.sfx.coin(true);
+      this.sfx.waveClear();
+      this.queueBanner("Treasure!", `The crew digs up ${gold.toLocaleString("en-US")} gold — and a chest washes out to sea`, "good", 4);
+      const a = Math.atan2(p.x - isl.x, p.z - isl.z);
+      this.spawnLoot("chest", isl.x + Math.sin(a) * (isl.r + 6), isl.z + Math.cos(a) * (isl.r + 6), Math.sin(a) * 2, Math.cos(a) * 2);
+      const wp = c.s.waypoint;
+      if (wp && Math.hypot(wp.x - isl.x, wp.z - isl.z) < 60) c.s.waypoint = null;
+      this.save();
+    }
+  }
+
+  /** Barrels, crates and the odd message in a bottle drift across your bow. */
+  private updateFlotsam(dt: number) {
+    this.flotsamT -= dt;
+    if (this.flotsamT > 0) return;
+    this.flotsamT = rand(22, 38);
+    const c = this.career!;
+    const p = this.player;
+    const a = p.heading + rand(-0.6, 0.6);
+    const d = rand(70, 110);
+    const x = p.x + Math.sin(a) * d;
+    const z = p.z + Math.cos(a) * d;
+    if ((this.world?.shoals ?? []).some((s) => Math.hypot(s.x - x, s.z - z) < s.r + 6)) return;
+    const maps = c.s.maps.length < 3 && (this.sea?.islands ?? []).some((i) => i.treasure && !c.s.dug.includes(i.id) && !c.s.maps.includes(i.id));
+    const r = Math.random();
+    if (maps && r < 0.24) this.spawnLoot("bottle", x, z, 0, 0);
+    else if (r < 0.58) this.spawnLoot("crate", x, z, 0, 0, { good: this.lootGood(), qty: 1 + Math.floor(Math.random() * 3) });
+    else if (r < 0.86) this.spawnLoot("barrel", x, z, 0, 0);
+    else this.spawnLoot("chest", x, z, 0, 0);
+  }
+
+  /** A good worth fishing out of the sea (finer goods as your rank grows). */
+  private lootGood(): GoodId {
+    const n = Math.min(GOOD_IDS.length, 5 + (this.career?.rank ?? 0));
+    return GOOD_IDS[Math.floor(Math.random() * n)];
+  }
+
+  private pirateDown(s: Ship) {
+    const c = this.career!;
+    const boss = s.kind === "ghost";
+    const id = this.bounties.get(s);
+    this.addGold(s.stats.bounty, s.x, s.y + 9 * s.scale, s.z);
+    c.pirateSunk(boss ? "ghost" : (s.kind as PirateClass));
+    const n = s.stats.loot + (id ? 2 : 0) + (boss ? 4 : 0);
+    for (let i = 0; i < n; i++) {
+      const r = Math.random();
+      const a = rand(0, TAU);
+      const x = s.x + Math.sin(a) * rand(1, 4);
+      const z = s.z + Math.cos(a) * rand(1, 4);
+      const vx = Math.sin(a) * rand(2, 4.5);
+      const vz = Math.cos(a) * rand(2, 4.5);
+      if (boss || r < 0.22) this.spawnLoot("chest", x, z, vx, vz);
+      else if (r < 0.7) this.spawnLoot("crate", x, z, vx, vz, { good: this.lootGood(), qty: 1 + Math.floor(Math.random() * (2 + c.rank * 0.6)) });
+      else this.spawnLoot("barrel", x, z, vx, vz);
+    }
+    if (id) {
+      this.bounties.delete(s);
+      this.notify(c.bountyDone(id));
+    }
+    if (boss) {
+      const gold = c.queenSunk();
+      this.queen = null;
+      this.queueBanner("The Drowned Queen is sunk!", `+${gold.toLocaleString("en-US")} gold — and her hull is for sale at Skull Cove`, "good", 5);
+    }
+    this.notify(c.takeNotices());
+  }
+
+  private collectTrade(l: Loot): boolean {
+    const c = this.career!;
+    const p = this.player;
+    const at = this.v1.set(l.x, waveHeight(l.x, l.z) + 1, l.z);
+    if (l.contract && l.good) {
+      if (!c.salvage(l.contract)) {
+        this.holdFull(at);
+        return false;
+      }
+      this.text(`+1 ${GOODS[l.good].name}`, "#fde68a", at.x, at.y + 2, at.z);
+      this.sfx.coin();
+      this.glow.burst(at, 12, 3, 4, { color: "#ffe58a", size: 0.9, grow: 0.2, life: 0.8, gravity: 3, drag: 1.5 });
+    } else if (l.kind === "crate" && l.good) {
+      const qty = l.qty ?? 1;
+      const n = c.pickUp(l.good, qty);
+      const g = GOODS[l.good];
+      if (n > 0) this.text(`+${n} ${g.name}`, "#fde68a", at.x, at.y + 2, at.z);
+      // What doesn't fit in the hold is worth a few coins to the crew.
+      if (n < qty) this.addGold(g.base * (qty - n) * 0.4, at.x, at.y + (n > 0 ? 4 : 2), at.z);
+      this.sfx.coin();
+      this.glow.burst(at, 12, 3, 4, { color: "#ffe58a", size: 0.9, grow: 0.2, life: 0.8, gravity: 3, drag: 1.5 });
+    } else if (l.kind === "bottle") {
+      this.readBottle();
+      this.sfx.pick();
+      this.glow.burst(at, 18, 3, 4, { color: "#bae6fd", size: 1, grow: 0.2, life: 0.9, gravity: -1, drag: 2 });
+    } else if (l.kind === "barrel" || l.kind === "bottles") {
+      const amount = p.maxHp * (l.kind === "barrel" ? 0.08 : 0.14);
+      const healed = Math.min(amount, p.maxHp - p.hp);
+      p.hp = Math.min(p.maxHp, p.hp + amount);
+      this.text(healed > 0 ? `+${Math.round(healed)} hull` : "Hull full", "#86efac", at.x, at.y + 2, at.z);
+      this.sfx.repair();
+      this.glow.burst(at, 14, 3, 4, { color: "#7dffa0", size: 0.9, grow: 0.2, life: 0.7, gravity: -1, drag: 2 });
+    } else {
+      this.addGold(30 + c.rank * 25, at.x, at.y + 2, at.z);
+      this.sfx.coin(true);
+      this.glow.burst(at, 24, 3.5, 5, { color: "#ffd34d", size: 0.9, grow: 0.2, life: 0.8, gravity: 3, drag: 1.5 });
+    }
+    l.taken = 0;
+    p.setCargo(c.used() / c.cap());
+    this.emitHud(true);
+    return true;
+  }
+
+  private holdFull(at: THREE.Vector3) {
+    if (this.elapsed - this.fullT < 1.5) return;
+    this.fullT = this.elapsed;
+    this.text("Hold full!", "#fca5a5", at.x, at.y + 2, at.z);
+    this.sfx.empty();
+  }
+
+  /** A message in a bottle: usually a treasure map to an island on the chart. */
+  private readBottle() {
+    const c = this.career!;
+    const sea = this.sea!;
+    const p = this.player;
+    const options = sea.islands.filter((i) => i.treasure && !c.s.dug.includes(i.id) && !c.s.maps.includes(i.id));
+    if (!options.length || c.s.maps.length >= 3) {
+      this.addGold(40, p.x, p.y + 6, p.z);
+      this.queueBanner("A message in a bottle", "Just an old love letter… and a few coins", "info", 3);
+      return;
+    }
+    options.sort((a, b) => Math.abs(Math.hypot(a.x - p.x, a.z - p.z) - 450) - Math.abs(Math.hypot(b.x - p.x, b.z - p.z) - 450));
+    const isl = options[Math.floor(Math.random() * Math.min(3, options.length))];
+    c.addMap(isl.id);
+    if (!c.s.waypoint) c.s.waypoint = { x: isl.x, z: isl.z, label: "Treasure" };
+    const d = Math.hypot(isl.x - p.x, isl.z - p.z);
+    this.queueBanner("A treasure map!", `X marks an island ${metres(d)} to the ${compass(isl.x - p.x, isl.z - p.z)} — it's on your chart`, "good", 4.5);
+    this.save();
+  }
+
+  // --- Merchant traffic ---------------------------------------------------------------------------
+
+  private updateTraffic(dt: number) {
+    const c = this.career;
+    if (!c || !this.sea) return;
+    const p = this.player;
+    for (let i = this.traffic.length - 1; i >= 0; i--) {
+      const tr = this.traffic[i];
+      const s = tr.ship;
+      const dest = PORT[tr.to];
+      if (Math.hypot(s.x - p.x, s.z - p.z) > 470 || Math.hypot(s.x - dest.x, s.z - dest.z) < dest.r + 34) {
+        this.releaseTraffic(tr);
+        this.traffic.splice(i, 1);
+      }
+    }
+    this.trafficT -= dt;
+    if (this.trafficT <= 0) {
+      this.trafficT = rand(4, 9);
+      if (this.traffic.length < 4) this.spawnTraffic();
+    }
+    for (const tr of this.traffic) {
+      const s = tr.ship;
+      const dest = PORT[tr.to];
+      let desired = Math.atan2(dest.x - s.x, dest.z - s.z);
+      if (!s.steam) {
+        const from = this.wind.angle + Math.PI;
+        const rel = wrap(desired - from);
+        if (Math.abs(rel) < 0.7) desired = from + (rel >= 0 ? 0.7 : -0.7);
+      }
+      desired = this.avoid(s, desired);
+      s.steerIn = clamp(-wrap(desired - s.heading) * 1.6, -1, 1);
+      s.sail = 2;
+      s.physics(dt, this.wind, 1, 1, 0.45);
+    }
+  }
+
+  private spawnTraffic() {
+    const c = this.career!;
+    const p = this.player;
+    const shoals = this.sea!.shoals;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const a = rand(0, TAU);
+      const d = rand(240, 300);
+      const x = p.x + Math.sin(a) * d;
+      const z = p.z + Math.cos(a) * d;
+      if (Math.max(Math.abs(x), Math.abs(z)) > BOUNDS - 40) continue;
+      if (shoals.some((s) => Math.abs(s.x - x) < s.r + 14 && Math.abs(s.z - z) < s.r + 14 && Math.hypot(s.x - x, s.z - z) < s.r + 14)) continue;
+      // Bound for a port on the far side, so it crosses your path.
+      const options = PORTS.filter((pt) => Math.hypot(pt.x - x, pt.z - z) > 300);
+      const to = options[Math.floor(Math.random() * options.length)];
+      if (!to) return;
+      const list = c.rank >= 4 && Math.random() < 0.25 ? BIG_TRAFFIC : TRAFFIC;
+      const id = list[Math.floor(Math.random() * list.length)];
+      const ship = this.takeTraffic(id);
+      ship.reset(x, z, Math.atan2(to.x - x, to.z - z));
+      ship.sail = 2;
+      ship.sailVis = 2 / 3;
+      ship.speed = ship.stats.speed * 0.5;
+      ship.setCargo(Math.random());
+      this.traffic.push({ ship, to: to.id, def: id });
+      return;
+    }
+  }
+
+  private takeTraffic(id: ShipId) {
+    const def = SHIP_DEFS[id];
+    let ship = this.trafficPool.get(id)?.pop();
+    if (!ship) {
+      ship = new Ship("sloop", { ...PLAYER_STATS, name: def.name, hp: def.hull, speed: def.speed * 0.72, turn: def.turn }, this.wakeMaterial);
+      ship.setModel(this.protos.get(def.model) ?? this.protos.get(SHIPS.sloop)!, def.scale, undefined, { waterline: def.waterline, beam: def.beam, steam: def.steam });
+      ship.pool = id;
+    }
+    this.scene.add(ship.root, ship.wake.mesh);
+    return ship;
+  }
+
+  private releaseTraffic(tr: Traffic) {
+    this.scene.remove(tr.ship.root, tr.ship.wake.mesh);
+    tr.ship.wake.reset();
+    let list = this.trafficPool.get(tr.def);
+    if (!list) this.trafficPool.set(tr.def, (list = []));
+    list.push(tr.ship);
+  }
+
+  // --- Open Sea HUD, port screen, markers ---------------------------------------------------------
+
+  private contractTarget(ct: Contract): { x: number; z: number } | null {
+    if (ct.site && (ct.kind === "bounty" || (ct.kind === "salvage" && ct.loaded < ct.qty))) return ct.site;
+    const site = this.sea?.ports.find((s) => s.id === ct.to);
+    return site ? site.zone : null;
+  }
+
+  private openSea(x: number, z: number) {
+    return !(this.sea?.shoals ?? []).some((s) => Math.hypot(s.x - x, s.z - z) < s.r + 25);
+  }
+
+  private tradeHud(): TradeHud {
+    const c = this.career!;
+    const p = this.player;
+    const track: TrackLine[] = c.s.contracts.slice(0, 5).map((ct) => {
+      const tgt = this.contractTarget(ct);
+      const timed = ct.kind === "freight" || ct.kind === "express" || ct.kind === "salvage" || ct.left < 120;
+      return {
+        id: ct.id,
+        text: contractText(ct).line,
+        left: timed ? Math.ceil(ct.left) : null,
+        dist: tgt ? Math.round(Math.hypot(tgt.x - p.x, tgt.z - p.z) / 10) * 10 : null,
+        urgent: ct.left < 30,
+      };
+    });
+    const wp = c.s.waypoint;
+    return {
+      cargo: c.used(),
+      cap: c.cap(),
+      zone: zoneName(p.x, p.z),
+      danger: Math.round(danger(p.x, p.z) * 10) / 10,
+      dock: this.dockable && this.phase === "playing" ? this.dockable.def.name : null,
+      dockBlocked: this.dockBlocked,
+      track,
+      rank: RANKS[c.rank].name,
+      waypoint: wp ? { label: wp.label, dist: Math.round(Math.hypot(wp.x - p.x, wp.z - p.z) / 10) * 10 } : null,
+      steam: !!c.ship.steam,
+      auto: this.autopilot,
+    };
+  }
+
+  private emitPort() {
+    const c = this.career;
+    const site = this.docked;
+    if (!c || !site || this.phase !== "port") return;
+    const id = site.id;
+    const def = site.def;
+    const ctx = { openSea: (x: number, z: number) => this.openSea(x, z) };
+    const row = (o: Contract, active: boolean): OfferRow => {
+      const tgt = this.contractTarget(o);
+      return { c: { ...o }, ...contractText(o), dist: tgt ? Math.round(Math.hypot(tgt.x - site.x, tgt.z - site.z)) : 0, blocked: active ? null : c.blocked(o) };
+    };
+    const market: MarketRow[] = GOOD_IDS.map((g) => ({
+      id: g,
+      name: GOODS[g].name,
+      icon: GOODS[g].icon,
+      buy: c.canBuy(id, g) ? c.buyPrice(id, g) : null,
+      sell: c.sellPrice(id, g),
+      have: c.have(g),
+      paid: c.have(g) && c.s.basis[g] !== undefined ? Math.round(c.s.basis[g]!) : null,
+      wanted: def.wants.includes(g),
+      local: def.produces.includes(g),
+      maxBuy: c.canBuy(id, g) ? c.maxBuy(id, g) : 0,
+    }));
+    const p = this.player;
+    this.events.port({
+      id,
+      name: def.name,
+      blurb: def.blurb,
+      produces: def.produces,
+      wants: def.wants,
+      yard: def.yard.length > 0,
+      gold: c.gold,
+      cargo: c.used(),
+      cap: c.cap(),
+      hull: Math.ceil(p.hp),
+      maxHull: p.maxHp,
+      repairCost: c.repairCost(),
+      ship: c.ship,
+      rank: c.rankInfo(),
+      market,
+      offers: c.board(id, ctx).map((o) => row(o, false)),
+      active: c.s.contracts.map((o) => row(o, true)),
+      maxContracts: c.maxContracts(),
+      refresh: Math.ceil(c.boardRefreshIn()),
+      ships: SHIP_ORDER.map((sid) => {
+        const d = SHIP_DEFS[sid];
+        const owned = c.fleet.includes(sid);
+        return { def: d, owned, active: c.s.ship === sid, sold: def.yard.includes(sid), blocked: owned ? c.switchBlocked(sid) : c.shipBlocked(sid, id), cap: c.cap(d), hull: c.maxHull(d), guns: c.guns(d) };
+      }),
+      upgrades: TRADE_UPGRADE_ORDER.map((u) => ({ id: u, title: TRADE_UPGRADES[u].title, text: TRADE_UPGRADES[u].text, level: c.level(u), max: TRADE_UPGRADES[u].costs.length, cost: c.upgradeCost(u) })),
+      goals: c.goals(),
+      stats: { ...c.stats },
+      notices: this.portNotices,
+      maps: c.s.maps.length,
+      visited: c.visited.length,
+      fleet: c.fleet.length,
+      guideOff: !!c.s.guideOff,
+      quote: (g, qty) => ({ buy: c.canBuy(id, g) ? c.quoteBuy(id, g, qty) : null, sell: c.quoteSell(id, g, qty) }),
+      wantedAt: (g) =>
+        PORTS.filter((pt) => pt.id !== id && pt.wants.includes(g))
+          .map((pt) => ({ name: pt.name, dist: Math.hypot(pt.x - site.x, pt.z - site.z), price: c.s.known[pt.id]?.sell[g] ?? null }))
+          .sort((a, b) => a.dist - b.dist),
+    });
+  }
+
+  /** Port names, the waypoint, treasure marks and bounty sites over the 3D view. */
+  private drawSeaMarks(ctx: CanvasRenderingContext2D, margin: number) {
+    const c = this.career!;
+    const sea = this.sea!;
+    const p = this.player;
+    const { w, h } = this.view;
+    for (const site of sea.ports) {
+      const d = Math.hypot(site.x - p.x, site.z - p.z);
+      if (d > 330) continue;
+      const s = this.project(site.x, 17, site.z);
+      if (!s.front || s.x < -60 || s.x > w + 60 || s.y < -20 || s.y > h + 20) continue;
+      this.label(ctx, `⚓ ${site.def.name}`, s.x, s.y, "#fde68a", 15);
+      if (d > 70) this.label(ctx, metres(d), s.x, s.y + 16, "#e2e8f0", 11);
+    }
+    for (const id of c.s.maps) {
+      const isl = sea.islands[id];
+      if (!isl || Math.hypot(isl.x - p.x, isl.z - p.z) > 340) continue;
+      const s = this.project(isl.x, 4, isl.z);
+      if (s.front) this.label(ctx, "✕", s.x, s.y, "#ef4444", 28);
+    }
+    for (const ct of c.s.contracts) {
+      if (!ct.site || ct.kind === "freight" || (ct.kind === "salvage" && ct.loaded >= ct.qty)) continue;
+      const d = Math.hypot(ct.site.x - p.x, ct.site.z - p.z);
+      if (d > 340 || d < 30) continue;
+      const s = this.project(ct.site.x, 3, ct.site.z);
+      if (s.front && s.x > 0 && s.x < w && s.y > 0 && s.y < h) this.label(ctx, ct.kind === "bounty" ? "☠" : "⚓ Wreck", s.x, s.y, ct.kind === "bounty" ? "#fca5a5" : "#bae6fd", ct.kind === "bounty" ? 24 : 13);
+    }
+    const wp = c.s.waypoint;
+    if (!wp) return;
+    const d = Math.hypot(wp.x - p.x, wp.z - p.z);
+    const s = this.project(wp.x, 9, wp.z);
+    if (s.front && s.x > margin && s.x < w - margin && s.y > margin && s.y < h - margin) {
+      // Far off it sits on the horizon: keep it below the HUD.
+      const y = clamp(s.y, 120, h - 170) - 8 + Math.sin(this.elapsed * 3) * 3;
+      ctx.save();
+      ctx.translate(s.x, y);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = "#fbbf24";
+      ctx.strokeStyle = "#78350f";
+      ctx.lineWidth = 2.5;
+      ctx.fillRect(-7, -7, 14, 14);
+      ctx.strokeRect(-7, -7, 14, 14);
+      ctx.restore();
+      this.label(ctx, `${wp.label} · ${metres(d)}`, s.x, y - 20, "#fde68a", 12);
+    } else this.edgeArrow(ctx, wp.x, wp.z, "#fbbf24", margin, Math.min(d, 200), `${wp.label} ${metres(d)}`);
+  }
+
+  private miniSeaMarks(ctx: CanvasRenderingContext2D, map: (x: number, z: number) => readonly [number, number], R: number, d: number) {
+    const c = this.career!;
+    const sea = this.sea!;
+    for (const site of sea.ports) {
+      const [x, y] = map(site.x, site.z);
+      if (Math.hypot(x - R, y - R) > R + 10) continue;
+      ctx.beginPath();
+      ctx.arc(x, y, 4.5 * d, 0, TAU);
+      ctx.fillStyle = "#fbbf24";
+      ctx.fill();
+      ctx.lineWidth = 1.5 * d;
+      ctx.strokeStyle = "#3b2412";
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#ef4444";
+    ctx.lineWidth = 2 * d;
+    for (const id of c.s.maps) {
+      const isl = sea.islands[id];
+      if (!isl) continue;
+      const [x, y] = map(isl.x, isl.z);
+      if (Math.hypot(x - R, y - R) > R) continue;
+      ctx.beginPath();
+      ctx.moveTo(x - 3.5 * d, y - 3.5 * d);
+      ctx.lineTo(x + 3.5 * d, y + 3.5 * d);
+      ctx.moveTo(x + 3.5 * d, y - 3.5 * d);
+      ctx.lineTo(x - 3.5 * d, y + 3.5 * d);
+      ctx.stroke();
+    }
+    const wp = c.s.waypoint;
+    if (!wp) return;
+    let [x, y] = map(wp.x, wp.z);
+    const dx = x - R;
+    const dy = y - R;
+    const len = Math.hypot(dx, dy);
+    const max = R - 7 * d;
+    if (len > max) {
+      x = R + (dx / len) * max;
+      y = R + (dy / len) * max;
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, 4 * d, 0, TAU);
+    ctx.fillStyle = "#fde047";
+    ctx.fill();
+    ctx.lineWidth = 1.5 * d;
+    ctx.strokeStyle = "#78350f";
+    ctx.stroke();
+  }
+
   // --- Atmosphere & camera ------------------------------------------------------------------------
 
   private applyAtmosphere(force: boolean, dt = 0) {
-    const boss = this.enemies.some((e) => e.kind === "ghost" && e.sinkT < 2.5);
+    const p = this.player;
+    const haunted = this.mode === "trade" && !!p && inHauntedSea(p.x, p.z);
+    const boss = this.enemies.some((e) => e.kind === "ghost" && e.sinkT < 2.5) || haunted;
     this.haunt = force ? (boss ? 1 : 0) : damp(this.haunt, boss ? 1 : 0, 0.7, dt);
     const h = this.haunt;
     sea.amp = lerp(this.phase === "menu" ? 0.85 : 1, 1.4, h);
@@ -1957,7 +3937,18 @@ export class CannonCoveGame {
       look.set(p.x + p.fx * 3, 3.2, p.z + p.fz * 3);
       pos.set(p.x + Math.sin(a) * R, portrait ? 15 : 9.5, p.z + Math.cos(a) * R);
       this.camYaw = Math.atan2(look.x - pos.x, look.z - pos.z);
-    } else if (this.phase === "sinking" || this.phase === "over") {
+    } else if (this.phase === "port" && this.docked) {
+      // Moored: a slow orbit over the harbour, the ship in front of the town.
+      const site = this.docked;
+      const b = this.berth(site);
+      const a = this.portAngle + this.elapsed * 0.03;
+      const R = (portrait ? 74 : 50) + p.length * 1.3;
+      const cx = b.x * 0.65 + site.x * 0.35;
+      const cz = b.z * 0.65 + site.z * 0.35;
+      look.set(cx, 3, cz);
+      pos.set(cx + Math.sin(a) * R, portrait ? 36 : 21 + p.length * 0.3, cz + Math.cos(a) * R);
+      this.camYaw = Math.atan2(look.x - pos.x, look.z - pos.z);
+    } else if (this.phase === "sinking" || this.phase === "over" || this.phase === "wrecked") {
       this.camYaw += dt * 0.12;
       const R = 30 + this.deathT * 1.5;
       look.set(p.x, 1, p.z);
@@ -1967,7 +3958,7 @@ export class CannonCoveGame {
       // about to broadside (abeam, off to the side) stays in view.
       let nearest: { x: number; z: number } | null = null;
       let nd = Infinity;
-      for (const e of this.enemies) {
+      for (const e of this.foes()) {
         if (!e.alive) continue;
         const d = Math.hypot(e.x - p.x, e.z - p.z);
         if (d < nd) {
@@ -1995,7 +3986,8 @@ export class CannonCoveGame {
       this.camYaw = this.camSnap ? yaw : dampAngle(this.camYaw, yaw, 1.8, dt);
       const fx = Math.sin(this.camYaw);
       const fz = Math.cos(this.camYaw);
-      const z = this.zoom * (1 + 0.28 * this.frameK);
+      // Big ships need the camera further back.
+      const z = this.zoom * (1 + 0.28 * this.frameK) * Math.pow(Math.max(1, p.length / 10), 0.85);
       const dist = (portrait ? 44 : 30) * z + p.speed * 0.3;
       const height = (portrait ? 34 : 18) * z;
       const ahead = (4 + p.speed * 0.4) * (1 - this.frameK * 0.5);
@@ -2048,6 +4040,8 @@ export class CannonCoveGame {
     this.portrait = w / h < 0.85;
     this.camera.fov = this.portrait ? 62 : 50;
     this.camera.aspect = w / h;
+    if (this.showcase > 0 || this.showcaseY > 0) this.camera.setViewOffset(w, h, this.showcase / 2, this.showcaseY / 2, w, h);
+    else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     const dpr = this.renderer.getPixelRatio();
     this.smoke.setScale(h * dpr, this.camera.fov);
@@ -2072,7 +4066,7 @@ export class CannonCoveGame {
     const next: Hud = {
       hull: Math.ceil(p.hp),
       maxHull: p.maxHp,
-      gold: this.gold,
+      gold: this.trade ? this.trade.gold : this.gold,
       wave: this.wave,
       enemies: this.enemies.filter((e) => e.alive).length + this.spawnQueue.length,
       sunk: this.sunk,
@@ -2080,16 +4074,19 @@ export class CannonCoveGame {
       speed: Math.round(p.speed * 1.6),
       wind: Math.round((-windRel * 180) / Math.PI),
       windStrength: this.wind.strength,
-      trim: pointOfSail(p.alpha),
-      trimEff: polar(p.alpha),
+      trim: p.steam ? "Full steam" : pointOfSail(p.alpha),
+      trimEff: p.steam ? 1 : polar(p.alpha),
       reloadL: 1 - p.reload[1] / reloadTime,
       reloadR: 1 - p.reload[-1] / reloadTime,
       guns: this.guns(),
-      ship: SHIP_NAMES[this.up.ship],
+      ship: this.onlineShip ? this.onlineShip.name : this.trade ? this.trade.ship.name : SHIP_NAMES[this.up.ship],
       boss: boss ? { name: boss.stats.name, hp: Math.ceil(boss.hp), max: boss.maxHp } : null,
       banner: this.banner,
       warn: this.warn,
       combat: this.combat,
+      mode: this.mode,
+      trade: this.trade ? this.tradeHud() : null,
+      online: this.net ? this.onlineHud() : null,
     };
     if (!force && JSON.stringify(next) === JSON.stringify(this.hud)) return;
     this.hud = next;
@@ -2122,8 +4119,9 @@ export class CannonCoveGame {
       const ghost = e.kind === "ghost";
       if (on) {
         if (!ghost && d < 160) this.bar(ctx, s.x, s.y, 56, e.hp / e.maxHp);
+        if (this.bounties.has(e) && d < 220) this.label(ctx, `☠ ${e.stats.name}`, s.x, s.y - 16, "#fca5a5", 13);
         if (e.aimT >= 0) this.alert(ctx, s.x, s.y - 20, t);
-      } else if (ph === "playing") {
+      } else if (ph === "playing" && (!this.trade || d < 260)) {
         this.edgeArrow(ctx, e.x, e.z, ghost ? "#5dffb8" : e.aimT >= 0 ? "#fbbf24" : "#f87171", margin, d);
       }
     }
@@ -2135,6 +4133,21 @@ export class CannonCoveGame {
       if (!s.front || s.x < 0 || s.x > w || s.y < 0 || s.y > h) continue;
       if (f.hp < f.maxHp || d < FORT_RANGE) this.bar(ctx, s.x, s.y, 44, f.hp / f.maxHp, d < FORT_RANGE ? "#f97316" : "#94a3b8");
       if (f.aimT >= 0) this.alert(ctx, s.x, s.y - 20, t);
+    }
+    if (this.trade && ph === "playing") this.drawSeaMarks(ctx, margin);
+    if (this.net) {
+      for (const r of this.remotes.values()) {
+        const sh = r.ship;
+        if (!sh.root.visible || !sh.alive) continue;
+        const d = Math.hypot(sh.x - p.x, sh.z - p.z);
+        const color = PLAYER_COLORS[r.color % PLAYER_COLORS.length];
+        const s = this.project(sh.x, sh.y + 10.6 * sh.scale, sh.z);
+        const on = s.front && s.x > -20 && s.x < w + 20 && s.y > -20 && s.y < h + 20;
+        if (on) {
+          this.bar(ctx, s.x, s.y, 56, sh.hp / Math.max(1, sh.maxHp));
+          this.label(ctx, r.name, s.x, s.y - 15, color, 13);
+        } else if (ph === "playing" && d < 260) this.edgeArrow(ctx, sh.x, sh.z, color, margin, d);
+      }
     }
     // Floating gold / repair texts.
     ctx.textAlign = "center";
@@ -2184,7 +4197,7 @@ export class CannonCoveGame {
     ctx.restore();
   }
 
-  private edgeArrow(ctx: CanvasRenderingContext2D, x: number, z: number, color: string, margin: number, dist: number) {
+  private edgeArrow(ctx: CanvasRenderingContext2D, x: number, z: number, color: string, margin: number, dist: number, label?: string) {
     const p = this.player;
     const dx = x - p.x;
     const dz = z - p.z;
@@ -2219,6 +4232,26 @@ export class CannonCoveGame {
     ctx.fillStyle = color;
     ctx.fill();
     ctx.restore();
+    if (label) {
+      // Pushed in from the edge, towards the middle of the screen.
+      const lx = clamp(ax - ux * 30, 60, w - 60);
+      const ly = clamp(ay - uy * 26, 40, h - 40);
+      this.label(ctx, label, lx, ly, color, 12);
+    }
+  }
+
+  /** A small outlined label over the 3D view. */
+  private label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, size = 14) {
+    ctx.save();
+    ctx.font = `${size}px ${this.font}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+    ctx.restore();
   }
 
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -2239,7 +4272,9 @@ export class CannonCoveGame {
     if (!ctx) return;
     const p = this.player;
     const R = size / 2;
-    const scale = R / 150;
+    const trade = this.mode === "trade";
+    const scale = R / (trade ? 230 : 150);
+    const view = (trade ? 230 : 150) + 30;
     const fx = Math.sin(this.camYaw);
     const fz = Math.cos(this.camYaw);
     const map = (x: number, z: number) => {
@@ -2254,16 +4289,19 @@ export class CannonCoveGame {
     ctx.clip();
     ctx.fillStyle = this.haunt > 0.5 ? "rgba(6,40,36,0.78)" : "rgba(8,47,73,0.72)";
     ctx.fillRect(0, 0, size, size);
-    // Edge of the cove.
-    const [ox, oy] = map(0, 0);
-    ctx.beginPath();
-    ctx.arc(ox, oy, ARENA * scale, 0, TAU);
-    ctx.strokeStyle = "rgba(255,255,255,0.35)";
-    ctx.lineWidth = 1.5 * this.view.dpr;
-    ctx.setLineDash([4 * this.view.dpr, 4 * this.view.dpr]);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (!trade) {
+      // Edge of the cove.
+      const [ox, oy] = map(0, 0);
+      ctx.beginPath();
+      ctx.arc(ox, oy, ARENA * scale, 0, TAU);
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 1.5 * this.view.dpr;
+      ctx.setLineDash([4 * this.view.dpr, 4 * this.view.dpr]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     for (const s of this.world.shoals) {
+      if (Math.abs(s.x - p.x) > view + s.r || Math.abs(s.z - p.z) > view + s.r) continue;
       const [x, y] = map(s.x, s.z);
       ctx.beginPath();
       ctx.arc(x, y, Math.max(2, s.r * scale), 0, TAU);
@@ -2303,7 +4341,10 @@ export class CannonCoveGame {
       ctx.fill();
       ctx.restore();
     };
+    if (trade) this.miniSeaMarks(ctx, map, R, d);
+    for (const tr of this.traffic) ship(tr.ship, "rgba(255,255,255,0.75)", 3.5);
     for (const e of this.enemies) if (e.alive) ship(e, e.kind === "ghost" ? "#5dffb8" : "#f87171", e.kind === "ghost" ? 7 : 5);
+    for (const r of this.remotes.values()) if (r.ship.alive && r.ship.root.visible) ship(r.ship, PLAYER_COLORS[r.color % PLAYER_COLORS.length], 5.5);
     // Range ring.
     ctx.beginPath();
     ctx.arc(R, R, this.range() * scale, 0, TAU);
