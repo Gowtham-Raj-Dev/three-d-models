@@ -49,3 +49,6 @@ next-env.d.ts
 
 # firebase deploy cache
 .firebase/
+
+# promo video: raw captures, work files and the rendered video (big; rebuild with scripts/promo)
+/promo/

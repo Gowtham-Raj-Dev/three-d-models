@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { ArrowRight, Bone, Boxes, Check, Gauge, Plus, ShieldCheck } from "lucide-react";
+import { ArrowRight, Bone, Boxes, Captions, Check, Clapperboard, Gauge, Plus, ShieldCheck } from "lucide-react";
 import { HeroShowcase, type HeroItem } from "@/components/hero-showcase";
 import { JsonLd } from "@/components/json-ld";
 import { ModelCard } from "@/components/model-card";
 import { PackDownloads } from "@/components/pack-downloads";
+import { SiteTour } from "@/components/site-tour";
 import { button, Eyebrow, SectionHeader } from "@/components/ui";
 import { asset } from "@/lib/asset";
 import {
@@ -25,7 +26,8 @@ import {
   toCard,
 } from "@/lib/catalog";
 import { pageMetadata } from "@/lib/seo";
-import { SITE } from "@/lib/site";
+import { absoluteUrl, SITE } from "@/lib/site";
+import { formatClock, SITE_TOUR } from "@/lib/site-tour";
 
 export const metadata = pageMetadata({
   title: `${SITE.name} — ${formatNumber(models.length)} Free 3D Models: Characters, Cars, Buildings & More (GLB)`,
@@ -137,6 +139,21 @@ export default function Home() {
     "@type": "FAQPage",
     mainEntity: FAQ.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
   };
+  const tourJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "@id": absoluteUrl(SITE_TOUR.hd),
+    name: SITE_TOUR.name,
+    description: SITE_TOUR.description,
+    thumbnailUrl: absoluteUrl(SITE_TOUR.poster),
+    contentUrl: absoluteUrl(SITE_TOUR.hd),
+    uploadDate: SITE_TOUR.uploaded,
+    duration: `PT${Math.floor(SITE_TOUR.seconds / 60)}M${Math.floor(SITE_TOUR.seconds % 60)}S`,
+    inLanguage: "en",
+    transcript: SITE_TOUR.transcript.join(" "),
+    author: { "@type": "Person", name: SITE.author },
+    publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
+  };
   const featured = FEATURED_IDS.map(getModelById).filter((m) => m !== undefined);
   const categoryTiles = CATEGORIES.map((c) => ({ category: c, count: countBy(c), model: categoryShowcase(c, 1)[0] })).filter((t) => t.count > 0);
   const clips = clipGroups();
@@ -153,6 +170,7 @@ export default function Home() {
   return (
     <>
       <JsonLd data={faqJsonLd} />
+      <JsonLd data={tourJsonLd} />
 
       {/* Hero */}
       <section className="relative overflow-hidden">
@@ -203,6 +221,54 @@ export default function Home() {
             ))}
           </dl>
         </div>
+      </section>
+
+      {/* Site tour video */}
+      <section id="tour" className="mx-auto max-w-7xl scroll-mt-24 px-4 pt-20 sm:px-6 sm:pt-28">
+        <SectionHeader
+          eyebrow="Take the tour"
+          title={
+            <>
+              See the whole site in <span className="text-gradient">90 seconds.</span>
+            </>
+          }
+          description="Mia — one of our rigged characters — walks you through the model library, the 3D viewer, live color changes, the GLB viewer, developer files and free games, then builds a little campsite live in the Scene Builder."
+          action={
+            <ul className="flex flex-wrap gap-2 text-xs text-muted">
+              <li className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5">
+                <Clapperboard className="size-3.5 text-violet-300" /> {formatClock(SITE_TOUR.seconds)} · 2K
+              </li>
+              <li className="glass flex items-center gap-1.5 rounded-full px-3 py-1.5">
+                <Captions className="size-3.5 text-cyan-300" /> Subtitles
+              </li>
+            </ul>
+          }
+        />
+        <div className="relative isolate">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -inset-x-6 -inset-y-10 -z-10 blur-3xl sm:-inset-x-16"
+            style={{
+              background:
+                "radial-gradient(40% 55% at 28% 45%, rgb(124 58 237 / 0.28), transparent 70%), radial-gradient(35% 50% at 78% 65%, rgb(8 145 178 / 0.22), transparent 70%)",
+            }}
+          />
+          <div className="rounded-[1.75rem] border border-line bg-surface/60 p-2 shadow-2xl shadow-black/30 backdrop-blur-sm sm:p-3 lg:p-4">
+            <SiteTour />
+          </div>
+        </div>
+        <details className="group mt-4 rounded-2xl border border-line bg-surface/40 px-5 py-3 text-sm open:pb-5">
+          <summary className="cursor-pointer list-none font-medium text-muted transition-colors select-none group-open:text-fg hover:text-fg">
+            <span className="inline-flex items-center gap-2">
+              <Plus className="size-4 transition-transform group-open:rotate-45" /> Read the transcript
+            </span>
+          </summary>
+          <div className="mt-3 max-w-3xl space-y-2 leading-relaxed text-muted">
+            {SITE_TOUR.transcript.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        </details>
       </section>
 
       {/* Features */}
