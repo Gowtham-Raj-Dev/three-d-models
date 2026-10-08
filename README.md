@@ -29,7 +29,7 @@ Built with Next.js 16 (App Router, TypeScript, static export), Tailwind CSS v4, 
 | `/viewer/` | GLB viewer: open a local `.glb` (or a sample) — preview, embedded animations, stats, recolor, download. Files never leave the browser |
 | `/games/` | Games grid (3 per row) — every game is built only from library models. Registry: `src/lib/games.ts`, each game describes itself in `src/components/games/<slug>/manifest.ts` |
 | `/games/[slug]/` | Game details: cover, description, how to play, controls, shortcuts and every library model the game uses |
-| `/games/<slug>/play/` | The full-screen game (no site header/footer): Skate Rush (endless runner), Saucer Siege (tower defense), Cannon Cove (naval action), Crypt Knight (action roguelite), Order Up! (cooking), Hex Haven (puzzle), Sky Hop (3D platformer), Turbo Karts (kart racing), Siege Smash (physics puzzle, cannon-es), Beat Street (rhythm), Putt Paradise (mini golf), Kingdom Clash (base-building strategy: Town Hall 1–5, heroes, 100-stage campaign). One route file per game so each page bundles only its own game |
+| `/games/<slug>/play/` | The full-screen game (no site header/footer): Skate Rush (endless runner), Saucer Siege (tower defense), Cannon Cove (naval action), Crypt Knight (action roguelite), Order Up! (cooking), Hex Haven (puzzle), Sky Hop (3D platformer), Turbo Karts (kart racing), Siege Smash (physics puzzle, cannon-es), Beat Street (rhythm), Putt Paradise (mini golf), Kingdom Clash (base-building strategy: Town Hall 1–5, heroes, 100-stage campaign), Patti Veedu (Tamil horror puzzle, framed from `public/games/patti-veedu/app/`). One route file per game so each page bundles only its own game |
 | `/license/` | Licensing per source (MIT / CC0 / NASA), how to credit, license by collection |
 
 The gallery renders its first page (30 cards) on the server and never downloads the whole catalog just to browse:
@@ -64,6 +64,8 @@ Shared building blocks live in `src/components/games/shared/`:
 No audio or image files are used by the games apart from the library models and each game's cover (`public/games/<slug>/cover.webp`).
 
 **Coming soon:** Castaway (survival crafting), Nova Strike (rail shooter), Night Heist (stealth) and Sky Courier (flight) are unfinished. Their manifests set `comingSoon: true`, so they appear under "Coming soon" on `/games/`, have a teaser details page (noindex, not in the sitemap) and their `/play/` route shows a placeholder without importing the game's code. To release one, finish its code, add its cover, drop `comingSoon` and switch its route back to `<PlayPage game={GAME} Player={...} />`.
+
+**Patti Veedu** is the exception to the one-codebase rule: a standalone three.js (r128) first-person Tamil horror game with its own engine, menus and Android/Windows builds (`pattyveedu-game/PattiVeedu-Project/`, see its README). `npm run patti:sync` copies its `game/` folder into `public/games/patti-veedu/app/` (marked noindex), and `/games/patti-veedu/play/` frames it full screen (`?desk` layout on mouse-and-keyboard computers). Its characters are Microsoft Rocketbox avatars and the house is built in code; the yard trees, palms, banana plants, tulasi, rocks, dead trees and lanterns are library models, packed into the game's `js/yard-models.js` by `game/assets-src/yard/build_yard.mjs`. The manifest sets `ownShell` (the site's shared buttons and shortcuts don't apply) and `modelsIntro`. Full screen and rotate live in the game (`js/screen.js`) and act on the play page around the iframe; the play page hands the camera-cutout insets to the game's `--st/--sr/--sb/--sl`, since browsers report them only to the top page. Trailer: `node scripts/record-patti-trailer.mjs` (no dev server; needs ffmpeg and kokoro-js, `PREVIEW=1` for a quick contact sheet).
 
 **Landscape phones:** games can use the `land:` Tailwind variant (`(orientation: landscape) and (max-height: 540px)`,
 defined in `globals.css`) or `usePhoneLandscape()` from `shared/ui.tsx`. Kingdom Clash has its own landscape HUD: one
@@ -224,6 +226,7 @@ The converted models are already committed in `public/`, so the site works right
 | `npm run decoders` | Copy three.js's Draco + Basis decoders into `public/decoders/` (for the GLB viewer) |
 | `npm run android:build` | Build the Kingdom Clash Android APK from `out/` → `public/downloads/kingdom-clash.apk` (`--pack-only` skips Gradle) |
 | `npm run playables:build` | Build Skate Rush for YouTube Playables → `dist-playables/skate-rush-playables.zip` |
+| `npm run patti:sync` | Copy the standalone Patti Veedu game (`pattyveedu-game/PattiVeedu-Project/game`) into `public/games/patti-veedu/app/` |
 
 ### Regenerating the models
 

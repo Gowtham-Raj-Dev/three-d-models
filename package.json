@@ -24,7 +24,8 @@
     "decoders": "node scripts/copy-decoders.mjs",
     "android:build": "node scripts/build-android.mjs",
     "games:backdrops": "node scripts/capture-backdrops.mjs",
-    "playables:build": "node scripts/build-playables.mjs"
+    "playables:build": "node scripts/build-playables.mjs",
+    "patti:sync": "node scripts/sync-patti-veedu.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

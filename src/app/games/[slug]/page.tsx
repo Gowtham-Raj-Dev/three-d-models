@@ -356,31 +356,35 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
               </tbody>
             </table>
           </div>
-          <h3 className="mt-6 mb-2 hidden text-xs font-semibold tracking-wide text-subtle uppercase pointer-coarse:block">Buttons in every game</h3>
-          <p className="-mt-1 mb-2 hidden text-xs text-subtle pointer-coarse:block">In the top corner of the screen, or in the pause or settings menu.</p>
-          <ul className="hidden gap-1.5 pointer-coarse:grid sm:grid-cols-2">
-            {GAME_BUTTONS.filter((b) => !b.fullscreen).map(({ action, icon: Icon }) => (
-              <li key={action} className="flex items-center gap-2.5 rounded-xl bg-elevated px-3 py-2 text-xs text-muted">
-                <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface text-fg">
-                  <Icon className="size-4" />
-                </span>
-                {action}
-              </li>
-            ))}
-          </ul>
-          <h3 className="mt-6 mb-2 text-xs font-semibold tracking-wide text-subtle uppercase pointer-coarse:hidden">Shortcuts in every game</h3>
-          <ul className="grid gap-1.5 pointer-coarse:hidden sm:grid-cols-2">
-            {GAME_SHORTCUTS.map((s) => (
-              <li key={s.action} className="flex items-center justify-between gap-2 rounded-xl bg-elevated px-3 py-2 text-xs text-muted">
-                {s.action}
-                <span className="flex gap-1">
-                  {s.keys.map((k) => (
-                    <Kbd key={k}>{k}</Kbd>
-                  ))}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {!game.ownShell && (
+            <>
+              <h3 className="mt-6 mb-2 hidden text-xs font-semibold tracking-wide text-subtle uppercase pointer-coarse:block">Buttons in every game</h3>
+              <p className="-mt-1 mb-2 hidden text-xs text-subtle pointer-coarse:block">In the top corner of the screen, or in the pause or settings menu.</p>
+              <ul className="hidden gap-1.5 pointer-coarse:grid sm:grid-cols-2">
+                {GAME_BUTTONS.filter((b) => !b.fullscreen).map(({ action, icon: Icon }) => (
+                  <li key={action} className="flex items-center gap-2.5 rounded-xl bg-elevated px-3 py-2 text-xs text-muted">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface text-fg">
+                      <Icon className="size-4" />
+                    </span>
+                    {action}
+                  </li>
+                ))}
+              </ul>
+              <h3 className="mt-6 mb-2 text-xs font-semibold tracking-wide text-subtle uppercase pointer-coarse:hidden">Shortcuts in every game</h3>
+              <ul className="grid gap-1.5 pointer-coarse:hidden sm:grid-cols-2">
+                {GAME_SHORTCUTS.map((s) => (
+                  <li key={s.action} className="flex items-center justify-between gap-2 rounded-xl bg-elevated px-3 py-2 text-xs text-muted">
+                    {s.action}
+                    <span className="flex gap-1">
+                      {s.keys.map((k) => (
+                        <Kbd key={k}>{k}</Kbd>
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       </section>
 
@@ -391,7 +395,7 @@ export default async function GameDetailsPage({ params }: PageProps<"/games/[slu
             <div>
               <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">Built with {formatNumber(models.length)} models from this library</h2>
               <p className="mt-1 text-sm text-muted">
-                Every 3D model in {game.title} comes from{" "}
+                {game.modelsIntro ?? `Every 3D model in ${game.title} comes from`}{" "}
                 {packs.map(([key, name], i) => (
                   <span key={key}>
                     {i > 0 && (i === packs.length - 1 ? " and " : ", ")}

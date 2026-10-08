@@ -1,0 +1,6 @@
+{
+  "name": "patti-veedu-tests",
+  "private": true,
+  "description": "Headless browser checks for Patti Veedu (playthrough, AI cost, shader hitches, no-scroll UI, screenshots)",
+  "dependencies": { "playwright": "^1.47.0" }
+}

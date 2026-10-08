@@ -15,6 +15,7 @@ import { GAME as hexHaven } from "@/components/games/hex-haven/manifest";
 import { GAME as orderUp } from "@/components/games/order-up/manifest";
 import { GAME as saucerSiege } from "@/components/games/saucer-siege/manifest";
 import { GAME as skateRush } from "@/components/games/skate-rush/manifest";
+import { GAME as pattiVeedu } from "@/components/games/patti-veedu/manifest";
 
 /**
  * Browser games built entirely from the library's own 3D models, playable at /games/<slug>/.
@@ -61,6 +62,13 @@ export interface GameEntry {
   music: string;
   /** Still being built: listed as "Coming soon", with no cover and no playable route. */
   comingSoon?: boolean;
+  /**
+   * Runs in its own interface (a standalone HTML game in an iframe): the site's shared buttons and shortcuts
+   * don't apply, so the game page lists only the game's own controls.
+   */
+  ownShell?: boolean;
+  /** Says which of the game's models come from the library, when not all of them do: "Its yard trees … come from". */
+  modelsIntro?: string;
 }
 
 /** Shortcuts every game supports (each game adds its own controls). */
@@ -89,6 +97,7 @@ export const genreTitle = (game: GameEntry) =>
 export const howToFor = (game: GameEntry, touch: boolean) => (touch && game.touchHowTo) || game.howTo;
 
 export const games: GameEntry[] = [
+  pattiVeedu,
   skateRush,
   saucerSiege,
   cannonCove,

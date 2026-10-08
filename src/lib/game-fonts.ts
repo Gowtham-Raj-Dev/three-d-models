@@ -6,9 +6,11 @@ import {
   Caveat_Brush,
   Cinzel,
   Courier_Prime,
+  Creepster,
   Crimson_Text,
   Exo_2,
   Fredoka,
+  Hind_Madurai,
   Josefin_Sans,
   Karla,
   Lilita_One,
@@ -75,8 +77,11 @@ const heistDisplay = Special_Elite({ subsets: ["latin"], display: "swap", preloa
 const heistBody = Courier_Prime({ subsets: ["latin"], display: "swap", preload: false, weight: ["400", "700"], variable: "--game-body" });
 const courierDisplay = Limelight({ subsets: ["latin"], display: "swap", preload: false, weight: "400", variable: "--game-display" });
 const courierBody = Josefin_Sans({ subsets: ["latin"], display: "swap", preload: false, variable: "--game-body" });
+const pattiDisplay = Creepster({ subsets: ["latin"], display: "swap", preload: false, weight: "400", variable: "--game-display" });
+const pattiBody = Hind_Madurai({ subsets: ["latin"], display: "swap", preload: false, weight: ["400", "600"], variable: "--game-body" });
 
 export const GAME_FONTS: Record<string, { display: Font; body: Font }> = {
+  "patti-veedu": { display: pattiDisplay, body: pattiBody },
   "skate-rush": { display: skateDisplay, body: skateBody },
   "saucer-siege": { display: saucerDisplay, body: saucerBody },
   "cannon-cove": { display: coveDisplay, body: coveBody },

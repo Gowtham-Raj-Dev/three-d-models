@@ -1,0 +1,14 @@
+out/
+android/build/
+android/assets/
+android/Kolusu.apk
+android/Kolusu.apk.idsig
+desktop/dist/
+desktop/resources/
+desktop/node_modules/
+desktop/seticon/node_modules/
+desktop/.tmp/
+game/tests/node_modules/
+game/tests/shots/*.png
+game/tests/shots/*.jpg
+__pycache__/
