@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Writes public/sitemap.xml: every page search engines should index (home, categories, collections, games, models),
- * each with its preview image. Reads the same catalog and games list the site renders, so new models and games are
- * listed on their own — it runs before every `next build` (prebuild), or by hand with `npm run sitemap`.
+ * Writes public/sitemap.xml: every page search engines should index (home, categories, collections, games, models
+ * and the about / contact / policy pages), each with its preview image. Reads the same catalog and games list the
+ * site renders, so new models and games are listed on their own — it runs before every `next build` (prebuild), or
+ * by hand with `npm run sitemap`. A new page with a fixed address is not found by itself: add it to `pages` below.
  * public/robots.txt is a plain file: edit it directly.
  */
 import esbuild from "esbuild";
@@ -61,6 +62,10 @@ const pages = [
   { path: "/builder/" },
   { path: "/viewer/" },
   { path: "/license/" },
+  { path: "/about/" },
+  { path: "/contact/" },
+  { path: "/privacy/" },
+  { path: "/terms/" },
   ...models.map((m) => ({ path: `/models/${m.slug}/`, images: m.thumb ? [m.thumb.src] : [] })),
 ];
 

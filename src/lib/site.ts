@@ -8,6 +8,8 @@ export const SITE = {
   brand: "models.codelove.in",
   /** Who made the site and its games. */
   author: "Gowtham",
+  /** Contact address: shown on /contact/ and named in the privacy policy and the terms. */
+  email: "support@codelove.in",
   /** Production origin, no trailing slash. Override with NEXT_PUBLIC_SITE_URL. */
   url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://models.codelove.in").replace(/\/$/, ""),
   tagline: "Free 3D models",
@@ -46,6 +48,21 @@ export const SITE = {
   ],
   locale: "en_US",
   themeColor: "#07070b",
+};
+
+/**
+ * CodeLove, the network this site is part of: its main site and its other tools, linked from the footer and from
+ * /about/. These are all the CodeLove sites there are — don't link any other codelove.in subdomain.
+ */
+export const CODELOVE = {
+  name: "CodeLove",
+  url: "https://codelove.in",
+  tools: [
+    { name: "Downloader", url: "https://downloader.codelove.in" },
+    { name: "Link in Bio", url: "https://linkinbio.codelove.in" },
+    { name: "Video to GIF", url: "https://videotogif.codelove.in" },
+    { name: "Video to Images", url: "https://videotoimages.codelove.in" },
+  ],
 };
 
 /** Credit line on every game: in the game itself, on its page and in its metadata. */

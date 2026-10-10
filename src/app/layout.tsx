@@ -5,8 +5,10 @@ import { JsonLd } from "@/components/json-ld";
 import { SiteChrome } from "@/components/site-chrome";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { ADSENSE_CLIENT } from "@/lib/adsense";
 import { models } from "@/lib/catalog";
-import { absoluteUrl, SITE } from "@/lib/site";
+import { DEFAULT_IMAGE } from "@/lib/seo";
+import { absoluteUrl, CODELOVE, SITE } from "@/lib/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -36,12 +38,18 @@ export const metadata: Metadata = {
   publisher: SITE.brand,
   formatDetection: { telephone: false, email: false, address: false },
   appleWebApp: { title: SITE.shortName, statusBarStyle: "black-translucent" },
+  // Share card for a route that sets none of its own (today only the 404 page): pageMetadata() replaces both on
+  // every page. No canonical here on purpose — a page that forgot its own would inherit it and point at the wrong URL.
+  openGraph: { type: "website", siteName: SITE.brand, locale: SITE.locale, images: [DEFAULT_IMAGE] },
+  twitter: { card: "summary_large_image", images: [DEFAULT_IMAGE.url] },
   robots: {
     index: true,
     follow: true,
     googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 },
   },
   ...(googleVerification ? { verification: { google: googleVerification } } : {}),
+  // <meta name="google-adsense-account">: how AdSense checks that the site belongs to the publisher.
+  ...(ADSENSE_CLIENT ? { other: { "google-adsense-account": ADSENSE_CLIENT } } : {}),
 };
 
 export const viewport: Viewport = {
@@ -51,28 +59,41 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-const websiteJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  name: SITE.brand,
-  alternateName: SITE.shortName,
-  url: absoluteUrl("/"),
-  description: SITE.description,
-  inLanguage: "en",
-  creator: { "@type": "Person", name: SITE.author },
-  publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/"), logo: absoluteUrl("/icons/icon-512.png") },
-  potentialAction: {
-    "@type": "SearchAction",
-    target: { "@type": "EntryPoint", urlTemplate: `${absoluteUrl("/models/")}?q={search_term_string}` },
-    "query-input": "required name=search_term_string",
+/** CodeLove's "@id" is on its own domain, so every CodeLove site's structured data names the same publisher. */
+const publisherId = `${CODELOVE.url}/#organization`;
+
+const siteJsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: SITE.brand,
+    alternateName: SITE.shortName,
+    url: absoluteUrl("/"),
+    description: SITE.description,
+    inLanguage: "en",
+    creator: { "@type": "Person", name: SITE.author },
+    publisher: { "@id": publisherId },
+    // The gallery reads ?q= from the URL (src/components/model-gallery.tsx), so this search link is real.
+    potentialAction: {
+      "@type": "SearchAction",
+      target: { "@type": "EntryPoint", urlTemplate: `${absoluteUrl("/models/")}?q={search_term_string}` },
+      "query-input": "required name=search_term_string",
+    },
   },
-};
+  { "@context": "https://schema.org", "@type": "Organization", "@id": publisherId, name: CODELOVE.name, url: CODELOVE.url },
+];
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      {/* The AdSense loader, on every page once a publisher ID is set. The site has no ad units, so ads show only where Auto ads is switched on in the AdSense account. */}
+      {ADSENSE_CLIENT ? (
+        <head>
+          <script async src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`} crossOrigin="anonymous" />
+        </head>
+      ) : null}
       <body className="flex min-h-full flex-col">
-        <JsonLd data={websiteJsonLd} />
+        <JsonLd data={siteJsonLd} />
         <FirebaseAnalytics />
         <a
           href="#main"

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { SITE } from "@/lib/site";
 
-const DEFAULT_IMAGE = { url: "/og/default.jpg", width: 1200, height: 630, alt: `${SITE.name} — free rigged 3D characters` };
+/** The share image of pages without their own, and the root layout's fallback card. */
+export const DEFAULT_IMAGE = { url: "/og/default.jpg", width: 1200, height: 630, alt: `${SITE.name} — free rigged 3D characters` };
 
 /**
  * Per-page metadata: canonical URL, Open Graph and Twitter card. Next.js replaces (rather than
