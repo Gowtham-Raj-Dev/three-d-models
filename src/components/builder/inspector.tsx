@@ -461,6 +461,9 @@ export function SceneSettings({
           <li>Export as one .glb (every animation plays together) — or a zip with the project file, preview and licenses.</li>
           <li>Press ? for all keyboard shortcuts.</li>
         </ol>
+        <Link href="/tutorials/" target="_blank" className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-fg">
+          Watch a step-by-step tutorial <ExternalLink className="size-3" />
+        </Link>
       </PanelSection>
     </>
   );

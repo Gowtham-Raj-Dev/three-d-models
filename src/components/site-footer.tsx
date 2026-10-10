@@ -23,6 +23,7 @@ const COLUMNS = [
       { href: "/packs/", label: "Download packs" },
       { href: "/animations/", label: "Animations" },
       { href: "/games/", label: "Games" },
+      { href: "/tutorials/", label: "Scene Builder tutorials" },
       { href: "/developers/", label: "For developers & AI" },
       { href: "/license/", label: "Licensing" },
       { href: "/license/#attribution", label: "How to credit" },

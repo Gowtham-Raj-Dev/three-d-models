@@ -178,6 +178,7 @@ export function llmsTxt(): string {
     `- [Download packs](${absoluteUrl("/packs/")}): every collection as one .zip (built in the browser), plus all animation clips.`,
     `- [Animations](${absoluteUrl("/animations/")}): preview the ${clipCount} clips on a character and download them.`,
     `- [Scene builder](${absoluteUrl("/builder/")}): compose scenes from any model in the browser and export one .glb.`,
+    `- [Scene builder tutorials](${absoluteUrl("/tutorials/")}): narrated step-by-step videos of scenes being built, with written steps and transcripts.`,
     `- [GLB viewer](${absoluteUrl("/viewer/")}): open a local .glb to preview, recolor and inspect it.`,
     `- [For developers & AI](${absoluteUrl("/developers/")}): these files explained, with code samples.`,
     `- [Free 3D games online](${absoluteUrl("/games/")}): free, ad-free 3D games — no download, no sign-up, on PC or phone.`,

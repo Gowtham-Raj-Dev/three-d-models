@@ -69,3 +69,14 @@ only the hair (the download also contains a small character body). Otherwise unc
 The models in `public/library/nasa` come from NASA 3D Resources. NASA material is generally not subject to
 copyright in the United States. NASA does not endorse this project; the NASA insignia and logos may not be used to
 imply endorsement. See `public/licenses/NASA.txt` and https://www.nasa.gov/nasa-brand-center/images-and-media/.
+
+## Tutorial narration (Chatterbox Turbo, voice by Alba MacKenna)
+
+The narration of the Scene Builder tutorial videos in `public/tutorials` is synthesized speech, made with
+Chatterbox Turbo by Resemble AI (MIT License, https://github.com/resemble-ai/chatterbox) in the voice of the
+recording “A Moment By” by voice actor Alba MacKenna, from Kyutai's TTS voices collection
+(https://huggingface.co/kyutai/tts-voices), licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/ — full text in `public/licenses/CC-BY-4.0.txt`.
+
+Modifications: the recording is used only as the voice reference; every word in the videos is generated. The
+credit is shown on each tutorial page. The model and the recording are not part of this repository.

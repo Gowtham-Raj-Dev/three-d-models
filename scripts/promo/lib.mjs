@@ -15,7 +15,8 @@ export const RAW = path.join(PROMO, "raw");
 export const WORK = path.join(PROMO, "work");
 export const SITE = process.env.SITE ?? "https://models.codelove.in";
 export const CHROME = process.env.CHROME ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
-export const FFMPEG = process.env.FFMPEG ?? "E:/Gowtham-Live/CodeLove Websites/video-automate/node_modules/ffmpeg-static/ffmpeg.exe";
+/** ffmpeg-static, kept with the promo's own files: `npm i ffmpeg-static --prefix promo/tools/ff`. */
+export const FFMPEG = process.env.FFMPEG ?? path.join(PROMO, "tools", "ff", "node_modules", "ffmpeg-static", "ffmpeg.exe");
 export const FPS = 60;
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/games/", label: "Games", match: (p: string) => p.startsWith("/games") },
   // Shown as the call-to-action button on desktop, as a regular link in the mobile menu.
   { href: "/builder/", label: "Scene Builder", match: (p: string) => p.startsWith("/builder"), cta: true },
+  { href: "/tutorials/", label: "Tutorials", match: (p: string) => p.startsWith("/tutorials") },
   { href: "/viewer/", label: "GLB Viewer", match: (p: string) => p.startsWith("/viewer") },
   { href: "/developers/", label: "Developers", match: (p: string) => p.startsWith("/developers") },
 ];

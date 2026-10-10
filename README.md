@@ -27,6 +27,7 @@ Built with Next.js 16 (App Router, TypeScript, static export), Tailwind CSS v4, 
 | `/animations/` | Animation library: live preview on a female/male character, female + male downloads |
 | `/builder/` | Full-screen scene builder (no site header/footer): compose scenes from any library part — templates, multi-select, copy/paste, array + scatter, animations, lights, projects saved in the browser, keyboard shortcuts (`?`), side panels that hide (Alt+[ / Alt+]) and resize (drag their inner edge), and **AI scene** (Gemini builds or edits a whole scene from a prompt). Exports one `.glb` (all animations combined into one looping clip), a zip pack or a PNG |
 | `/viewer/` | GLB viewer: open a local `.glb` (or a sample) — preview, embedded animations, stats, recolor, download. Files never leave the browser |
+| `/tutorials/` | Scene Builder tutorials: narrated step-by-step videos of a scene being built, each with chapters, the steps in writing, captions and a transcript — one page per tutorial at `/tutorials/[slug]/`. List: `src/lib/tutorials.ts` |
 | `/games/` | Games grid (3 per row) — every game is built only from library models. Registry: `src/lib/games.ts`, each game describes itself in `src/components/games/<slug>/manifest.ts` |
 | `/games/[slug]/` | Game details: cover, description, how to play, controls, shortcuts and every library model the game uses |
 | `/games/<slug>/play/` | The full-screen game (no site header/footer): Skate Rush (endless runner), Saucer Siege (tower defense), Cannon Cove (naval action), Crypt Knight (action roguelite), Order Up! (cooking), Hex Haven (puzzle), Sky Hop (3D platformer), Turbo Karts (kart racing), Siege Smash (physics puzzle, cannon-es), Beat Street (rhythm), Putt Paradise (mini golf), Kingdom Clash (base-building strategy: Town Hall 1–5, heroes, 100-stage campaign), Patti Veedu (Tamil horror puzzle, framed from `public/games/patti-veedu/app/`). One route file per game so each page bundles only its own game |
@@ -227,6 +228,19 @@ The converted models are already committed in `public/`, so the site works right
 | `npm run android:build` | Build the Kingdom Clash Android APK from `out/` → `public/downloads/kingdom-clash.apk` (`--pack-only` skips Gradle) |
 | `npm run playables:build` | Build Skate Rush for YouTube Playables → `dist-playables/skate-rush-playables.zip` |
 | `npm run patti:sync` | Copy the standalone Patti Veedu game (`pattyveedu-game/PattiVeedu-Project/game`) into `public/games/patti-veedu/app/` |
+
+### Tutorial videos
+
+The videos on `/tutorials/` are recorded from the live builder by script — narration, recording, then sound. The
+tools and work files live in the git-ignored `promo/` (one-time setup: `promo/tools/README.txt`).
+
+| Command | What it does |
+| --- | --- |
+| `node scripts/tutorial/voice.mjs <id>` | Speaks the narration lines of `scripts/tutorial/<id>.mjs` (Chatterbox Turbo; every line is checked by Whisper) |
+| `node scripts/tutorial/record.mjs <id>` | Drives the builder step by step and records it, paced by the narration (`PREVIEW=1 FPS=10` for a quick test run) |
+| `node scripts/tutorial/finish.mjs <id>` | Music, effects and mix; writes `public/tutorials/<id>/` (1080p, 720p, poster, captions) and `src/data/tutorials/<id>.json` |
+
+A new tutorial is a new `scripts/tutorial/<id>.mjs` (its narration and choreography) plus an entry in `src/lib/tutorials.ts`.
 
 ### Regenerating the models
 

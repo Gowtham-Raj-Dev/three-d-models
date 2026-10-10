@@ -1,0 +1,286 @@
+WEBVTT
+
+00:00:01.200 --> 00:00:06.295
+Let's build this haunted backyard in the
+Scene Builder. A fenced graveyard, a crypt,
+
+00:00:06.295 --> 00:00:09.388
+glowing lanterns, and
+skeletons that actually move.
+
+00:00:09.800 --> 00:00:13.765
+We'll start from an empty plot, and
+build it step by step. It's free,
+
+00:00:13.765 --> 00:00:15.719
+and it runs right in your browser.
+
+00:00:16.233 --> 00:00:21.627
+Step one. Click New project. Give it a
+name, keep Empty plot and Day lighting,
+
+00:00:21.627 --> 00:00:27.159
+and create it. Daylight is easier to build
+in. We'll switch to night at the end.
+
+00:00:27.533 --> 00:00:31.842
+With nothing selected, the panel on
+the right shows the scene settings.
+
+00:00:31.842 --> 00:00:34.877
+Change the ground to Dark,
+and make it 160 m wide.
+
+00:00:35.233 --> 00:00:39.808
+Step two, the floor. The Halloween
+kit is already open on the left.
+
+00:00:39.808 --> 00:00:43.700
+Set the grid step to 4 m. These
+floor tiles are 4 m wide,
+
+00:00:43.700 --> 00:00:46.499
+so now they will snap together perfectly.
+
+00:00:46.867 --> 00:00:50.609
+Pick Floor Dirt, and click in the scene
+to drop the first tile in the far corner.
+
+00:00:50.967 --> 00:00:56.735
+It flickers, because its top is
+level with the ground. Press Esc,
+
+00:00:56.735 --> 00:01:02.326
+and lower the ground level to
+−0.5. Now the floor stands clear.
+
+00:01:04.800 --> 00:01:08.467
+The tile is selected, so the
+inspector shows its settings.
+
+00:01:08.467 --> 00:01:13.779
+Scroll down to the Array tool, and ask for
+9 copies, 4 m apart. That's one full row.
+
+00:01:14.133 --> 00:01:17.808
+Press Ctrl+A to select the whole
+row, Ctrl+D to duplicate it,
+
+00:01:17.808 --> 00:01:22.809
+then nudge the copy into place with the
+arrow keys. Repeat until the floor is done.
+
+00:01:24.500 --> 00:01:27.616
+For the open grave, click
+one tile, delete it,
+
+00:01:27.616 --> 00:01:30.258
+and drop a Floor Dirt Grave in the gap.
+
+00:01:30.633 --> 00:01:34.633
+It lands on the lowered ground,
+so set its Y position back to 0.
+
+00:01:35.000 --> 00:01:40.250
+Press Ctrl+A, then L, to lock the floor,
+so you can't move it by accident.
+
+00:01:43.767 --> 00:01:48.379
+Step three, the fence. Set the
+grid step to 2 m. Pick Fence,
+
+00:01:48.379 --> 00:01:53.530
+drop one piece on the back edge,
+and array it. 7 copies, 4 m apart.
+
+00:01:53.900 --> 00:01:56.504
+For the sides, pick the fence again,
+
+00:01:56.504 --> 00:02:01.061
+and press Shift + ] to turn it
+90° before you click. This time,
+
+00:02:01.061 --> 00:02:03.231
+array it along Z instead of X.
+
+00:02:06.133 --> 00:02:08.777
+Do the same on the other
+side and along the front,
+
+00:02:08.777 --> 00:02:11.209
+leaving a gap in the
+middle for the Arch Gate.
+
+00:02:13.233 --> 00:02:17.182
+Then put a Fence Pillar on every
+joint. Hold Shift while you click,
+
+00:02:17.182 --> 00:02:19.068
+and the part stays in your hand.
+
+00:02:23.200 --> 00:02:26.991
+Swap a few pieces for the broken
+versions, so it all looks old.
+
+00:02:28.200 --> 00:02:31.696
+Step four. Set the grid step
+to 0.5 m for finer work,
+
+00:02:31.696 --> 00:02:36.578
+and lay a path from the gate towards
+the back. There are four path pieces,
+
+00:02:36.578 --> 00:02:37.567
+so mix them up.
+
+00:02:39.767 --> 00:02:43.240
+To find any part quickly, just
+search for it. Type crypt,
+
+00:02:43.240 --> 00:02:45.434
+and place it at the end of the path.
+
+00:02:45.434 --> 00:02:48.785
+Then add skull candles and
+candle clusters by its door.
+
+00:02:51.167 --> 00:02:55.350
+Step five, the graves. Place them in
+two blocks, either side of the path.
+
+00:02:55.350 --> 00:02:58.787
+Hold Shift to stamp a few, then
+switch to another headstone,
+
+00:02:58.787 --> 00:03:00.449
+so no two rows look the same.
+
+00:03:04.033 --> 00:03:07.015
+Add a coffin by the open
+grave, another near the crypt,
+
+00:03:07.015 --> 00:03:09.942
+and a bench and a candle
+shrine along the side fences.
+
+00:03:14.167 --> 00:03:17.588
+Step six, the residents.
+Switch to the Skeletons kit,
+
+00:03:17.588 --> 00:03:20.428
+and drop a Skeleton
+Warrior beside the path.
+
+00:03:20.800 --> 00:03:25.715
+Animated parts get an Animation menu in
+the inspector. Search for Idle Combat,
+
+00:03:25.715 --> 00:03:28.235
+and pick it. Now he's ready for a fight.
+
+00:03:28.600 --> 00:03:32.320
+Use the square bracket keys
+to turn him, 15° at a time.
+
+00:03:32.700 --> 00:03:37.883
+Add a mage casting a spell, a rogue, and
+two minions. For the one at the open grave,
+
+00:03:37.883 --> 00:03:42.758
+choose Skeletons Awaken Floor Long, and
+he will claw his way out of the ground,
+
+00:03:42.758 --> 00:03:43.622
+over and over.
+
+00:03:46.367 --> 00:03:49.964
+Step seven, dress the scene.
+Back in the Halloween kit,
+
+00:03:49.964 --> 00:03:53.954
+put dead trees inside the fence,
+and autumn pines outside it.
+
+00:03:53.954 --> 00:03:56.963
+Press plus or minus to
+resize a selected part.
+
+00:04:01.700 --> 00:04:05.042
+For small clutter, place one
+pumpkin, then use Scatter.
+
+00:04:05.042 --> 00:04:09.175
+It drops copies at random spots,
+sizes and angles, with no overlaps.
+
+00:04:09.175 --> 00:04:11.302
+Do the same with bones and candles.
+
+00:04:24.333 --> 00:04:30.489
+Step eight, light. Press 3 to switch
+the scene to night. Dark, isn't it?
+
+00:04:30.489 --> 00:04:31.772
+Let's fix that.
+
+00:04:32.133 --> 00:04:35.290
+Stand a Post Lantern on
+each side of the gate.
+
+00:04:37.600 --> 00:04:39.903
+The lantern is only a
+model. To make it glow,
+
+00:04:39.903 --> 00:04:43.589
+click Point light at the top of the
+parts list, and drop one next to it.
+
+00:04:43.967 --> 00:04:47.428
+In the inspector, raise it to
+the lamp with the Y position.
+
+00:04:47.428 --> 00:04:50.244
+You can also change its
+colour, power and range,
+
+00:04:50.244 --> 00:04:53.294
+and flame flicker makes it
+dance like a real candle.
+
+00:04:53.667 --> 00:04:56.942
+Give every lantern, candle and
+pumpkin its own small light.
+
+00:04:56.942 --> 00:04:59.329
+That's what makes a
+night scene feel alive.
+
+00:05:07.033 --> 00:05:10.270
+And that's the haunted
+backyard. Hide the side panels,
+
+00:05:10.270 --> 00:05:12.847
+and press Shift+F to
+frame the whole scene.
+
+00:05:13.900 --> 00:05:17.409
+Drag to orbit, right-drag
+to pan, and scroll to zoom.
+
+00:05:18.967 --> 00:05:21.288
+When you're happy, click Export.
+
+00:05:21.288 --> 00:05:27.091
+You get a single GLB file with every
+animation inside, ready for Blender, Unity,
+
+00:05:27.091 --> 00:05:32.024
+Godot or three.js. Or a zip, with
+the project file and the licences.
+
+00:05:33.333 --> 00:05:37.748
+Short on time? New project also has
+Haunted backyard as a ready-made template.
+
+00:05:37.748 --> 00:05:38.767
+Have fun building!
