@@ -2,7 +2,7 @@ import { TextLink, TextList, TextPage, TextSection } from "@/components/text-pag
 import { allCollections, CATEGORIES, clipGroups, countBy, formatNumber, models, SOURCES, type SourceKey } from "@/lib/catalog";
 import { games } from "@/lib/games";
 import { pageMetadata } from "@/lib/seo";
-import { CODELOVE, SITE } from "@/lib/site";
+import { CODELOVE, GAMES_SITE, gamesUrl, SITE } from "@/lib/site";
 
 export const metadata = pageMetadata({
   title: "About This Free 3D Model Library",
@@ -62,7 +62,7 @@ export default function AboutPage() {
             whole scene as one GLB.
           </li>
           <li>
-            <TextLink href="/games/">Play the games</TextLink> — {playable} free 3D games made with models from the library.
+            <TextLink href={gamesUrl("/")}>Play the games</TextLink> — {playable} free 3D games made with models from the library, on {GAMES_SITE.name}.
           </li>
           <li>
             <TextLink href="/developers/">Use it from code</TextLink> — every model has a direct .glb URL that loads from any

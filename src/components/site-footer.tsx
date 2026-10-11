@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo } from "@/components/site-header";
+import { asset } from "@/lib/asset";
 import { CODELOVE, SITE } from "@/lib/site";
 
 const COLUMNS = [
@@ -22,7 +23,6 @@ const COLUMNS = [
     links: [
       { href: "/packs/", label: "Download packs" },
       { href: "/animations/", label: "Animations" },
-      { href: "/games/", label: "Games" },
       { href: "/tutorials/", label: "Scene Builder tutorials" },
       { href: "/developers/", label: "For developers & AI" },
       { href: "/license/", label: "Licensing" },
@@ -77,6 +77,18 @@ export function SiteFooter() {
               </li>
             ))}
           </ul>
+          {/* The parent brand. */}
+          <a href={CODELOVE.url} aria-label={`${CODELOVE.name} — codelove.in`} className="mt-6 block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={asset("/codelove/codelove-footer-on-dark.png")}
+              alt={CODELOVE.name}
+              width={704}
+              height={144}
+              loading="lazy"
+              className="h-auto w-full max-w-[235px]"
+            />
+          </a>
         </div>
       </div>
       <div className="border-t border-line">
@@ -89,7 +101,7 @@ export function SiteFooter() {
         </nav>
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 pt-4 pb-6 text-xs leading-relaxed text-subtle sm:px-6 md:flex-row md:justify-between">
           <p>
-            © {new Date().getFullYear()} {SITE.brand} — site and games by {SITE.author}. Models are free under the MIT, CC0, public-domain and CC BY licenses —{" "}
+            © {new Date().getFullYear()} {SITE.brand} — site by {SITE.author}. Models are free under the MIT, CC0, public-domain and CC BY licenses —{" "}
             <Link href="/license/" className="text-muted underline underline-offset-2 hover:text-fg">
               licensing
             </Link>

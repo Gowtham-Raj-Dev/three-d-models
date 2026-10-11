@@ -18,7 +18,7 @@ import { GAME as skateRush } from "@/components/games/skate-rush/manifest";
 import { GAME as pattiVeedu } from "@/components/games/patti-veedu/manifest";
 
 /**
- * Browser games built entirely from the library's own 3D models, playable at /games/<slug>/.
+ * Browser games built entirely from the library's own 3D models, playable on games.codelove.in (/<slug>/).
  * Each game describes itself in its own manifest (src/components/games/<slug>/manifest.ts) —
  * kept free of three.js so the server pages can read it.
  */

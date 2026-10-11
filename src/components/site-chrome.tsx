@@ -3,8 +3,8 @@
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-/** Full-screen app routes that render without the site header and footer: the builder and the game players. */
-const APP_ROUTES = [/^\/builder(\/|$)/, /^\/games\/[^/]+\/play\/?$/];
+/** Full-screen app routes that render without the site header and footer: the builder. */
+const APP_ROUTES = [/^\/builder(\/|$)/];
 
 /** Renders its children (the header or footer) everywhere except on full-screen app routes. */
 export function SiteChrome({ children }: { children: ReactNode }) {

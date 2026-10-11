@@ -19,7 +19,7 @@ import {
   type SourceKey,
 } from "@/lib/catalog";
 import { games } from "@/lib/games";
-import { absoluteUrl, SITE } from "@/lib/site";
+import { absoluteUrl, GAMES_SITE, gamesUrl, SITE } from "@/lib/site";
 
 /**
  * The whole catalog as plain text and JSON for AI assistants, agents and scripts, so they can find a model
@@ -181,10 +181,10 @@ export function llmsTxt(): string {
     `- [Scene builder tutorials](${absoluteUrl("/tutorials/")}): narrated step-by-step videos of scenes being built, with written steps and transcripts.`,
     `- [GLB viewer](${absoluteUrl("/viewer/")}): open a local .glb to preview, recolor and inspect it.`,
     `- [For developers & AI](${absoluteUrl("/developers/")}): these files explained, with code samples.`,
-    `- [Free 3D games online](${absoluteUrl("/games/")}): free, ad-free 3D games — no download, no sign-up, on PC or phone.`,
+    `- [Free 3D games online](${gamesUrl("/")}): free 3D games built only from these models, on ${GAMES_SITE.name} — no download, no sign-up, on PC or phone.`,
     ...games
       .filter((g) => !g.comingSoon)
-      .map((g) => `- [${g.title}](${absoluteUrl(`/games/${g.slug}/`)}): free ad-free 3D game (${g.genre.toLowerCase()}) built only from these models — ${g.tagline}`),
+      .map((g) => `- [${g.title}](${gamesUrl(`/${g.slug}/`)}): free 3D game (${g.genre.toLowerCase()}) built only from these models — ${g.tagline}`),
     "",
   ].join("\n");
 }

@@ -14,6 +14,8 @@
  * music and sound effects rendered offline by its own synthesizer (every effect the fights trigger is
  * logged with its time and arguments), plus a Kokoro announcer (open-source neural TTS, Apache-2.0).
  * The music ducks under the voice; the mix is normalised to -14 LUFS.
+ *   TAIL=1 FFMPEG=… node scripts/record-crypt-trailer.mjs   (only the last shot again — a new end card — spliced onto
+ *                                                 the trailers already there; see scripts/trailer-tail.mjs)
  *
  * Env: BASE (default http://localhost:3000), CHROME, FFMPEG (default: ffmpeg on PATH), KOKORO (default:
  * the kokoro-js package), VOICE (Kokoro voice, default af_heart — its most natural female voice).
@@ -25,12 +27,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import esbuild from "esbuild";
 import sharp from "sharp";
+import { spliceTail, tailStart } from "./trailer-tail.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT = path.join(ROOT, "public", "games", "crypt-knight");
 const BASE = process.env.BASE ?? "http://localhost:3000";
 const CHROME = process.env.CHROME ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
+const TAIL = !!process.env.TAIL;
 const KOKORO = process.env.KOKORO ?? "kokoro-js";
 const VOICE = process.env.VOICE ?? "af_heart";
 const PORT = 9354;
@@ -297,7 +301,7 @@ const DIRECTOR = (data) => `(() => {
       html += '<div class="shade" style="background:#07050b;opacity:' + (0.66 * k) + '"></div>';
       html += '<div class="end" style="opacity:' + k + ';transform:scale(' + (0.9 + 0.1 * k) + ')"><b>Crypt <i>Knight</i></b>' +
         '<div class="play" style="transform:scale(' + pulse + ')"><svg viewBox="0 0 24 24" fill="#fff4dc"><path d="M7 4.5v15l12.5-7.5z"/></svg>Play now — free</div>' +
-        '<div class="url">models.codelove.in/games/crypt-knight</div><div class="small">No download · no sign-up · phone &amp; PC</div></div>';
+        '<div class="url">games.codelove.in/crypt-knight</div><div class="small">No download · no sign-up · phone &amp; PC</div></div>';
     }
     // A quick white flash on every cut (not inside a showcase section, where items swap in place).
     const cutFlash = i > 0 && !(s.game.show && !s.game.first);
@@ -463,9 +467,9 @@ fs.mkdirSync(framesDir);
 let chrome = null;
 try {
   // 1. Voice-over: each line, trimmed, and fitted into the time before the next line (or the end).
-  console.log(`Voice-over: ${voiceLines.length} lines, Kokoro voice "${VOICE}"…`);
-  speak(work);
-  const voice = voiceLines.map((line, i) => {
+  if (!TAIL) console.log(`Voice-over: ${voiceLines.length} lines, Kokoro voice "${VOICE}"…`);
+  if (!TAIL) speak(work);
+  const voice = (TAIL ? [] : voiceLines).map((line, i) => {
     const { file, seconds } = trimVoice(path.join(work, `vo-${i}.wav`));
     const room = (voiceLines[i + 1]?.t ?? total) - line.t - 0.05;
     // Too long for its slot: speed it up a little (never more than 25%).
@@ -498,9 +502,9 @@ try {
     await sleep(500);
   }
 
-  console.log("Music…");
+  if (!TAIL) console.log("Music…");
   const musicWav = path.join(work, "music.wav");
-  fs.writeFileSync(musicWav, Buffer.from(await page.evaluate(MUSIC(total + 0.5)), "base64"));
+  if (!TAIL) fs.writeFileSync(musicWav, Buffer.from(await page.evaluate(MUSIC(total + 0.5)), "base64"));
 
   console.log("Loading every hero, skin and world…");
   await page.evaluate(`(async () => {
@@ -519,48 +523,55 @@ try {
   const count = await page.evaluate(DIRECTOR({ shots, fps: FPS, sfx: SFX }));
   console.log(`Recording ${count} shots, ${frames} frames (${total.toFixed(1)} s at ${FPS} fps, ${W * DPR}×${H * DPR})…`);
   const t0 = Date.now();
-  for (let n = 0; n < frames; n++) {
+  const from = TAIL ? tailStart(starts, FPS) : 0;
+  for (let n = from; n < frames; n++) {
     await page.evaluate(`__trailer.frame(${n})`);
     const { data } = await page.send("Page.captureScreenshot", { format: "jpeg", quality: 95, fromSurface: true });
     fs.writeFileSync(path.join(framesDir, `${String(n).padStart(5, "0")}.jpg`), Buffer.from(data, "base64"));
     if (n % 300 === 0) console.log(`  ${n}/${frames} frames, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
   }
 
-  console.log("Sound effects…");
-  const fxWav = path.join(work, "fx.wav");
-  fs.writeFileSync(fxWav, Buffer.from(await page.evaluate(EFFECTS(total + 0.5, trailerFx)), "base64"));
-  page.close();
+  if (TAIL) {
+    page.close();
+    console.log("Encoding the last shot…");
+    spliceTail({ ffmpeg: FFMPEG, out: OUT, work, framesDir, from, fps: FPS });
+  } else {
+    console.log("Sound effects…");
+    const fxWav = path.join(work, "fx.wav");
+    fs.writeFileSync(fxWav, Buffer.from(await page.evaluate(EFFECTS(total + 0.5, trailerFx)), "base64"));
+    page.close();
 
-  // 3. Mix: the voice on top (cleaned up and compressed), the music ducking under it, the effects; -14 LUFS.
-  console.log("Mixing…");
-  const mixWav = path.join(work, "mix.wav");
-  const graph = [
-    ...voice.map((v, i) => `[${i + 2}:a]${v.tempo > 1 ? `atempo=${v.tempo.toFixed(3)},` : ""}adelay=${Math.round(v.t * 1000)}:all=1[v${i}]`),
-    `${voice.map((_, i) => `[v${i}]`).join("")}amix=inputs=${voice.length}:normalize=0,highpass=f=80,acompressor=threshold=0.08:ratio=4:attack=5:release=120:makeup=2,volume=1.5,aformat=channel_layouts=stereo,apad[voice]`,
-    `[voice]asplit=2[voice1][voice2]`,
-    `[0:a]volume=0.85[music]`,
-    `[music][voice1]sidechaincompress=threshold=0.03:ratio=6:attack=15:release=350[ducked]`,
-    `[1:a]volume=1.0[fx]`,
-    `[ducked][fx][voice2]amix=inputs=3:normalize=0:duration=first,afade=t=in:d=0.25,afade=t=out:st=${(total - 1.0).toFixed(2)}:d=1.0,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[mix]`,
-  ].join(";");
-  ffmpeg(["-i", musicWav, "-i", fxWav, ...voice.flatMap((v) => ["-i", v.file]), "-filter_complex", graph, "-map", "[mix]", "-t", total.toFixed(3), mixWav]);
+    // 3. Mix: the voice on top (cleaned up and compressed), the music ducking under it, the effects; -14 LUFS.
+    console.log("Mixing…");
+    const mixWav = path.join(work, "mix.wav");
+    const graph = [
+      ...voice.map((v, i) => `[${i + 2}:a]${v.tempo > 1 ? `atempo=${v.tempo.toFixed(3)},` : ""}adelay=${Math.round(v.t * 1000)}:all=1[v${i}]`),
+      `${voice.map((_, i) => `[v${i}]`).join("")}amix=inputs=${voice.length}:normalize=0,highpass=f=80,acompressor=threshold=0.08:ratio=4:attack=5:release=120:makeup=2,volume=1.5,aformat=channel_layouts=stereo,apad[voice]`,
+      `[voice]asplit=2[voice1][voice2]`,
+      `[0:a]volume=0.85[music]`,
+      `[music][voice1]sidechaincompress=threshold=0.03:ratio=6:attack=15:release=350[ducked]`,
+      `[1:a]volume=1.0[fx]`,
+      `[ducked][fx][voice2]amix=inputs=3:normalize=0:duration=first,afade=t=in:d=0.25,afade=t=out:st=${(total - 1.0).toFixed(2)}:d=1.0,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[mix]`,
+    ].join(";");
+    ffmpeg(["-i", musicWav, "-i", fxWav, ...voice.flatMap((v) => ["-i", v.file]), "-filter_complex", graph, "-map", "[mix]", "-t", total.toFixed(3), mixWav]);
 
-  // 4. Video: Full HD 60 fps for desktops and full screen, 720p 30 fps for phones.
-  console.log("Encoding…");
-  fs.mkdirSync(OUT, { recursive: true });
-  const input = ["-framerate", String(FPS), "-i", path.join(framesDir, "%05d.jpg"), "-i", mixWav];
-  const common = ["-map", "0:v", "-map", "1:a", "-pix_fmt", "yuv420p", "-profile:v", "high", "-movflags", "+faststart", "-shortest"];
-  const hd = path.join(OUT, "trailer-1080.mp4");
-  const sd = path.join(OUT, "trailer.mp4");
-  ffmpeg([...input, ...common, "-c:v", "libx264", "-preset", "slow", "-crf", "22", "-g", String(FPS * 2), "-c:a", "aac", "-b:a", "192k", hd]);
-  ffmpeg([...input, ...common, "-vf", "fps=30,scale=1280:720:flags=lanczos", "-c:v", "libx264", "-preset", "slow", "-crf", "25", "-c:a", "aac", "-b:a", "128k", sd]);
-  // Poster: the title frame, once the title is fully up.
-  await sharp(path.join(framesDir, `${String(Math.round(1.6 * FPS)).padStart(5, "0")}.jpg`))
-    .resize(1280)
-    .webp({ quality: 84, effort: 6 })
-    .toFile(path.join(OUT, "trailer-poster.webp"));
-  console.log(`Length ${total.toFixed(1)} s`);
-  for (const f of [hd, sd]) console.log(`${path.relative(ROOT, f)}  ${(fs.statSync(f).size / 1024 / 1024).toFixed(2)} MB`);
+    // 4. Video: Full HD 60 fps for desktops and full screen, 720p 30 fps for phones.
+    console.log("Encoding…");
+    fs.mkdirSync(OUT, { recursive: true });
+    const input = ["-framerate", String(FPS), "-i", path.join(framesDir, "%05d.jpg"), "-i", mixWav];
+    const common = ["-map", "0:v", "-map", "1:a", "-pix_fmt", "yuv420p", "-profile:v", "high", "-movflags", "+faststart", "-shortest"];
+    const hd = path.join(OUT, "trailer-1080.mp4");
+    const sd = path.join(OUT, "trailer.mp4");
+    ffmpeg([...input, ...common, "-c:v", "libx264", "-preset", "slow", "-crf", "22", "-g", String(FPS * 2), "-c:a", "aac", "-b:a", "192k", hd]);
+    ffmpeg([...input, ...common, "-vf", "fps=30,scale=1280:720:flags=lanczos", "-c:v", "libx264", "-preset", "slow", "-crf", "25", "-c:a", "aac", "-b:a", "128k", sd]);
+    // Poster: the title frame, once the title is fully up.
+    await sharp(path.join(framesDir, `${String(Math.round(1.6 * FPS)).padStart(5, "0")}.jpg`))
+      .resize(1280)
+      .webp({ quality: 84, effort: 6 })
+      .toFile(path.join(OUT, "trailer-poster.webp"));
+    console.log(`Length ${total.toFixed(1)} s`);
+    for (const f of [hd, sd]) console.log(`${path.relative(ROOT, f)}  ${(fs.statSync(f).size / 1024 / 1024).toFixed(2)} MB`);
+  }
 } finally {
   chrome?.kill();
   await sleep(500);

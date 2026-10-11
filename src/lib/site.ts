@@ -42,13 +42,17 @@ export const SITE = {
     "3D models for Unity",
     "3D models for Blender",
     "3D models for Godot",
-    "free 3D games online",
-    "ad-free games",
     "models.codelove.in",
   ],
   locale: "en_US",
   themeColor: "#07070b",
 };
+
+/** The games built from this library: a CodeLove site of their own, so links to them leave this site. */
+export const GAMES_SITE = { name: "games.codelove.in", url: "https://games.codelove.in" };
+
+/** Absolute URL of a page on the games site, e.g. gamesUrl("/skate-rush/"). */
+export const gamesUrl = (path = "/") => `${GAMES_SITE.url}${path}`;
 
 /**
  * CodeLove, the network this site is part of: its main site and its other tools, linked from the footer and from
@@ -58,6 +62,7 @@ export const CODELOVE = {
   name: "CodeLove",
   url: "https://codelove.in",
   tools: [
+    { name: "3D Games", url: GAMES_SITE.url },
     { name: "Downloader", url: "https://downloader.codelove.in" },
     { name: "Link in Bio", url: "https://linkinbio.codelove.in" },
     { name: "Video to GIF", url: "https://videotogif.codelove.in" },

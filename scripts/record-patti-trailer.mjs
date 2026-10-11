@@ -25,7 +25,10 @@ import sharp from "sharp";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT = path.join(ROOT, "public", "games", "patti-veedu");
-const GAME = pathToFileURL(path.join(ROOT, "pattyveedu-game", "PattiVeedu-Project", "game", "index.html")).href + "?desk";
+// The game's folder: pattyveedu-game/game, or inside PattiVeedu-Project/ in an older checkout.
+const GAME_DIR = [["game"], ["PattiVeedu-Project", "game"]].map((p) => path.join(ROOT, "pattyveedu-game", ...p)).find((d) => fs.existsSync(path.join(d, "index.html")));
+if (!GAME_DIR) { console.error("the game was not found in pattyveedu-game/"); process.exit(1); }
+const GAME = pathToFileURL(path.join(GAME_DIR, "index.html")).href + "?desk";
 const CHROME = process.env.CHROME ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
 const KOKORO = process.env.KOKORO ?? "kokoro-js";
@@ -51,7 +54,7 @@ const shots = [
   { id: "chase", dur: 5.4, vo: [[0.3, "If she sees you... run.", "If she sees you… run."]] },
   { id: "black", dur: 0.5 },
   { id: "yard", dur: 5.4, vo: [[0.4, "A Tamil horror game, in Tamil and English.", "A Tamil horror game, in Tamil and English."]] },
-  { id: "end", dur: 6.6, vo: [[0.7, "Paati Veedu. Play free, on models dot code love dot in.", "Play free on models.codelove.in"]] },
+  { id: "end", dur: 6.6, vo: [[0.7, "Paati Veedu. Play free, on games dot code love dot in.", "Play free on games.codelove.in"]] },
 ];
 const starts = [];
 shots.reduce((t, s) => (starts.push(t), t + s.dur), 0);
@@ -125,7 +128,7 @@ const DIRECTOR = (data) => `(() => {
   document.head.appendChild(st);
   const tr = document.createElement("div"); tr.id = "tr";
   tr.innerHTML = '<div class="blk"></div><div class="title" id="trTitle"><div class="ta">பாட்டி வீடு</div><div class="en">PATTI VEEDU</div><div class="sub">GRANDMA\\'S HOUSE</div></div>'
-    + '<div class="title" id="trEnd"><div class="ta">பாட்டி வீடு</div><div class="en">PATTI VEEDU</div><div class="url">Play free · models.codelove.in</div><div class="tip">BEST WITH HEADPHONES</div></div><div class="cap"></div>';
+    + '<div class="title" id="trEnd"><div class="ta">பாட்டி வீடு</div><div class="en">PATTI VEEDU</div><div class="url">Play free · games.codelove.in/patti-veedu</div><div class="tip">BEST WITH HEADPHONES</div></div><div class="cap"></div>';
   document.body.appendChild(tr);
   const blk = tr.querySelector(".blk"), cap = tr.querySelector(".cap"), tTitle = tr.querySelector("#trTitle"), tEnd = tr.querySelector("#trEnd");
   const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x)), lerp = (a, b, x) => a + (b - a) * x;

@@ -9,7 +9,6 @@ const LINKS = [
   { href: "/models/", label: "Models", match: (p: string) => p.startsWith("/models") },
   { href: "/packs/", label: "Packs", match: (p: string) => p.startsWith("/packs") },
   { href: "/animations/", label: "Animations", match: (p: string) => p.startsWith("/animations") },
-  { href: "/games/", label: "Games", match: (p: string) => p.startsWith("/games") },
   // Shown as the call-to-action button on desktop, as a regular link in the mobile menu.
   { href: "/builder/", label: "Scene Builder", match: (p: string) => p.startsWith("/builder"), cta: true },
   { href: "/tutorials/", label: "Tutorials", match: (p: string) => p.startsWith("/tutorials") },

@@ -15,6 +15,8 @@
  * game's music and sound effects rendered offline by its own synthesizer (every effect is logged with
  * its time and arguments), plus a Kokoro announcer (open-source neural TTS, Apache-2.0). The music
  * ducks under the voice; the mix is normalised to -14 LUFS.
+ *   TAIL=1 FFMPEG=… node scripts/record-sky-trailer.mjs   (only the last shot again — a new end card — spliced onto
+ *                                                 the trailers already there; see scripts/trailer-tail.mjs)
  *
  * Env: BASE (default http://localhost:3000), CHROME, FFMPEG (default: ffmpeg on PATH), KOKORO (default:
  * the kokoro-js package), VOICE (Kokoro voice, default af_heart — its most natural voice).
@@ -26,12 +28,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import esbuild from "esbuild";
 import sharp from "sharp";
+import { spliceTail, tailStart } from "./trailer-tail.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT = path.join(ROOT, "public", "games", "sky-hop");
 const BASE = process.env.BASE ?? "http://localhost:3000";
 const CHROME = process.env.CHROME ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
+const TAIL = !!process.env.TAIL;
 const KOKORO = process.env.KOKORO ?? "kokoro-js";
 const VOICE = process.env.VOICE ?? "af_heart";
 const PREVIEW = !!process.env.PREVIEW;
@@ -316,7 +320,7 @@ const DIRECTOR = (data) => `(() => {
       html += '<div class="shade" style="background:#0b1e3a;opacity:' + (0.5 * k) + '"></div>';
       html += '<div class="end" style="opacity:' + k + ';transform:scale(' + (0.9 + 0.1 * k) + ')"><b>Sky <i>Hop</i></b>' +
         '<div class="play" style="transform:scale(' + pulse + ')"><svg viewBox="0 0 24 24" fill="#1c1917"><path d="M7 4.5v15l12.5-7.5z"/></svg>Play now — free</div>' +
-        '<div class="url">models.codelove.in/games/sky-hop</div><div class="small">No download · no sign-up · phone &amp; PC</div></div>';
+        '<div class="url">games.codelove.in/sky-hop</div><div class="small">No download · no sign-up · phone &amp; PC</div></div>';
     }
     // A quick white flash on every cut (not inside a showcase section, where items swap in place).
     const cutFlash = i > 0 && !(s.game.show && !s.game.first);
@@ -488,7 +492,7 @@ let chrome = null;
 try {
   // 1. Voice-over: each line, trimmed, and fitted into the time before the next line (or the end).
   let voice = [];
-  if (!PREVIEW) {
+  if (!PREVIEW && !TAIL) {
     console.log(`Voice-over: ${voiceLines.length} lines, Kokoro voice "${VOICE}"…`);
     speak(work);
     voice = voiceLines.map((line, i) => {
@@ -526,7 +530,7 @@ try {
   }
 
   let musicWav = null;
-  if (!PREVIEW) {
+  if (!PREVIEW && !TAIL) {
     console.log("Music…");
     musicWav = path.join(work, "music.wav");
     fs.writeFileSync(musicWav, Buffer.from(await page.evaluate(MUSIC(total + 0.5)), "base64"));
@@ -550,7 +554,8 @@ try {
   const count = await page.evaluate(DIRECTOR({ shots, fps: FPS, sfx: SFX }));
   console.log(`Recording ${count} shots, ${frames} frames (${total.toFixed(1)} s at ${FPS} fps, ${W * DPR}×${H * DPR})${PREVIEW ? " — preview stills only" : ""}…`);
   const t0 = Date.now();
-  for (let n = 0; n < frames; n++) {
+  const from = TAIL ? tailStart(starts, FPS) : 0;
+  for (let n = from; n < frames; n++) {
     await page.evaluate(`__trailer.frame(${n})`);
     if (PREVIEW && !keep.has(n)) continue;
     const { data } = await page.send("Page.captureScreenshot", { format: "jpeg", quality: PREVIEW ? 80 : 95, fromSurface: true });
@@ -562,6 +567,10 @@ try {
   if (rescues.length) console.warn(`  the autopilot was put back on its route in shots ${rescues.map(([i, n]) => `${i} (×${n})`).join(", ")}`);
   if (PREVIEW) {
     console.log(`Preview stills in ${framesDir}`);
+  } else if (TAIL) {
+    page.close();
+    console.log("Encoding the last shot…");
+    spliceTail({ ffmpeg: FFMPEG, out: OUT, work, framesDir, from, fps: FPS });
   } else {
     console.log("Sound effects…");
     const fxWav = path.join(work, "fx.wav");

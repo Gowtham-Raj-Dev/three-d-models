@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Writes public/sitemap.xml: every page search engines should index (home, categories, collections, games, tutorials, models
- * and the about / contact / policy pages), each with its preview image. Reads the same catalog and games list the
- * site renders, so new models and games are listed on their own — it runs before every `next build` (prebuild), or
+ * Writes public/sitemap.xml: every page search engines should index (home, categories, collections, tutorials, models
+ * and the about / contact / policy pages), each with its preview image. Reads the same catalog the
+ * site renders, so new models are listed on their own — it runs before every `next build` (prebuild), or
  * by hand with `npm run sitemap`. A new page with a fixed address is not found by itself: add it to `pages` below.
  * public/robots.txt is a plain file: edit it directly.
  */
@@ -20,7 +20,6 @@ async function siteData() {
     stdin: {
       contents: [
         `export { allCollections, CATEGORIES, categorySlug, countBy, models } from "@/lib/catalog";`,
-        `export { games } from "@/lib/games";`,
         `export { absoluteUrl } from "@/lib/site";`,
         `export { tutorials } from "@/lib/tutorials";`,
       ].join("\n"),
@@ -42,7 +41,7 @@ async function siteData() {
     fs.rmSync(tmp, { force: true });
   }
 }
-const { allCollections, CATEGORIES, categorySlug, countBy, models, games, absoluteUrl, tutorials } = await siteData();
+const { allCollections, CATEGORIES, categorySlug, countBy, models, absoluteUrl, tutorials } = await siteData();
 
 // Same pages, in the same order, as the site's navigation: the most important first.
 const pages = [
@@ -53,10 +52,6 @@ const pages = [
     images: [`/og/category-${categorySlug(c)}.jpg`],
   })),
   ...allCollections().map((c) => ({ path: `/models/collection/${c.key}/` })),
-  { path: "/games/" },
-  ...games
-    .filter((g) => !g.comingSoon)
-    .flatMap((g) => [{ path: `/games/${g.slug}/`, images: [g.cover] }, { path: `/games/${g.slug}/play/` }]),
   { path: "/packs/" },
   { path: "/developers/" },
   { path: "/animations/" },

@@ -348,7 +348,7 @@ export const DIRECTOR = (data) => `(() => {
       html += '<div class="shade" style="background:#08142a;opacity:' + (0.55 * k) + '"></div>';
       html += '<div class="end" style="opacity:' + k + ';transform:scale(' + (0.9 + 0.1 * k) + ')"><b>Cannon <i>Cove</i></b>' +
         '<div class="play" style="transform:scale(' + pulse + ')"><svg viewBox="0 0 24 24" fill="#fdf3dc"><path d="M7 4.5v15l12.5-7.5z"/></svg>Play now — free</div>' +
-        '<div class="url">models.codelove.in/games/cannon-cove</div><div class="small">No download · no sign-up · phone &amp; PC</div></div>';
+        '<div class="url">games.codelove.in/cannon-cove</div><div class="small">No download · no sign-up · phone &amp; PC</div></div>';
     }
     const montage = i > 0 && s.tag && shots[i - 1].tag && s.head && shots[i - 1].head && shots[i - 1].head[0] === s.head[0];
     if (i > 0 && !montage && local < 0.16) html += '<div class="flash" style="opacity:' + (0.45 * (1 - local / 0.16)) + '"></div>';

@@ -28,8 +28,13 @@ const nextConfig: NextConfig = {
   basePath: basePath || undefined,
   images: { unoptimized: true },
   env: { NEXT_PUBLIC_BASE_PATH: basePath },
-  // A static export can't set headers (its host has to), so only the App Hosting server build sends them.
+  // A static export can't set headers or redirect (its host has to), so only the App Hosting server build does.
   ...(appHosting && {
+    // The games moved to their own site: /games/skate-rush/ is now games.codelove.in/skate-rush/.
+    redirects: async () => [
+      { source: "/games", destination: "https://games.codelove.in/", permanent: true },
+      { source: "/games/:path*", destination: "https://games.codelove.in/:path*/", permanent: true },
+    ],
     headers: async () =>
       CORS_PATHS.map((source) => ({ source, headers: [{ key: "Access-Control-Allow-Origin", value: "*" }] })),
   }),

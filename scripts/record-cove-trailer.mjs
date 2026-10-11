@@ -8,6 +8,8 @@
  *   npm run dev                                   (in another terminal)
  *   FFMPEG=path/to/ffmpeg KOKORO=path/to/kokoro-js/dist/kokoro.js node scripts/record-cove-trailer.mjs
  *   PREVIEW=1 node scripts/record-cove-trailer.mjs   (a contact sheet of the shots, no sound or video)
+ *   TAIL=1 FFMPEG=… node scripts/record-cove-trailer.mjs   (only the last shot again — a new end card — spliced
+ *                                                 onto the trailers already there; see scripts/trailer-tail.mjs)
  *
  * Works like scripts/record-sky-trailer.mjs: the game runs in headless Chrome on a virtual clock (every frame
  * stepped by exactly 1/60 s and captured), staged shot by shot by scripts/cove-film.mjs — the open sea, the
@@ -25,6 +27,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import sharp from "sharp";
 import { connect, DIRECTOR, SFX, VIRTUAL_TIME } from "./cove-film.mjs";
+import { spliceTail, tailStart } from "./trailer-tail.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT = path.join(ROOT, "public", "games", "cannon-cove");
@@ -34,6 +37,7 @@ const FFMPEG = process.env.FFMPEG ?? "ffmpeg";
 const KOKORO = process.env.KOKORO ?? "kokoro-js";
 const VOICE = process.env.VOICE ?? "af_heart";
 const PREVIEW = !!process.env.PREVIEW;
+const TAIL = !!process.env.TAIL;
 const PORT = 9362;
 const W = 1280;
 const H = 720;
@@ -287,7 +291,7 @@ let chrome = null;
 try {
   // 1. Voice-over: each line, trimmed, and fitted into the time before the next line (or the end).
   let voice = [];
-  if (!PREVIEW) {
+  if (!PREVIEW && !TAIL) {
     console.log(`Voice-over: ${voiceLines.length} lines, Kokoro voice "${VOICE}"…`);
     speak(work);
     voice = voiceLines.map((line, i) => {
@@ -322,7 +326,7 @@ try {
   }
 
   let musicWav = null;
-  if (!PREVIEW) {
+  if (!PREVIEW && !TAIL) {
     console.log("Music…");
     musicWav = path.join(work, "music.wav");
     fs.writeFileSync(musicWav, Buffer.from(await page.evaluate(MUSIC(total + 0.5)), "base64"));
@@ -340,7 +344,8 @@ try {
   await page.evaluate("__film.reset()");
   console.log(`Recording ${count} shots, ${frames} frames (${total.toFixed(1)} s at ${FPS} fps, ${W * DPR}×${H * DPR})${PREVIEW ? " — preview stills only" : ""}…`);
   const t0 = Date.now();
-  for (let n = 0; n < frames; n++) {
+  const from = TAIL ? tailStart(starts, FPS) : 0;
+  for (let n = from; n < frames; n++) {
     await page.evaluate(`__film.frame(${n}, ${FPS})`);
     if (PREVIEW && !keep.has(n)) continue;
     const { data } = await page.send("Page.captureScreenshot", { format: "jpeg", quality: PREVIEW ? 80 : 95, fromSurface: true });
@@ -356,6 +361,10 @@ try {
     const out = path.join(os.tmpdir(), "cove-trailer-preview.jpg");
     await sharp({ create: { width: cols * tw, height: Math.ceil(files.length / cols) * th, channels: 3, background: "#000" } }).composite(comp).jpeg({ quality: 80 }).toFile(out);
     console.log("preview sheet:", out);
+  } else if (TAIL) {
+    page.close();
+    console.log("Encoding the last shot…");
+    spliceTail({ ffmpeg: FFMPEG, out: OUT, work, framesDir, from, fps: FPS });
   } else {
     console.log("Sound effects…");
     const fxWav = path.join(work, "fx.wav");
