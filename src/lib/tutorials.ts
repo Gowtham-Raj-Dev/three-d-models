@@ -9,6 +9,7 @@
  * add an entry below — the sitemap picks it up from this list.
  */
 import hauntedBackyard from "@/data/tutorials/haunted-backyard.json";
+import hauntedBackyardTamil from "@/data/tutorials/haunted-backyard-ta.json";
 
 export interface TutorialStep {
   title: string;
@@ -16,6 +17,20 @@ export interface TutorialStep {
   text: string;
   /** Keys and buttons the step uses, shown as key caps. */
   keys?: string[];
+}
+
+/** The video in one language: its own files and timings (the narration sets the pace). */
+export interface TutorialVersion {
+  lang: "en" | "ta";
+  /** The language's own name, on the switch above the player. */
+  label: string;
+  hd: string;
+  sd: string;
+  captions: string;
+  seconds: number;
+  /** The first chapter is the intro; the others match the tutorial's `steps`, in order. */
+  chapters: { at: number; label: string }[];
+  transcript: { at: number; text: string }[];
 }
 
 export interface Tutorial {
@@ -45,6 +60,8 @@ export interface Tutorial {
   /** The first chapter is the intro; the others match `steps`, in order. */
   chapters: { at: number; label: string }[];
   transcript: { at: number; text: string }[];
+  /** Every language the video is in; the first is the English one described by the fields above. */
+  versions: TutorialVersion[];
   steps: TutorialStep[];
 }
 
@@ -72,6 +89,10 @@ export const tutorials: Tutorial[] = [
     built: "225 parts, 7 lights and 5 animated skeletons",
     ...files("haunted-backyard"),
     ...hauntedBackyard,
+    versions: [
+      { lang: "en", label: "English", ...files("haunted-backyard"), ...hauntedBackyard },
+      { lang: "ta", label: "தமிழ்", ...files("haunted-backyard-ta"), ...hauntedBackyardTamil },
+    ],
     steps: [
       {
         title: "Start a new project",

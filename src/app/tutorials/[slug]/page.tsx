@@ -43,8 +43,6 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
   const tutorial = getTutorial(slug);
   if (!tutorial) notFound();
   const url = absoluteUrl(`/tutorials/${tutorial.slug}/`);
-  // The first chapter is the intro; step n is chapter n.
-  const stepAt = (i: number) => tutorial.chapters[i + 1]?.at ?? 0;
   const others = tutorials.filter((t) => t.slug !== tutorial.slug).slice(0, 3);
   const made = new Date(`${tutorial.recorded}T00:00:00Z`).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
@@ -125,7 +123,7 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
       </header>
 
       <div className="mt-8">
-        <TutorialPlayer tutorial={{ title: tutorial.title, hd: tutorial.hd, sd: tutorial.sd, poster: tutorial.poster, captions: tutorial.captions, seconds: tutorial.seconds, chapters: tutorial.chapters }} />
+        <TutorialPlayer title={tutorial.title} poster={tutorial.poster} versions={tutorial.versions.map(({ lang, label, hd, sd, captions, seconds, chapters }) => ({ lang, label, hd, sd, captions, seconds, chapters }))} />
       </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-surface px-5 py-4">
@@ -151,10 +149,11 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <h3 className="text-lg font-semibold tracking-tight">{s.title}</h3>
                     <SeekButton
-                      at={stepAt(i)}
+                      to={{ chapter: i + 1 }}
+                      label={`Play step ${i + 1}`}
                       className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-xs text-muted tabular-nums transition-colors hover:border-accent/50 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
                     >
-                      <Play className="size-2.5 fill-current" /> {formatClock(stepAt(i))}
+                      <Play className="size-2.5 fill-current" /> Watch
                     </SeekButton>
                   </div>
                   <p className="leading-relaxed text-pretty text-muted">{s.text}</p>
@@ -172,22 +171,30 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
         </section>
 
         <aside className="space-y-8">
-          <details className="group rounded-2xl border border-line bg-surface">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold marker:hidden">
-              Transcript
-              <ChevronRight className="size-4 text-muted transition-transform group-open:rotate-90" aria-hidden />
-            </summary>
-            <ol className="max-h-[28rem] space-y-3 overflow-y-auto overscroll-contain border-t border-line px-5 py-4">
-              {tutorial.transcript.map((l) => (
-                <li key={l.at} className="flex gap-3 text-sm leading-relaxed text-muted">
-                  <SeekButton at={l.at} className="mt-0.5 shrink-0 text-xs text-subtle tabular-nums transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-accent">
-                    {formatClock(l.at)}
-                  </SeekButton>
-                  <span>{l.text}</span>
-                </li>
-              ))}
-            </ol>
-          </details>
+          {tutorial.versions.map((version) => (
+            <details key={version.lang} className="group rounded-2xl border border-line bg-surface">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold marker:hidden">
+                <span>
+                  Transcript{tutorial.versions.length > 1 && <span lang={version.lang}> · {version.label}</span>}
+                </span>
+                <ChevronRight className="size-4 text-muted transition-transform group-open:rotate-90" aria-hidden />
+              </summary>
+              <ol lang={version.lang} className="max-h-[28rem] space-y-3 overflow-y-auto overscroll-contain border-t border-line px-5 py-4">
+                {version.transcript.map((l) => (
+                  <li key={l.at} className="flex gap-3 text-sm leading-relaxed text-muted">
+                    <SeekButton
+                      to={{ at: l.at, lang: version.lang }}
+                      label={`Play from ${formatClock(l.at)}`}
+                      className="mt-0.5 shrink-0 text-xs text-subtle tabular-nums transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-accent"
+                    >
+                      {formatClock(l.at)}
+                    </SeekButton>
+                    <span>{l.text}</span>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          ))}
 
           <div className="rounded-2xl border border-line bg-surface px-5 py-4 text-sm leading-relaxed text-muted">
             <h2 className="font-semibold text-fg">About this video</h2>
@@ -195,7 +202,7 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
               Recorded in the live Scene Builder on <time dateTime={tutorial.recorded}>{made}</time> by {SITE.author}. Captions are in the player; turn them on with the CC button.
             </p>
             <p className="mt-2 text-xs text-subtle">
-              Narration: Chatterbox Turbo by Resemble AI (MIT), in the voice of “A Moment By” by Alba MacKenna from{" "}
+              English narration: Chatterbox Turbo by Resemble AI (MIT), in the voice of “A Moment By” by Alba MacKenna from{" "}
               <a href="https://huggingface.co/kyutai/tts-voices" rel="noopener" className="underline underline-offset-2 hover:text-fg">
                 Kyutai TTS voices
               </a>{" "}
@@ -203,7 +210,7 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
               <a href="https://creativecommons.org/licenses/by/4.0/" rel="noopener license" className="underline underline-offset-2 hover:text-fg">
                 CC BY 4.0
               </a>
-              ). Music and sound effects: the site&apos;s own synthesizer.
+              ). Tamil narration: Google Gemini text-to-speech. Music and sound effects: the site&apos;s own synthesizer.
             </p>
           </div>
         </aside>

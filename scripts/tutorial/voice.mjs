@@ -32,7 +32,10 @@ const TEMPERATURE = Number(process.env.TEMPERATURE ?? 0.8);
 const RATE = 48000;
 
 const [id, ...again] = process.argv.slice(2);
-const { lines } = await loadTutorial(id);
+const tutorial = await loadTutorial(id);
+const { lines } = tutorial;
+/** A tutorial in another language names its own voice: { engine: "gemini", model, name, style } (Gemini TTS, needs an API key). */
+const GEMINI = tutorial.voice?.engine === "gemini" ? tutorial.voice : null;
 const dir = path.join(workDir(id), "vo");
 fs.mkdirSync(dir, { recursive: true });
 const slash = (p) => p.split(path.sep).join("/");
@@ -47,13 +50,13 @@ for (const key of again) {
 const saveTakes = () => fs.writeFileSync(takesFile, JSON.stringify(takes, null, 1));
 saveTakes();
 
-const hash = (key) => crypto.createHash("sha1").update(`${VOICE}|${LM}|${TEMPERATURE}|${takes[key] ?? 0}|${lines[key].say}`).digest("hex").slice(0, 10);
+const hash = (key) => crypto.createHash("sha1").update(`${GEMINI ? `gemini|${GEMINI.name}|${GEMINI.style}` : `${VOICE}|${LM}|${TEMPERATURE}`}|${takes[key] ?? 0}|${lines[key].say}`).digest("hex").slice(0, 10);
 const rawOf = (key) => path.join(dir, `${key}-${hash(key)}.raw.wav`);
 const seedOf = (key) => parseInt(crypto.createHash("sha1").update(`${key}|${takes[key] ?? 0}`).digest("hex").slice(0, 8), 16);
 
 // The reference clip as the model wants it (24 kHz mono), and its conditioning, worked out once per voice.
 const voiceWav = path.join(dir, `_${VOICE}-24k.wav`);
-if (!fs.existsSync(voiceWav)) ffmpeg(["-i", path.join(TOOLS, "tts", "voices", `${VOICE}.wav`), "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", voiceWav]);
+if (!GEMINI && !fs.existsSync(voiceWav)) ffmpeg(["-i", path.join(TOOLS, "tts", "voices", `${VOICE}.wav`), "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", voiceWav]);
 const cond = path.join(dir, `_${VOICE}.cond.npz`);
 
 /** Runs a child process, trying again (after a pause) when it fails — on this machine that is nearly always memory. */
@@ -71,8 +74,173 @@ async function stubborn(what, command, args, tries = 4) {
   }
 }
 
+/**
+ * Gemini API keys, in the order they are tried: GEMINI_TTS_KEYS (comma separated — one per Google Cloud
+ * project, since a free key's ten requests a day are counted per project), then GEMINI_API_KEY, from
+ * the environment or .env.development.local.
+ */
+function geminiKeys() {
+  const file = path.join(PROMO, "..", ".env.development.local");
+  const env = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const read = (name) => process.env[name] ?? new RegExp("^" + name + "=(.+)$", "m").exec(env)?.[1] ?? "";
+  const keys = [read("GEMINI_TTS_KEYS"), read("GEMINI_API_KEY"), read("NEXT_PUBLIC_GEMINI_API_KEY")].join(",").split(",").map((k) => k.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+  if (!keys.length) throw new Error("no Gemini API key: set GEMINI_TTS_KEYS or GEMINI_API_KEY");
+  return [...new Set(keys)];
+}
+
+let apiKeys = null;
+/**
+ * One Gemini TTS request: 24 kHz PCM for the text, or an error once every key is spent. A key that
+ * has used up its day hands over to the next; a busy model is asked again after a wait.
+ */
+async function geminiAudio(text) {
+  apiKeys ??= geminiKeys();
+  for (let attempt = 1; apiKeys.length; attempt++) {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI.model}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": apiKeys[0], "content-type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: `${GEMINI.style}\n\n${text}` }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: GEMINI.name } } } } }),
+    }).then((res) => res.json(), (e) => ({ error: { message: String(e) } }));
+    const audio = r.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData;
+    if (audio) return { pcm: Buffer.from(audio.data, "base64"), rate: Number(/rate=(\d+)/.exec(audio.mimeType)?.[1] ?? 24000) };
+    const why = (r.error?.message ?? JSON.stringify(r)).slice(0, 110);
+    if (/PerDay/.test(JSON.stringify(r.error?.details ?? "")) || r.error?.code === 400 || r.error?.code === 401 || r.error?.code === 403) {
+      apiKeys.shift();
+      console.warn(`  a key can't be used (${why}) — ${apiKeys.length} key(s) left`);
+      attempt = 0;
+    } else if (attempt >= 8) throw new Error(`Gemini gave no audio: ${why}`);
+    else {
+      console.warn(`  ${why} — again in ${10 * attempt} s`);
+      await sleep(10_000 * attempt);
+    }
+  }
+  throw new Error("every Gemini key is out of requests for today — finished lines are kept; run this again tomorrow or add a key from another project to GEMINI_TTS_KEYS");
+}
+
+const pcmWav = (pcm, rate) => {
+  const head = Buffer.alloc(44);
+  head.write("RIFF", 0); head.writeUInt32LE(36 + pcm.length, 4); head.write("WAVEfmt ", 8); head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(1, 22);
+  head.writeUInt32LE(rate, 24); head.writeUInt32LE(rate * 2, 28); head.writeUInt16LE(2, 32); head.writeUInt16LE(16, 34); head.write("data", 36); head.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([head, pcm]);
+};
+
+/** Gemini TTS, one request per line: every line a clean take of its own, saved as soon as it arrives. */
+async function speakGemini(keys) {
+  console.log(`Gemini TTS (${GEMINI.model}), voice "${GEMINI.name}": ${keys.length} line(s)…`);
+  for (const [n, k] of keys.entries()) {
+    const { pcm, rate } = await geminiAudio(lines[k].say);
+    fs.writeFileSync(rawOf(k), pcmWav(pcm, rate));
+    console.log(`[${n + 1}/${keys.length}] ${(pcm.length / 2 / rate).toFixed(1)} s  ${k}`);
+  }
+}
+
+/**
+ * Gemini TTS a few lines per request (`voice.batch`): one model and one take per block keeps the
+ * voice the same from line to line, and a free key's ten requests a day are enough for a whole
+ * tutorial. Each block is then cut into its lines at the longest pauses — in the middle of the
+ * silence, with a short fade, so no line starts or ends on a click. Blocks are kept: a second run
+ * only asks for the missing ones.
+ */
+async function speakGeminiBlocks(keys) {
+  const apiKeys = geminiKeys();
+  const all = Object.keys(lines);
+  const wavOf = (pcm, rate) => {
+    const head = Buffer.alloc(44);
+    head.write("RIFF", 0); head.writeUInt32LE(36 + pcm.length, 4); head.write("WAVEfmt ", 8); head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(1, 22);
+    head.writeUInt32LE(rate, 24); head.writeUInt32LE(rate * 2, 28); head.writeUInt16LE(2, 32); head.writeUInt16LE(16, 34); head.write("data", 36); head.writeUInt32LE(pcm.length, 40);
+    return Buffer.concat([head, pcm]);
+  };
+  for (let from = 0, n = 0; from < all.length; from += GEMINI.batch, n++) {
+    const block = all.slice(from, from + GEMINI.batch);
+    if (!block.some((k) => keys.includes(k))) continue;
+    const id = crypto.createHash("sha1").update(`${GEMINI.model}|${GEMINI.name}|${GEMINI.style}|${block.map((k) => `${takes[k] ?? 0}|${lines[k].say}`).join("|")}`).digest("hex").slice(0, 10);
+    const file = path.join(dir, `_block${n}-${id}.wav`);
+    if (!fs.existsSync(file)) {
+      let audio = null, why = "";
+      // A key that has used up its day hands over to the next one.
+      while (!audio && apiKeys.length) {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI.model}:generateContent`, {
+          method: "POST",
+          headers: { "x-goog-api-key": apiKeys[0], "content-type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: `${GEMINI.style}\n\n${block.map((k) => lines[k].say).join("\n\n")}` }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: GEMINI.name } } } } }),
+        }).then((res) => res.json(), (e) => ({ error: { message: String(e) } }));
+        audio = r.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData ?? null;
+        if (audio) break;
+        why = (r.error?.message ?? JSON.stringify(r)).slice(0, 160);
+        if (r.error?.code === 429 && /PerDay/.test(JSON.stringify(r.error.details ?? ""))) {
+          apiKeys.shift();
+          console.warn(`  a key is out of requests for today — ${apiKeys.length} key(s) left`);
+        } else if (r.error?.code === 429) await sleep(30_000);
+        else break;
+      }
+      if (!audio) throw new Error(`Gemini gave no audio for block ${n + 1} (${block[0]}…): ${why} — finished blocks are kept, run this again later`);
+      fs.writeFileSync(file, wavOf(Buffer.from(audio.data, "base64"), Number(/rate=(\d+)/.exec(audio.mimeType)?.[1] ?? 24000)));
+    }
+    // The block's pauses: runs of quiet 10 ms frames.
+    const b = fs.readFileSync(file);
+    const rate = b.readUInt32LE(24);
+    const pcm = new Int16Array(b.buffer.slice(b.byteOffset + 44, b.byteOffset + 44 + ((b.length - 44) & ~1)));
+    const hop = rate / 100;
+    const level = [];
+    for (let i = 0; i + hop <= pcm.length; i += hop) {
+      let sum = 0;
+      for (let j = i; j < i + hop; j++) sum += pcm[j] * pcm[j];
+      level.push(Math.sqrt(sum / hop));
+    }
+    const quiet = [...level].sort((x, y) => x - y)[Math.floor(level.length * 0.95)] * 0.04;
+    const pauses = [];
+    for (let i = 0; i < level.length; ) {
+      if (level[i] > quiet) { i++; continue; }
+      let e = i;
+      while (e < level.length && level[e] <= quiet) e++;
+      if (i > 20 && e < level.length - 20 && e - i >= 18) pauses.push({ at: (i + e) / 2, len: e - i });
+      i = e;
+    }
+    // Which pauses end the lines: the set that keeps every line as long as its share of the text
+    // says (speech runs at an even pace), preferring the longer pauses — found by dynamic programming.
+    const chars = block.map((k) => lines[k].say.length), total = chars.reduce((x, y) => x + y, 0);
+    const N = block.length, P = pauses.length;
+    if (P < N - 1) throw new Error(`block ${n + 1}: only ${P} pauses for ${N} lines — give it another take`);
+    const cost = (from, to, i) => ((to - from) / level.length - chars[i] / total) ** 2 * 400;
+    // best[i][p]: lines 0..i end at pause p.
+    let best = pauses.map((p) => ({ c: cost(0, p.at, 0) - p.len / 400, prev: -1 }));
+    const back = [best];
+    for (let i = 1; i < N - 1; i++) {
+      const next = pauses.map((p, j) => {
+        let c = Infinity, prev = -1;
+        for (let q = 0; q < j; q++) {
+          const v = best[q].c + cost(pauses[q].at, p.at, i);
+          if (v < c) [c, prev] = [v, q];
+        }
+        return { c: c - p.len / 400, prev };
+      });
+      back.push(next);
+      best = next;
+    }
+    let end = 0;
+    best.forEach((x, j) => {
+      const v = x.c + cost(pauses[j].at, level.length, N - 1);
+      if (v < best[end].c + cost(pauses[end].at, level.length, N - 1)) end = j;
+    });
+    const cuts = [];
+    for (let i = N - 2, j = end; i >= 0; j = back[i][j].prev, i--) cuts.unshift(pauses[j]);
+    const edges = [0, ...cuts.map((c) => Math.round(c.at * hop)), pcm.length];
+    console.log(`[block ${n + 1}] ${(pcm.length / rate).toFixed(1)} s  ${block.map((k, i) => `${k} ${((edges[i + 1] - edges[i]) / rate).toFixed(1)}s`).join(", ")}  (pauses ${cuts.map((c) => (c.len / 100).toFixed(2)).join("\n\n")})`);
+    block.forEach((k, i) => {
+      const part = pcm.slice(edges[i], edges[i + 1]);
+      const fade = Math.min(Math.round(rate * 0.03), part.length >> 1);
+      for (let j = 0; j < fade; j++) {
+        part[j] = (part[j] * j) / fade;
+        part[part.length - 1 - j] = (part[part.length - 1 - j] * j) / fade;
+      }
+      fs.writeFileSync(rawOf(k), wavOf(Buffer.from(part.buffer, part.byteOffset, part.byteLength), rate));
+    });
+  }
+}
+
 async function speak(keys) {
   if (!keys.length) return;
+  if (GEMINI) return GEMINI.batch ? speakGeminiBlocks(keys) : speakGemini(keys);
   console.log(`Chatterbox Turbo, voice "${VOICE}": ${keys.length} line(s)…`);
   const job = path.join(dir, "_job.json");
   fs.writeFileSync(job, JSON.stringify({ model: slash(MODEL), voice: slash(voiceWav), cond: slash(cond), lm: LM, temperature: TEMPERATURE, lines: keys.map((key) => ({ text: lines[key].say, out: slash(rawOf(key)), seed: seedOf(key) })) }));
@@ -117,7 +285,8 @@ function wordErrors(said, heard) {
 /** What Whisper hears in each of these lines ({ key: text }); a line it couldn't get to is missing. */
 async function listen(keys) {
   const heard = {};
-  if (!keys.length || process.env.LISTEN === "0") return heard;
+  // Whisper's small English model can't follow Tamil: those lines go unchecked.
+  if (!keys.length || process.env.LISTEN === "0" || GEMINI) return heard;
   const out = path.join(dir, "_heard.json");
   for (let from = 0; from < keys.length; from += 6) {
     const batch = keys.slice(from, from + 6);
@@ -149,7 +318,7 @@ for (let round = 0; round < 4; round++) {
     const errors = text == null ? 0 : wordErrors(lines[key].say, text);
     const pace = seconds[key] / syllables(lines[key].say);
     // Off: a third of the words wrong, or far too fast or slow to be the whole sentence, cleanly said.
-    const off = errors > 0.3 || pace > 0.42 || pace < 0.13;
+    const off = !GEMINI && (errors > 0.3 || pace > 0.42 || pace < 0.13);
     report[key] = { audio: hash(key), seconds: +seconds[key].toFixed(3), heard: text ?? null, errors: +errors.toFixed(2), pace: +pace.toFixed(3), take: takes[key] ?? 0, off };
     if (off && (takes[key] ?? 0) < 5) bad.push(key);
   }

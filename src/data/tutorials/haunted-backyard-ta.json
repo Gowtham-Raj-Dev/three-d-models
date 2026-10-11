@@ -1,0 +1,192 @@
+{
+  "seconds": 362,
+  "recorded": "2026-10-11",
+  "chapters": [
+    {
+      "at": 0,
+      "label": "The finished scene"
+    },
+    {
+      "at": 18.4,
+      "label": "Start a new project"
+    },
+    {
+      "at": 39.9,
+      "label": "Lay the floor"
+    },
+    {
+      "at": 114,
+      "label": "Fence it in"
+    },
+    {
+      "at": 159.9,
+      "label": "Path and crypt"
+    },
+    {
+      "at": 183.7,
+      "label": "Dig the graves"
+    },
+    {
+      "at": 206.8,
+      "label": "Bring in the skeletons"
+    },
+    {
+      "at": 240.1,
+      "label": "Trees and clutter"
+    },
+    {
+      "at": 278.4,
+      "label": "Light it up"
+    },
+    {
+      "at": 321.8,
+      "label": "Look around and export"
+    }
+  ],
+  "transcript": [
+    {
+      "at": 1.2,
+      "text": "இந்த haunted backyard-அ Scene Builder-ல நாம build பண்ணப் போறோம். Fence போட்ட ஒரு graveyard, ஒரு crypt, எரியுற lanterns, அப்புறம் உண்மையாவே move ஆகுற skeletons."
+    },
+    {
+      "at": 11.4,
+      "text": "ஒரு empty plot-ல இருந்து start பண்ணி, step by step-ஆ build பண்ணலாம். இது முழுக்க free, உங்க browser-லயே ஓடும்."
+    },
+    {
+      "at": 18.4,
+      "text": "Step one. New project click பண்ணுங்க. ஒரு name குடுங்க, Empty plot-உம் Day lighting-உம் அப்படியே இருக்கட்டும், create பண்ணுங்க. பகல் வெளிச்சத்துல build பண்றது easy. கடைசில night-க்கு மாத்திக்கலாம்."
+    },
+    {
+      "at": 31,
+      "text": "எதுவும் select பண்ணாம இருந்தா, right side panel-ல scene settings தெரியும். Ground-அ Dark-னு மாத்துங்க, size-அ 160 m ஆக்குங்க."
+    },
+    {
+      "at": 39.9,
+      "text": "Step two, floor. Left side-ல Halloween kit already open-ஆ இருக்கு. Grid step-அ 4 m-னு வைங்க. இந்த floor tiles 4 m அகலம், அதனால இப்போ அது perfect-ஆ ஒட்டிக்கும்."
+    },
+    {
+      "at": 52.4,
+      "text": "Floor Dirt-அ pick பண்ணி, scene-ல தூரத்து corner-ல click பண்ணி first tile-அ வைங்க."
+    },
+    {
+      "at": 57.7,
+      "text": "பாருங்க, அது flicker ஆகுது. ஏன்னா அதோட top, ground-ஓட same level-ல இருக்கு. Esc அழுத்தி, ground level-அ −0.5-னு குறைங்க. இப்போ floor தெளிவா தெரியுது."
+    },
+    {
+      "at": 71.3,
+      "text": "Tile-அ select பண்ணா, inspector-ல அதோட settings வரும். கீழ scroll பண்ணி Array tool-ல, 9 copies, 4 m இடைவெளி-னு குடுங்க. ஒரு முழு row ready."
+    },
+    {
+      "at": 81.4,
+      "text": "Ctrl+A அழுத்தி முழு row-வையும் select பண்ணுங்க, Ctrl+D அழுத்தி duplicate பண்ணுங்க, அப்புறம் arrow keys வெச்சு அந்த copy-அ சரியான இடத்துக்கு நகர்த்துங்க. Floor முடியுற வரைக்கும் இதையே repeat பண்ணுங்க."
+    },
+    {
+      "at": 94.3,
+      "text": "Open grave-க்கு, ஒரு tile-அ click பண்ணி delete பண்ணிட்டு, அந்த gap-ல Floor Dirt Grave-அ வைங்க."
+    },
+    {
+      "at": 100,
+      "text": "அது கீழ இறக்கின ground மேல உக்காரும், அதனால அதோட Y position-அ திரும்ப 0 ஆக்குங்க."
+    },
+    {
+      "at": 105.3,
+      "text": "Ctrl+A, அப்புறம் L அழுத்தி floor-அ lock பண்ணுங்க. இனிமே தெரியாம அத நகர்த்த முடியாது."
+    },
+    {
+      "at": 114,
+      "text": "Step three, fence. Grid step-அ 2 m ஆக்குங்க. Fence-அ pick பண்ணி, பின்னாடி edge-ல ஒரு piece வெச்சு, array பண்ணுங்க. 7 copies, 4 m இடைவெளி."
+    },
+    {
+      "at": 124.4,
+      "text": "Sides-க்கு, fence-அ மறுபடியும் pick பண்ணி, click பண்றதுக்கு முன்னாடி Shift + ] அழுத்தி 90° திருப்புங்க. இந்த தடவ X-க்கு பதிலா Z-ல array பண்ணுங்க."
+    },
+    {
+      "at": 137.5,
+      "text": "அதே மாதிரி இன்னொரு side-லயும், முன்னாடியும் பண்ணுங்க. நடுவுல Arch Gate-க்கு ஒரு gap விடுங்க."
+    },
+    {
+      "at": 144.7,
+      "text": "அப்புறம் ஒவ்வொரு joint-லயும் ஒரு Fence Pillar வைங்க. Shift அழுத்திக்கிட்டே click பண்ணா, அந்த part கையிலயே இருக்கும்."
+    },
+    {
+      "at": 154.9,
+      "text": "சில pieces-அ broken version-ஆ மாத்துங்க, அப்போதான் பழசா தெரியும்."
+    },
+    {
+      "at": 159.9,
+      "text": "Step four. Fine work-க்கு grid step-அ 0.5 m ஆக்கி, gate-ல இருந்து பின்னாடி வரைக்கும் ஒரு path போடுங்க. நாலு path pieces இருக்கு, mix பண்ணி வைங்க."
+    },
+    {
+      "at": 171.4,
+      "text": "எந்த part-அயும் சீக்கிரம் கண்டுபிடிக்க, search பண்ணுங்க. crypt-னு type பண்ணி, path முடியுற இடத்துல வைங்க. அப்புறம் அதோட கதவு பக்கத்துல skull candles-உம் candle clusters-உம் வைங்க."
+    },
+    {
+      "at": 183.7,
+      "text": "Step five, graves. Path-ஓட ரெண்டு பக்கமும் ரெண்டு block-ஆ வைங்க. Shift அழுத்தி சிலது stamp பண்ணுங்க, அப்புறம் வேற headstone-க்கு மாறுங்க. அப்போதான் எல்லா row-உம் ஒரே மாதிரி தெரியாது."
+    },
+    {
+      "at": 196.7,
+      "text": "Open grave பக்கத்துல ஒரு coffin, crypt பக்கத்துல இன்னொன்னு, side fence ஓரமா ஒரு bench-உம் ஒரு candle shrine-உம் வைங்க."
+    },
+    {
+      "at": 206.8,
+      "text": "Step six, இங்க குடியிருக்கிறவங்க. Skeletons kit-க்கு மாறி, path பக்கத்துல ஒரு Skeleton Warrior-அ வைங்க."
+    },
+    {
+      "at": 214,
+      "text": "Animated parts-க்கு inspector-ல ஒரு Animation menu வரும். Idle Combat-னு search பண்ணி select பண்ணுங்க. இப்போ அவன் சண்டைக்கு ready."
+    },
+    {
+      "at": 222.1,
+      "text": "Square bracket keys வெச்சு அவன திருப்புங்க, ஒரு தடவைக்கு 15°."
+    },
+    {
+      "at": 226.4,
+      "text": "Spell போடுற ஒரு mage, ஒரு rogue, ரெண்டு minions add பண்ணுங்க. Open grave-ல இருக்கிறவனுக்கு Skeletons Awaken Floor Long-னு choose பண்ணுங்க. அவன் மண்ணுக்குள்ள இருந்து திரும்பத் திரும்ப மேல ஏறி வருவான்."
+    },
+    {
+      "at": 240.1,
+      "text": "Step seven, scene-அ அலங்கரிக்கலாம். மறுபடியும் Halloween kit-க்கு வந்து, fence உள்ள dead trees-உம், வெளிய autumn pines-உம் வைங்க. Select பண்ண part-அ பெருசு சின்னது பண்ண, plus இல்ல minus அழுத்துங்க."
+    },
+    {
+      "at": 255.7,
+      "text": "சின்ன சின்ன பொருளுக்கு, ஒரு pumpkin வெச்சுட்டு Scatter use பண்ணுங்க. அது copies-அ random இடத்துல, random size-ல, random angle-ல போடும், ஒன்னு மேல ஒன்னு விழாது. Bones-க்கும் candles-க்கும் இதையே பண்ணுங்க."
+    },
+    {
+      "at": 278.4,
+      "text": "Step eight, light. 3 அழுத்தி scene-அ night-க்கு மாத்துங்க. ரொம்ப இருட்டா இருக்குல்ல? அத சரி பண்ணலாம்."
+    },
+    {
+      "at": 285.6,
+      "text": "Gate-ஓட ரெண்டு பக்கமும் ஒரு Post Lantern வைங்க."
+    },
+    {
+      "at": 291.1,
+      "text": "Lantern வெறும் model தான். அது எரியணும்னா, parts list மேல இருக்கிற Point light-அ click பண்ணி, அதுக்கு பக்கத்துல ஒன்னு வைங்க."
+    },
+    {
+      "at": 298.3,
+      "text": "Inspector-ல Y position வெச்சு அத lamp உயரத்துக்கு தூக்குங்க. அதோட colour, power, range-ஐயும் மாத்தலாம். Flame flicker போட்டா, அது உண்மையான candle மாதிரி ஆடும்."
+    },
+    {
+      "at": 308.5,
+      "text": "ஒவ்வொரு lantern-க்கும், candle-க்கும், pumpkin-க்கும் ஒரு சின்ன light குடுங்க. அதுதான் night scene-க்கு உயிர் குடுக்கும்."
+    },
+    {
+      "at": 321.8,
+      "text": "அவ்வளவுதான், haunted backyard ready. Side panels-அ hide பண்ணி, Shift+F அழுத்தி முழு scene-ஐயும் frame பண்ணுங்க."
+    },
+    {
+      "at": 329.1,
+      "text": "Drag பண்ணா orbit, right drag பண்ணா pan, scroll பண்ணா zoom."
+    },
+    {
+      "at": 334.4,
+      "text": "திருப்தியா இருந்தா, Export click பண்ணுங்க. எல்லா animation-உம் உள்ள இருக்கிற ஒரே ஒரு GLB file கிடைக்கும். Blender, Unity, Godot, three.js எல்லாத்துக்கும் ready. இல்லன்னா project file-உம் licences-உம் சேர்ந்த ஒரு zip."
+    },
+    {
+      "at": 348.6,
+      "text": "Time இல்லையா? New project-ல Haunted backyard ஒரு ready made template-ஆவும் இருக்கு. Build பண்ணி enjoy பண்ணுங்க!"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, typ
 import { Captions, CaptionsOff, Maximize, Minimize, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { asset } from "@/lib/asset";
 import { formatClock } from "@/lib/site-tour";
-import type { Tutorial } from "@/lib/tutorials";
+import type { Tutorial, TutorialVersion } from "@/lib/tutorials";
 
 // Safari's prefixed full screen APIs (iPhone can only show a <video> full screen, with its own player).
 type WebkitDocument = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
@@ -15,6 +15,9 @@ const fullscreenElement = () => document.fullscreenElement ?? (document as Webki
 
 /** The page's "jump to this step" buttons ask the player to seek with this window event. */
 const SEEK_EVENT = "tutorial:seek";
+/** Where to jump: a chapter of whichever language is playing, or a time in one language's video. */
+type SeekTarget = { chapter: number } | { at: number; lang: TutorialVersion["lang"] };
+type PlayerVersion = Omit<TutorialVersion, "transcript">;
 const SPEEDS = [1, 1.25, 1.5, 2];
 
 /**
@@ -22,7 +25,9 @@ const SPEEDS = [1, 1.25, 1.5, 2];
  * file, larger screens and full screen the 1080p one. Controls sit under the picture so they never
  * cover the builder's own toolbar and status line in the recording.
  */
-export function TutorialPlayer({ tutorial }: { tutorial: Pick<Tutorial, "title" | "hd" | "sd" | "poster" | "captions" | "seconds" | "chapters"> }) {
+export function TutorialPlayer({ title, poster, versions }: { title: Tutorial["title"]; poster: Tutorial["poster"]; versions: PlayerVersion[] }) {
+  const [lang, setLang] = useState(versions[0].lang);
+  const tutorial = versions.find((v) => v.lang === lang) ?? versions[0];
   const { chapters, seconds: TOTAL } = tutorial;
   const box = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -60,15 +65,45 @@ export function TutorialPlayer({ tutorial }: { tutorial: Pick<Tutorial, "title" 
     if (fill.current) fill.current.style.transform = `scaleX(${to / TOTAL})`;
     play(v);
   };
-  const seekRef = useRef(seek);
+  /** Switches the narration language: the other video, from its start (the two are paced differently). */
+  const pick = (next: TutorialVersion["lang"]) => {
+    const v = video.current;
+    if (next === lang || !v) return;
+    v.pause();
+    v.removeAttribute("src");
+    v.load();
+    setLang(next);
+    setStarted(false);
+    setCaptions(false);
+    setTime(0);
+    if (fill.current) fill.current.style.transform = "scaleX(0)";
+  };
+
+  /** A transcript line of the other language: asked for now, played once that video is the one shown. */
+  const pending = useRef<number | null>(null);
   useEffect(() => {
-    seekRef.current = seek;
+    if (pending.current === null) return;
+    const at = pending.current;
+    pending.current = null;
+    seek(at);
+  });
+
+  /** A jump asked for by the page: a chapter of the language that is playing, or a line of one language's transcript. */
+  const jump = (target: SeekTarget) => {
+    if ("chapter" in target) return seek(chapters[target.chapter]?.at ?? 0);
+    if (target.lang === lang) return seek(target.at);
+    pending.current = target.at;
+    pick(target.lang);
+  };
+  const jumpRef = useRef(jump);
+  useEffect(() => {
+    jumpRef.current = jump;
   });
 
   useEffect(() => {
     const onFullscreen = () => setFull(!!box.current && fullscreenElement() === box.current);
     const onSeek = (e: Event) => {
-      seekRef.current((e as CustomEvent<number>).detail);
+      jumpRef.current((e as CustomEvent<SeekTarget>).detail);
       box.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     };
     document.addEventListener("fullscreenchange", onFullscreen);
@@ -184,12 +219,32 @@ export function TutorialPlayer({ tutorial }: { tutorial: Pick<Tutorial, "title" 
   const button = "grid size-9 shrink-0 place-items-center rounded-full text-fg transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18.5rem] lg:gap-4">
+    <div className="space-y-3">
+      {versions.length > 1 && (
+        <div role="radiogroup" aria-label="Narration language" className="inline-flex gap-1 rounded-full border border-line bg-surface p-1">
+          {versions.map((v) => (
+            <button
+              key={v.lang}
+              type="button"
+              role="radio"
+              aria-checked={v.lang === lang}
+              lang={v.lang}
+              onClick={() => pick(v.lang)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+                v.lang === lang ? "bg-fg text-bg" : "text-muted hover:text-fg"
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18.5rem] lg:gap-4">
       <div ref={box} className={full ? "flex h-full flex-col bg-black" : "scroll-mt-20 overflow-hidden rounded-2xl border border-line bg-black shadow-2xl shadow-black/50"}>
         <div className={`relative ${full ? "min-h-0 flex-1" : "aspect-video"}`}>
           <video
             ref={video}
-            poster={asset(tutorial.poster)}
+            poster={asset(poster)}
             playsInline
             preload="none"
             onPlay={() => {
@@ -200,10 +255,10 @@ export function TutorialPlayer({ tutorial }: { tutorial: Pick<Tutorial, "title" 
             onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
             onClick={toggle}
             onDoubleClick={toggleFullscreen}
-            aria-label={`Tutorial video: ${tutorial.title}`}
+            aria-label={`Tutorial video: ${title}`}
             className="absolute inset-0 h-full w-full cursor-pointer object-contain"
           >
-            <track kind="captions" src={asset(tutorial.captions)} srcLang="en" label="English" />
+            <track key={tutorial.lang} kind="captions" src={asset(tutorial.captions)} srcLang={tutorial.lang} label={tutorial.label} />
             Your browser can’t play this video.
           </video>
           {!started && (
@@ -302,14 +357,15 @@ export function TutorialPlayer({ tutorial }: { tutorial: Pick<Tutorial, "title" 
           })}
         </ol>
       </nav>
+      </div>
     </div>
   );
 }
 
 /** A timestamp in the written steps or the transcript: plays the video from there. */
-export function SeekButton({ at, className, children }: { at: number; className?: string; children: ReactNode }) {
+export function SeekButton({ to, label, className, children }: { to: SeekTarget; label: string; className?: string; children: ReactNode }) {
   return (
-    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent(SEEK_EVENT, { detail: at }))} aria-label={`Play from ${formatClock(at)}`} className={className}>
+    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent(SEEK_EVENT, { detail: to }))} aria-label={label} className={className}>
       {children}
     </button>
   );
