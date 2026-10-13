@@ -8,7 +8,7 @@ import { button, Eyebrow } from "@/components/ui";
 import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl, SITE } from "@/lib/site";
 import { formatClock } from "@/lib/site-tour";
-import { getTutorial, isoDuration, tutorials } from "@/lib/tutorials";
+import { getTutorial, isoDuration, tutorials, youtubeEmbedUrl, youtubeWatchUrl } from "@/lib/tutorials";
 
 export const dynamicParams = false;
 
@@ -55,6 +55,8 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
       description: tutorial.description,
       thumbnailUrl: absoluteUrl(tutorial.poster),
       contentUrl: absoluteUrl(tutorial.hd),
+      embedUrl: youtubeEmbedUrl(tutorial.versions[0].youtube),
+      sameAs: tutorial.versions.map((v) => youtubeWatchUrl(v.youtube)),
       uploadDate: `${tutorial.recorded}T12:00:00+05:30`,
       duration: isoDuration(tutorial.seconds),
       inLanguage: "en",
@@ -123,7 +125,7 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
       </header>
 
       <div className="mt-8">
-        <TutorialPlayer title={tutorial.title} poster={tutorial.poster} versions={tutorial.versions.map(({ lang, label, hd, sd, captions, seconds, chapters }) => ({ lang, label, hd, sd, captions, seconds, chapters }))} />
+        <TutorialPlayer title={tutorial.title} poster={tutorial.poster} versions={tutorial.versions.map(({ lang, label, youtube, seconds, chapters }) => ({ lang, label, youtube, seconds, chapters }))} />
       </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-surface px-5 py-4">
@@ -200,6 +202,17 @@ export default async function TutorialPage({ params }: PageProps<"/tutorials/[sl
             <h2 className="font-semibold text-fg">About this video</h2>
             <p className="mt-2">
               Recorded in the live Scene Builder on <time dateTime={tutorial.recorded}>{made}</time> by {SITE.author}. Captions are in the player; turn them on with the CC button.
+            </p>
+            <p className="mt-2">
+              On YouTube:{" "}
+              {tutorial.versions.map((v, i) => (
+                <span key={v.lang}>
+                  {i > 0 && " · "}
+                  <a href={youtubeWatchUrl(v.youtube)} target="_blank" rel="noopener" lang={v.lang} className="underline underline-offset-2 hover:text-fg">
+                    {v.label}
+                  </a>
+                </span>
+              ))}
             </p>
             <p className="mt-2 text-xs text-subtle">
               English narration: Chatterbox Turbo by Resemble AI (MIT), in the voice of “A Moment By” by Alba MacKenna from{" "}

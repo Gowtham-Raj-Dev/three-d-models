@@ -6,7 +6,7 @@ import { asset } from "@/lib/asset";
 import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl, SITE } from "@/lib/site";
 import { formatClock } from "@/lib/site-tour";
-import { isoDuration, tutorials, type Tutorial } from "@/lib/tutorials";
+import { isoDuration, tutorials, youtubeEmbedUrl, type Tutorial } from "@/lib/tutorials";
 
 const DESCRIPTION =
   "Step-by-step video tutorials for the free 3D Scene Builder: watch a scene being built from an empty plot — floors, fences, animated characters, lights — with chapters, written steps and captions, then build it yourself.";
@@ -74,6 +74,7 @@ export default function TutorialsPage() {
         description: t.description,
         thumbnailUrl: absoluteUrl(t.poster),
         contentUrl: absoluteUrl(t.hd),
+        embedUrl: youtubeEmbedUrl(t.versions[0].youtube),
         uploadDate: `${t.recorded}T12:00:00+05:30`,
         duration: isoDuration(t.seconds),
       },

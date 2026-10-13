@@ -5,8 +5,10 @@
  * The videos are made with scripts/tutorial (voice.mjs → record.mjs → finish.mjs): the script drives
  * the live builder and records it; finish.mjs writes the files in /public/tutorials/<slug>/ and the
  * timings (length, chapters, transcript) in src/data/tutorials/<slug>.json. What is written here is
- * the page's own text. To add a tutorial: write scripts/tutorial/<slug>.mjs, run the three scripts,
- * add an entry below — the sitemap picks it up from this list.
+ * the page's own text. The page plays each language from YouTube (`youtube` on its version): the
+ * upload is the same recording, so the chapter and transcript times hold. To add a tutorial: write
+ * scripts/tutorial/<slug>.mjs, run the three scripts, upload the videos, add an entry below — the
+ * sitemap picks it up from this list.
  */
 import hauntedBackyard from "@/data/tutorials/haunted-backyard.json";
 import hauntedBackyardTamil from "@/data/tutorials/haunted-backyard-ta.json";
@@ -24,6 +26,8 @@ export interface TutorialVersion {
   lang: "en" | "ta";
   /** The language's own name, on the switch above the player. */
   label: string;
+  /** The YouTube video id: the page plays the video from YouTube (the same recording as the files below). */
+  youtube: string;
   hd: string;
   sd: string;
   captions: string;
@@ -90,8 +94,8 @@ export const tutorials: Tutorial[] = [
     ...files("haunted-backyard"),
     ...hauntedBackyard,
     versions: [
-      { lang: "en", label: "English", ...files("haunted-backyard"), ...hauntedBackyard },
-      { lang: "ta", label: "தமிழ்", ...files("haunted-backyard-ta"), ...hauntedBackyardTamil },
+      { lang: "en", label: "English", youtube: "Orhfd5NyTFU", ...files("haunted-backyard"), ...hauntedBackyard },
+      { lang: "ta", label: "தமிழ்", youtube: "jHY_zywvs-M", ...files("haunted-backyard-ta"), ...hauntedBackyardTamil },
     ],
     steps: [
       {
@@ -146,6 +150,9 @@ export const tutorials: Tutorial[] = [
 export function getTutorial(slug: string) {
   return tutorials.find((t) => t.slug === slug);
 }
+
+export const youtubeWatchUrl = (id: string) => `https://www.youtube.com/watch?v=${id}`;
+export const youtubeEmbedUrl = (id: string) => `https://www.youtube.com/embed/${id}`;
 
 /** 351 → "PT5M51S" (schema.org durations). */
 export function isoDuration(seconds: number) {
