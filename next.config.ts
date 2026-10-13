@@ -31,7 +31,9 @@ const nextConfig: NextConfig = {
   // A static export can't set headers or redirect (its host has to), so only the App Hosting server build does.
   ...(appHosting && {
     // The games moved to their own site: /games/skate-rush/ is now games.codelove.in/skate-rush/.
+    // Their files (covers, trailers…) kept the /games/ folder there and take no trailing slash, so they go first.
     redirects: async () => [
+      { source: "/games/:file(.+\\.[a-zA-Z0-9]+)", destination: "https://games.codelove.in/games/:file", permanent: true },
       { source: "/games", destination: "https://games.codelove.in/", permanent: true },
       { source: "/games/:path*", destination: "https://games.codelove.in/:path*/", permanent: true },
     ],
