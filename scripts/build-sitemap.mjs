@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
- * Writes public/sitemap.xml: every page search engines should index (home, categories, collections, tutorials, models
+ * Writes src/data/sitemap.xml: every page search engines should index (home, categories, collections, tutorials, models
  * and the about / contact / policy pages), each with its preview image. Reads the same catalog the
  * site renders, so new models are listed on their own — it runs before every `next build` (prebuild), or
  * by hand with `npm run sitemap`. A new page with a fixed address is not found by itself: add it to `pages` below.
+ * src/app/sitemap.xml/route.ts serves it. Not from public/: App Hosting serves public files with a 1980
+ * Last-Modified and a size-only ETag, so Google kept getting "304 Not Modified" and never re-read it.
  * public/robots.txt is a plain file: edit it directly.
  */
 import esbuild from "esbuild";
@@ -13,7 +15,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = path.join(ROOT, "public/sitemap.xml");
+const OUT = path.join(ROOT, "src/data/sitemap.xml");
 
 async function siteData() {
   const r = await esbuild.build({
@@ -99,4 +101,4 @@ const xml = [
 ].join("\n");
 
 fs.writeFileSync(OUT, xml);
-console.log(`build-sitemap: ${pages.length} URLs → public/sitemap.xml (${(Buffer.byteLength(xml) / 1024 / 1024).toFixed(2)} MB)`);
+console.log(`build-sitemap: ${pages.length} URLs → src/data/sitemap.xml (${(Buffer.byteLength(xml) / 1024 / 1024).toFixed(2)} MB)`);
