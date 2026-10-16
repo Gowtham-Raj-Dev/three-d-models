@@ -6,6 +6,8 @@ import { ContactShadows, Environment, Lightformer, OrbitControls, useGLTF } from
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three/examples/jsm/controls/OrbitControls.js";
+import { asset } from "@/lib/asset";
+import { configureGLTFLoader } from "@/lib/gltf-load";
 import { recordRestPose, retarget } from "@/lib/retarget";
 
 export interface SceneProps {
@@ -55,7 +57,10 @@ function EmbeddedClipPlayer({
 }
 
 function ExternalClipPlayer({ url, root, mixer }: { url: string; root: THREE.Object3D; mixer: THREE.AnimationMixer }) {
-  const { animations } = useGLTF(url, false, true);
+  const gl = useThree((s) => s.gl);
+  const { animations } = useGLTF(url, asset("/decoders/draco/"), true, (loader) => {
+    configureGLTFLoader(loader, gl);
+  });
   const clip = useMemo(() => (animations[0] ? retarget(animations[0], root) : null), [animations, root]);
 
   useEffect(() => {
@@ -157,7 +162,10 @@ function Model({
   azimuth = 0,
   onLoaded,
 }: Pick<SceneProps, "url" | "animationUrl" | "playing" | "wireframe" | "skeleton" | "resetKey" | "azimuth" | "onLoaded">) {
-  const gltf = useGLTF(url, false, true);
+  const gl = useThree((s) => s.gl);
+  const gltf = useGLTF(url, asset("/decoders/draco/"), true, (loader) => {
+    configureGLTFLoader(loader, gl);
+  });
   const get = useThree((s) => s.get);
   // Subscribed only so framing re-runs once OrbitControls registers itself.
   const controls = useThree((s) => s.controls);
@@ -225,7 +233,11 @@ export function Studio() {
 export default function Scene({ interactive = true, autoRotate, paused = false, ...props }: SceneProps) {
   // Fetch the clip in parallel with the model instead of after it.
   useEffect(() => {
-    if (props.animationUrl) useGLTF.preload(props.animationUrl, false, true);
+    if (props.animationUrl) {
+      useGLTF.preload(props.animationUrl, asset("/decoders/draco/"), true, (loader) => {
+        configureGLTFLoader(loader);
+      });
+    }
   }, [props.animationUrl]);
 
   return (

@@ -10,6 +10,7 @@ const COLUMNS = [
       { href: "/models/", label: "All models" },
       { href: "/models/category/god-of-war/", label: "God of War" },
       { href: "/models/category/skeletons/", label: "Skeletons" },
+      { href: "/models/category/ghosts/", label: "Ghosts" },
       { href: "/models/category/bikes/", label: "Bikes" },
       { href: "/models/category/gaming/", label: "Gaming" },
       { href: "/models/category/characters/", label: "Characters" },

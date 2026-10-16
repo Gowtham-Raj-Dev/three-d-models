@@ -8,7 +8,7 @@ import type { Category } from "@/lib/catalog";
 import type { Part, PartsIndex } from "@/lib/builder/types";
 
 // Same order as CATEGORIES in lib/catalog (not imported: that module pulls the whole library into the client bundle).
-const CATEGORY_ORDER: Category[] = ["Characters", "Animals", "Vehicles", "Buildings", "Furniture", "Food", "Nature", "Trees", "Space", "Weapons", "Skeletons", "Bikes", "Gaming", "Hair", "God of War", "Props"];
+const CATEGORY_ORDER: Category[] = ["Characters", "Animals", "Vehicles", "Buildings", "Furniture", "Food", "Nature", "Trees", "Space", "Weapons", "Skeletons", "Ghosts", "Bikes", "Gaming", "Hair", "God of War", "Props"];
 
 /** Kits that work well for outdoor scenes, one click away. */
 const QUICK_KITS: { key: string; label: string }[] = [

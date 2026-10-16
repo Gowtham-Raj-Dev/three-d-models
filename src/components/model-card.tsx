@@ -7,6 +7,7 @@ const GLOW: Record<Category, string> = {
   "God of War": "from-red-600/30",
   Hair: "from-amber-400/25",
   Skeletons: "from-cyan-400/20",
+  Ghosts: "from-sky-300/25",
   Bikes: "from-emerald-400/20",
   Gaming: "from-purple-500/25",
   Characters: "from-violet-500/20",

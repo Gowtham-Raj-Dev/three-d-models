@@ -9,15 +9,47 @@ import type { GltfJson } from "@/lib/glb";
 let draco: DRACOLoader | null = null;
 let ktx2: KTX2Loader | null = null;
 
+export function getDRACOLoader(): DRACOLoader {
+  draco ??= new DRACOLoader().setDecoderPath(asset("/decoders/draco/"));
+  return draco;
+}
+
+export function getKTX2Loader(renderer?: THREE.WebGLRenderer): KTX2Loader {
+  ktx2 ??= new KTX2Loader().setTranscoderPath(asset("/decoders/basis/"));
+  if (renderer) {
+    ktx2.detectSupport(renderer);
+  } else if (!ktx2.workerConfig && typeof window !== "undefined") {
+    try {
+      const canvas = document.createElement("canvas");
+      const tempRenderer = new THREE.WebGLRenderer({ canvas });
+      ktx2.detectSupport(tempRenderer);
+      tempRenderer.dispose();
+    } catch {
+      // Fallback silently if WebGL context can't be created outside canvas
+    }
+  }
+  return ktx2;
+}
+
+export interface ConfigurableGLTFLoader {
+  setDRACOLoader(dracoLoader: any): this;
+  setKTX2Loader(ktx2Loader: any): this;
+  setMeshoptDecoder(meshoptDecoder: any): this;
+}
+
+export function configureGLTFLoader<T extends ConfigurableGLTFLoader>(loader: T, renderer?: THREE.WebGLRenderer): T {
+  loader.setDRACOLoader(getDRACOLoader());
+  loader.setKTX2Loader(getKTX2Loader(renderer));
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  return loader;
+}
+
 /**
  * Parses a GLB held in memory. Handles every compression the web commonly uses: meshopt (bundled),
  * Draco and KTX2/Basis (decoders in /public/decoders, fetched only when a file needs them).
  */
 export function parseGltf(data: ArrayBuffer, renderer: THREE.WebGLRenderer): Promise<GLTF> {
-  draco ??= new DRACOLoader().setDecoderPath(asset("/decoders/draco/"));
-  ktx2 ??= new KTX2Loader().setTranscoderPath(asset("/decoders/basis/"));
-  ktx2.detectSupport(renderer);
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).setDRACOLoader(draco).setKTX2Loader(ktx2);
+  const loader = configureGLTFLoader(new GLTFLoader(), renderer);
   return loader.parseAsync(data, "");
 }
 

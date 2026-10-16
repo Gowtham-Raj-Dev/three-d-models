@@ -80882,6 +80882,373 @@
    }
   },
   {
+   "id": "ghosts-blood-stained-spirit",
+   "slug": "ghosts-blood-stained-spirit",
+   "title": "Blood-Stained Spirit",
+   "source": "cc-by",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/blood-stained-spirit.glb",
+   "glbBytes": 377992,
+   "thumb": {
+    "src": "/library/ghosts/blood-stained-spirit.webp",
+    "width": 155,
+    "height": 600
+   },
+   "stats": {
+    "triangles": 15977,
+    "vertices": 17144,
+    "materials": 1,
+    "textures": 1,
+    "animations": 0,
+    "rigged": false,
+    "size": [
+     0.214,
+     0.999,
+     0.35
+    ]
+   },
+   "credit": {
+    "title": "Horror Ghost Character - Blood Stained Spirit",
+    "author": "adhamasalah",
+    "authorUrl": "https://sketchfab.com/adhamAsalah",
+    "url": "https://sketchfab.com/3d-models/horror-ghost-character-blood-stained-spirit-ed1a90be19404450935720f7abaae471"
+   }
+  },
+  {
+   "id": "ghosts-devitalizer",
+   "slug": "ghosts-devitalizer",
+   "title": "Devitalizer",
+   "source": "cc-by-nd",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/devitalizer.glb",
+   "glbBytes": 1518944,
+   "thumb": {
+    "src": "/library/ghosts/devitalizer.webp",
+    "width": 265,
+    "height": 600
+   },
+   "stats": {
+    "triangles": 26860,
+    "vertices": 80580,
+    "materials": 2,
+    "textures": 3,
+    "animations": 0,
+    "rigged": false,
+    "size": [
+     2.706,
+     5.024,
+     1.826
+    ]
+   },
+   "credit": {
+    "title": "Devitalizer - 3D Horror",
+    "author": "ShaxerTakkuY",
+    "authorUrl": "https://sketchfab.com/ShaxerTakkuY",
+    "url": "https://sketchfab.com/3d-models/devitalizer-3d-horror-3145f7d46f4445d1a12b04d94b2d0a8d"
+   }
+  },
+  {
+   "id": "ghosts-quaternius-ghost",
+   "slug": "ghosts-quaternius-ghost",
+   "title": "Ghost",
+   "source": "cc0",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/quaternius-ghost.glb",
+   "glbBytes": 94268,
+   "thumb": {
+    "src": "/library/ghosts/quaternius-ghost.webp",
+    "width": 473,
+    "height": 600
+   },
+   "stats": {
+    "triangles": 3192,
+    "vertices": 1768,
+    "materials": 3,
+    "textures": 0,
+    "animations": 8,
+    "rigged": true,
+    "size": [
+     5.5,
+     3.101,
+     1.236
+    ]
+   }
+  },
+  {
+   "id": "ghosts-polygonal-mind-ghost",
+   "slug": "ghosts-polygonal-mind-ghost",
+   "title": "Ghost Character",
+   "source": "cc0",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/polygonal-mind-ghost.glb",
+   "glbBytes": 91880,
+   "thumb": {
+    "src": "/library/ghosts/polygonal-mind-ghost.webp",
+    "width": 360,
+    "height": 526
+   },
+   "stats": {
+    "triangles": 3468,
+    "vertices": 2668,
+    "materials": 1,
+    "textures": 1,
+    "animations": 0,
+    "rigged": false,
+    "size": [
+     1.315,
+     4.373,
+     4.625
+    ]
+   }
+  },
+  {
+   "id": "ghosts-ghost-lady",
+   "slug": "ghosts-ghost-lady",
+   "title": "Ghost Lady",
+   "source": "cc-by",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/ghost-lady.glb",
+   "glbBytes": 42788,
+   "thumb": {
+    "src": "/library/ghosts/ghost-lady.webp",
+    "width": 434,
+    "height": 600
+   },
+   "stats": {
+    "triangles": 3838,
+    "vertices": 1950,
+    "materials": 1,
+    "textures": 0,
+    "animations": 1,
+    "rigged": false,
+    "size": [
+     0.037,
+     0.057,
+     0.029
+    ]
+   },
+   "credit": {
+    "title": "Ghost Lady",
+    "author": "Kabrolkin",
+    "authorUrl": "https://opengameart.org/users/kabrolkin",
+    "url": "https://opengameart.org/content/ghost-lady-model-untextured"
+   }
+  },
+  {
+   "id": "ghosts-quaternius-ghost-skull",
+   "slug": "ghosts-quaternius-ghost-skull",
+   "title": "Ghost Skull",
+   "source": "cc0",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/quaternius-ghost-skull.glb",
+   "glbBytes": 99948,
+   "thumb": {
+    "src": "/library/ghosts/quaternius-ghost-skull.webp",
+    "width": 478,
+    "height": 574
+   },
+   "stats": {
+    "triangles": 3144,
+    "vertices": 2407,
+    "materials": 2,
+    "textures": 0,
+    "animations": 8,
+    "rigged": true,
+    "size": [
+     5.5,
+     3.101,
+     1.534
+    ]
+   }
+  },
+  {
+   "id": "ghosts-hooded-horror-woman",
+   "slug": "ghosts-hooded-horror-woman",
+   "title": "Hooded Horror Woman",
+   "source": "cc-by",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/hooded-horror-woman.glb",
+   "glbBytes": 695840,
+   "thumb": {
+    "src": "/library/ghosts/hooded-horror-woman.webp",
+    "width": 243,
+    "height": 600
+   },
+   "stats": {
+    "triangles": 39986,
+    "vertices": 30228,
+    "materials": 1,
+    "textures": 1,
+    "animations": 1,
+    "rigged": true,
+    "size": [
+     0.008,
+     0.017,
+     0.007
+    ]
+   },
+   "credit": {
+    "title": "Terrifying Hooded Horror Woman",
+    "author": "PurplePoint",
+    "authorUrl": "https://sketchfab.com/tyajik",
+    "url": "https://sketchfab.com/3d-models/terrifying-hooded-horror-woman-f59d17be392f4494a5b85d927df48ffd"
+   }
+  },
+  {
+   "id": "ghosts-psx-ghost",
+   "slug": "ghosts-psx-ghost",
+   "title": "PSX Ghost",
+   "source": "cc-by",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/psx-ghost.glb",
+   "glbBytes": 24356,
+   "thumb": {
+    "src": "/library/ghosts/psx-ghost.webp",
+    "width": 395,
+    "height": 542
+   },
+   "stats": {
+    "triangles": 818,
+    "vertices": 963,
+    "materials": 1,
+    "textures": 1,
+    "animations": 0,
+    "rigged": false,
+    "size": [
+     11.158,
+     12.432,
+     7.946
+    ]
+   },
+   "credit": {
+    "title": "psx ghost",
+    "author": "petya-petyavich",
+    "authorUrl": "https://sketchfab.com/petya-petyavich",
+    "url": "https://sketchfab.com/3d-models/psx-ghost-b1151988033c4baf82c3510dcd0f78a6"
+   }
+  },
+  {
+   "id": "ghosts-psx-snatcher",
+   "slug": "ghosts-psx-snatcher",
+   "title": "PSX Snatcher",
+   "source": "cc-by",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/psx-snatcher.glb",
+   "glbBytes": 305516,
+   "thumb": {
+    "src": "/library/ghosts/psx-snatcher.webp",
+    "width": 249,
+    "height": 600
+   },
+   "stats": {
+    "triangles": 3922,
+    "vertices": 2720,
+    "materials": 1,
+    "textures": 1,
+    "animations": 1,
+    "rigged": true,
+    "size": [
+     0.005,
+     0.002,
+     0.01
+    ]
+   },
+   "credit": {
+    "title": "PSX Snatcher - Low Poly Horror",
+    "author": "PolyGoreStudio",
+    "authorUrl": "https://sketchfab.com/Phu.99",
+    "url": "https://sketchfab.com/3d-models/psx-snatcher-low-poly-horror-d21dc0fbad3146db97fc490a74e29188"
+   }
+  },
+  {
+   "id": "ghosts-smiley-horror-monster",
+   "slug": "ghosts-smiley-horror-monster",
+   "title": "Smiley Horror Monster",
+   "source": "cc-by",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/smiley-horror-monster.glb",
+   "glbBytes": 771016,
+   "thumb": {
+    "src": "/library/ghosts/smiley-horror-monster.webp",
+    "width": 480,
+    "height": 441
+   },
+   "stats": {
+    "triangles": 23820,
+    "vertices": 13205,
+    "materials": 1,
+    "textures": 3,
+    "animations": 1,
+    "rigged": true,
+    "size": [
+     86.765,
+     117.614,
+     118.299
+    ]
+   },
+   "credit": {
+    "title": "Smily horror monster",
+    "author": "Bento",
+    "authorUrl": "https://sketchfab.com/gostbento",
+    "url": "https://sketchfab.com/3d-models/smily-horror-monster-3d3fc31eddaa409a8f2df564823154e1"
+   }
+  },
+  {
+   "id": "ghosts-human-deer",
+   "slug": "ghosts-human-deer",
+   "title": "The Human Deer",
+   "source": "cc-by",
+   "collection": "Ghosts",
+   "collectionKey": "ghosts",
+   "category": "Ghosts",
+   "glb": "/library/ghosts/human-deer.glb",
+   "glbBytes": 3063632,
+   "thumb": {
+    "src": "/library/ghosts/human-deer.webp",
+    "width": 338,
+    "height": 554
+   },
+   "stats": {
+    "triangles": 44962,
+    "vertices": 29984,
+    "materials": 4,
+    "textures": 12,
+    "animations": 1,
+    "rigged": true,
+    "size": [
+     1.75,
+     5.992,
+     7.448
+    ]
+   },
+   "credit": {
+    "title": "The Human Deer",
+    "author": "ceeleste",
+    "authorUrl": "https://sketchfab.com/ceeleste",
+    "url": "https://sketchfab.com/3d-models/the-human-deer-7644694337404bb18eb68e6b637740a1"
+   }
+  },
+  {
    "id": "god-of-war-blade-of-olympus",
    "slug": "god-of-war-blade-of-olympus",
    "title": "Blade of Olympus",

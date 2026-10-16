@@ -8,6 +8,7 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import type { OrbitControls as OrbitControlsImpl } from "three/examples/jsm/controls/OrbitControls.js";
 import { asset } from "@/lib/asset";
+import { configureGLTFLoader } from "@/lib/gltf-load";
 import { MotionSampler, motionClip, spliceClips } from "@/lib/builder/motion";
 import { recordRestPose, retarget } from "@/lib/retarget";
 import { defaultClip, ENVIRONMENTS, GROUNDS, type EnvKey, type Motion, type Part, type PartsIndex, type SceneDoc, type SceneItem, type Vec3 } from "@/lib/builder/types";
@@ -371,7 +372,10 @@ function WithClip({ source, root, children }: { source: ClipSource; root: THREE.
 
 /** A Biped clip lives in its own file and is rescaled to the avatar first. */
 function RemoteClip({ url, root, children }: { url: string; root: THREE.Object3D; children: (clip: THREE.AnimationClip | null) => ReactNode }) {
-  const { animations } = useGLTF(url, false, true);
+  const gl = useThree((s) => s.gl);
+  const { animations } = useGLTF(url, asset("/decoders/draco/"), true, (loader) => {
+    configureGLTFLoader(loader, gl);
+  });
   const clip = useMemo(() => (animations[0] ? retarget(animations[0], root) : null), [animations, root]);
   return <>{children(clip)}</>;
 }
@@ -407,7 +411,10 @@ function ModelInstance({
   clips: PartsIndex["clips"];
   onClips: (glb: string, names: string[]) => void;
 }) {
-  const gltf = useGLTF(asset(item.glb!), false, true);
+  const gl = useThree((s) => s.gl);
+  const gltf = useGLTF(asset(item.glb!), asset("/decoders/draco/"), true, (loader) => {
+    configureGLTFLoader(loader, gl);
+  });
   const root = useMemo(() => prepareInstance(gltf.scene), [gltf.scene]);
   const names = useMemo(() => gltf.animations.map((a) => a.name), [gltf.animations]);
 
@@ -649,7 +656,10 @@ function Ghost({ placing, groupRef }: { placing: Placing; groupRef: RefObject<TH
 }
 
 function GhostModel({ glb }: { glb: string }) {
-  const gltf = useGLTF(asset(glb), false, true);
+  const gl = useThree((s) => s.gl);
+  const gltf = useGLTF(asset(glb), asset("/decoders/draco/"), true, (loader) => {
+    configureGLTFLoader(loader, gl);
+  });
   const { root, materials } = useMemo(() => {
     const root = cloneSkinned(gltf.scene);
     const materials: THREE.Material[] = [];

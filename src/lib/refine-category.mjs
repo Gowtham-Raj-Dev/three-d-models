@@ -49,6 +49,11 @@ export function refineCategory(m) {
     return "Skeletons";
   }
 
+  // 2b. Ghosts (not the Ghost Ship)
+  if (m.collectionKey === "ghosts" || (/\bghost\b/i.test(m.title) && !/\bship\b/i.test(m.title))) {
+    return "Ghosts";
+  }
+
   // 3. Bikes, Motorcycles & Karts
   if (
     m.collectionKey === "bikes" ||

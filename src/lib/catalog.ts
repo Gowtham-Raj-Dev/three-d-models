@@ -22,6 +22,7 @@ export type Category =
   | "Weapons"
   | "God of War"
   | "Skeletons"
+  | "Ghosts"
   | "Bikes"
   | "Gaming"
   | "Hair"
@@ -42,6 +43,7 @@ export const CATEGORIES: Category[] = [
   "Space",
   "Weapons",
   "Skeletons",
+  "Ghosts",
   "Bikes",
   "Gaming",
   "Hair",
@@ -64,6 +66,11 @@ export const CATEGORY_INFO: Record<Category, { singular: string; blurb: string; 
     singular: "skeleton",
     blurb: "Undead skeleton warriors, mages, rogues and dungeon armaments",
     keywords: ["skeleton 3D model", "rigged skeleton warrior", "undead 3D model", "skeleton mage 3D model", "free skeleton GLB"],
+  },
+  Ghosts: {
+    singular: "ghost",
+    blurb: "Spooky ghosts, haunting spirits and floating phantoms for horror and Halloween games",
+    keywords: ["ghost 3D model", "free ghost 3D model", "low poly ghost GLB", "game ready ghost model", "halloween ghost 3D model", "spirit 3D model"],
   },
   Bikes: {
     singular: "bike",
@@ -503,6 +510,7 @@ const SHOWCASE: Record<Category, string[]> = {
   Hair: ["hair-side-swept-bob", "hair-stylized-hair", "hair-honoka-hair"],
   "God of War": ["god-of-war-kratos", "god-of-war-spartan-warrior", "god-of-war-spartan-archer"],
   Skeletons: ["character-pack-skeletons-Skeleton_Warrior", "character-pack-skeletons-Skeleton_Mage", "character-pack-skeletons-Skeleton_Rogue"],
+  Ghosts: ["ghosts-blood-stained-spirit", "ghosts-hooded-horror-woman", "ghosts-human-deer"],
   Bikes: ["bikes-cyberpunk-motorbike", "bikes-chopper-motorcycle", "bikes-carbon-racing-bike"],
   Gaming: ["gaming-combat-soldier", "mini-arcade-arcade-machine", "gaming-dungeon-war-arena"],
   Characters: ["Business_Male_01", "Female_Adult_01", "Police_Female_01"],
