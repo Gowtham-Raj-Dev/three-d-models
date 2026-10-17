@@ -16,7 +16,16 @@ export const SITE = {
   description:
     "Thousands of free 3D models — rigged characters, animals, cars, buildings, furniture, food, nature, trees and space. Preview in real-time 3D and download GLB in one click, free for personal and commercial use.",
   keywords: [
+    "CodeLove 3D models",
+    "codelove models",
     "free 3D models",
+    "free 3D models download",
+    "free 3D models for Blender",
+    "free 3D models for Unity",
+    "game ready 3D models",
+    "3D models for commercial use",
+    "free GLB download",
+    "Sketchfab alternative",
     "free 3D characters",
     "rigged 3D characters",
     "rigged 3D models",

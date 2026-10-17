@@ -10,7 +10,7 @@ import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl, SITE } from "@/lib/site";
 
 export const metadata = pageMetadata({
-  title: "For Developers & AI Agents — Free 3D Model Catalog, GLB URLs, llms.txt",
+  title: "3D Model API for Developers & AI Agents",
   description: `Use ${formatNumber(models.length)} free 3D models in your games, apps and AI tools: direct GLB URLs that load from any site, the whole catalog in one file (llms.txt, llms-full.txt, catalog.json) and three.js code samples.`,
   path: "/developers/",
   keywords: ["free 3D models API", "3D model catalog JSON", "llms.txt", "free GLB models for AI", "three.js free models", "3D assets for AI agents", "free game assets URL"],

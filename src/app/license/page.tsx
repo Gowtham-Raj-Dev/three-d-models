@@ -10,7 +10,7 @@ import { pageMetadata } from "@/lib/seo";
 import { SITE } from "@/lib/site";
 
 export const metadata = pageMetadata({
-  title: "Licensing — Free for Personal & Commercial Use (MIT, CC0, Public Domain, CC BY)",
+  title: "Licensing — Free for Commercial Use",
   description: `Licensing for all ${formatNumber(models.length)} free 3D models: MIT (rigged characters and animations), CC0, public domain and CC BY (hairstyles, credit the author). Commercial use allowed.`,
   path: "/license/",
 });

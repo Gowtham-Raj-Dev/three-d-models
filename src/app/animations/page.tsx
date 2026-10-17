@@ -7,7 +7,7 @@ import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl } from "@/lib/site";
 
 export const metadata = pageMetadata({
-  title: "Free 3D Character Animations (GLB) — Idle, Walk, Run, Dance",
+  title: "Free 3D Character Animations — Walk, Run, Dance",
   description:
     "Free motion clips for rigged 3D characters: idle, look around, talk, thoughtful, wave, cheer, clap, dance, walk and run — each in a female and male version. Preview live in 3D and download as GLB.",
   path: "/animations/",

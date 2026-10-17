@@ -8,7 +8,7 @@ import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl, SITE } from "@/lib/site";
 
 export const metadata = pageMetadata({
-  title: `Free 3D Models — ${formatNumber(models.length)} Characters, Vehicles, Buildings & More (GLB)`,
+  title: `Browse ${formatNumber(models.length)} Free 3D Models (GLB)`,
   description: `Browse ${formatNumber(models.length)} free 3D models: rigged characters, animals, cars, houses, furniture, food, nature, trees and space. Preview in 3D and download as GLB — free for personal and commercial use.`,
   path: "/models/",
 });

@@ -26,6 +26,7 @@ import {
   toCard,
   type ModelEntry,
 } from "@/lib/catalog";
+import { modelFaqs, modelMetaDescription, modelOverview, type ModelContext } from "@/lib/model-content";
 import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl, SITE } from "@/lib/site";
 
@@ -64,7 +65,7 @@ export async function generateMetadata({ params }: PageProps<"/models/[slug]">):
   return {
     ...pageMetadata({
       title: seoTitle(model),
-      description: `${describeModel(model)} Free download for personal and commercial use.`,
+      description: modelMetaDescription(model),
       path: `/models/${model.slug}/`,
       image: { url: model.og, alt: `${model.title} — free 3D model` },
       keywords: seoKeywords(model),
@@ -72,10 +73,15 @@ export async function generateMetadata({ params }: PageProps<"/models/[slug]">):
   };
 }
 
-function structuredData(model: ModelEntry) {
+function structuredData(model: ModelEntry, faqs: { q: string; a: string }[]) {
   const url = absoluteUrl(`/models/${model.slug}/`);
   const src = sourceOf(model);
   return [
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: faqs.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
+    },
     {
       "@context": "https://schema.org",
       "@type": "3DModel",
@@ -179,10 +185,13 @@ export default async function ModelPage({ params }: PageProps<"/models/[slug]">)
   const complete = completePack(model);
   const sizeLabel = model.kind === "human" ? "Height" : "Size (w × h × d)";
   const sizeValue = model.kind === "human" ? `${h.toFixed(2)} m` : `${w.toFixed(2)} × ${h.toFixed(2)} × ${d.toFixed(2)}`;
+  const context: ModelContext = { position: index + 1, collectionCount: siblings.length, animationCount: animations.length };
+  const overview = modelOverview(model, context);
+  const faqs = modelFaqs(model, context);
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-5 sm:px-6 sm:pt-6">
-      <JsonLd data={structuredData(model)} />
+      <JsonLd data={structuredData(model, faqs)} />
       <nav className="mb-4 flex items-center gap-2 text-sm text-subtle sm:mb-5" aria-label="Breadcrumb">
         <Link href="/models/" className="hover:text-fg">
           Models
@@ -365,6 +374,28 @@ export default async function ModelPage({ params }: PageProps<"/models/[slug]">)
       </div>
 
       <CustomizeOverlay glb={model.glb} title={model.title} filename={model.id} note="The original license notice stays embedded in the file." />
+
+      <div className="mt-16 grid gap-8 sm:mt-20 lg:grid-cols-2">
+        <section className="rounded-2xl border border-line bg-surface/60 p-6">
+          <h2 className="text-xl font-semibold tracking-tight">About the {model.title} 3D model</h2>
+          <div className="mt-4 space-y-3 text-sm leading-relaxed text-muted">
+            {overview.map((p) => (
+              <p key={p}>{p}</p>
+            ))}
+          </div>
+        </section>
+        <section className="rounded-2xl border border-line bg-surface/60 p-6">
+          <h2 className="text-xl font-semibold tracking-tight">{model.title}: common questions</h2>
+          <dl className="mt-4 space-y-4 text-sm">
+            {faqs.map((f) => (
+              <div key={f.q}>
+                <dt className="font-medium">{f.q}</dt>
+                <dd className="mt-1 leading-relaxed text-muted">{f.a}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      </div>
 
       {related.length > 0 && (
         <section className="mt-20 sm:mt-24">
