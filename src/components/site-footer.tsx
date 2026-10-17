@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/site-header";
 import { asset } from "@/lib/asset";
-import { CODELOVE, SITE } from "@/lib/site";
+import { CODELOVE, CODELOVE_GUIDES, SITE } from "@/lib/site";
 
 const COLUMNS = [
   {
@@ -68,12 +68,23 @@ export function SiteFooter() {
         ))}
         {/* The main CodeLove site and its other tools. On phones the group spans the footer as a row of links. */}
         <div className="col-span-2 md:col-span-1">
-          <h2 className={heading}>More from {CODELOVE.name}</h2>
+          <h2 className={heading}>{CODELOVE.name} network</h2>
           <ul className="flex flex-wrap gap-x-5 gap-y-2.5 text-sm text-muted md:block md:space-y-2.5">
-            {[{ name: `${CODELOVE.name} home`, url: CODELOVE.url }, ...CODELOVE.tools].map((site) => (
+            {[{ name: CODELOVE.name, url: CODELOVE.url }, ...CODELOVE.tools].map((site) => (
               <li key={site.url}>
                 <a href={site.url} className="transition-colors hover:text-fg">
                   {site.name}
+                </a>
+              </li>
+            ))}
+          </ul>
+          {/* Guides on the main site for using the models. */}
+          <h2 className={`${heading} mt-8`}>Guides</h2>
+          <ul className="flex flex-wrap gap-x-5 gap-y-2.5 text-sm text-muted md:block md:space-y-2.5">
+            {Object.values(CODELOVE_GUIDES).map((guide) => (
+              <li key={guide.url}>
+                <a href={guide.url} className="transition-colors hover:text-fg">
+                  {guide.name}
                 </a>
               </li>
             ))}

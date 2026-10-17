@@ -71,12 +71,18 @@ export const CODELOVE = {
   name: "CodeLove",
   url: "https://codelove.in",
   tools: [
-    { name: "3D Games", url: GAMES_SITE.url },
-    { name: "Downloader", url: "https://downloader.codelove.in" },
+    { name: "Free 3D Games", url: GAMES_SITE.url },
+    { name: "Instagram & Pinterest Downloader", url: "https://downloader.codelove.in" },
     { name: "Link in Bio", url: "https://linkinbio.codelove.in" },
     { name: "Video to GIF", url: "https://videotogif.codelove.in" },
     { name: "Video to Images", url: "https://videotoimages.codelove.in" },
   ],
+};
+
+/** Guides on the main CodeLove site about using the files from this one: in the footer and on every model page. */
+export const CODELOVE_GUIDES = {
+  glb: { name: "What is a GLB file?", url: `${CODELOVE.url}/learn/guide/what-is-a-glb-file` },
+  freeModels: { name: "How to use free 3D models", url: `${CODELOVE.url}/learn/guide/how-to-use-free-3d-models` },
 };
 
 /** Credit line on every game: in the game itself, on its page and in its metadata. */

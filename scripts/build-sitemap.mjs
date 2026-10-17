@@ -74,16 +74,9 @@ const esc = (s) =>
 // Date only, so rebuilding on the same day leaves the file unchanged.
 const today = new Date().toISOString().slice(0, 10);
 
-// How often each kind of page changes and how it ranks against the site's other pages.
-function hints(p) {
-  if (p === "/") return { changefreq: "daily", priority: 1 };
-  if (p === "/models/") return { changefreq: "daily", priority: 0.9 };
-  if (p.startsWith("/models/category/") || p.startsWith("/models/collection/")) return { changefreq: "weekly", priority: 0.8 };
-  if (p.startsWith("/models/")) return { changefreq: "monthly", priority: 0.6 };
-  if (p.startsWith("/tutorials/")) return { changefreq: "monthly", priority: 0.7 };
-  if (["/license/", "/privacy/", "/terms/", "/contact/"].includes(p)) return { changefreq: "yearly", priority: 0.3 };
-  return { changefreq: "weekly", priority: 0.7 };
-}
+// The site is rebuilt and updated often, so every page is marked as changing daily and equally important.
+const CHANGEFREQ = "daily";
+const PRIORITY = "1.0";
 
 // Standard sitemap order: <loc>, <lastmod>, <changefreq>, <priority>, then extension tags like <image:image> last (the sitemap schema requires it).
 const urls = pages.map(({ path: p, images = [] }) =>
@@ -91,8 +84,8 @@ const urls = pages.map(({ path: p, images = [] }) =>
     "  <url>",
     `    <loc>${esc(absoluteUrl(p))}</loc>`,
     `    <lastmod>${today}</lastmod>`,
-    `    <changefreq>${hints(p).changefreq}</changefreq>`,
-    `    <priority>${hints(p).priority.toFixed(1)}</priority>`,
+    `    <changefreq>${CHANGEFREQ}</changefreq>`,
+    `    <priority>${PRIORITY}</priority>`,
     ...images.map((src) => `    <image:image><image:loc>${esc(absoluteUrl(src))}</image:loc></image:image>`),
     "  </url>",
   ].join("\n"),

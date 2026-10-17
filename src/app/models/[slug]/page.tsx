@@ -28,7 +28,7 @@ import {
 } from "@/lib/catalog";
 import { modelFaqs, modelMetaDescription, modelOverview, type ModelContext } from "@/lib/model-content";
 import { pageMetadata } from "@/lib/seo";
-import { absoluteUrl, SITE } from "@/lib/site";
+import { absoluteUrl, CODELOVE_GUIDES, SITE } from "@/lib/site";
 
 export const dynamicParams = false;
 
@@ -285,6 +285,10 @@ export default async function ModelPage({ params }: PageProps<"/models/[slug]">)
               <Link href="/packs/" className="text-muted underline underline-offset-2 hover:text-fg">
                 Browse all packs
               </Link>
+              {" · "}New to the format?{" "}
+              <a href={CODELOVE_GUIDES.glb.url} className="text-muted underline underline-offset-2 hover:text-fg">
+                {CODELOVE_GUIDES.glb.name}
+              </a>
             </p>
             <ul className="mt-5 space-y-2.5 border-t border-line pt-5 text-sm text-muted">
               {included.map((item) => (

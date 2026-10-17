@@ -1,5 +1,6 @@
 # robots.txt for https://models.codelove.in
 # Every page is open to search engines. The sitemap lists them all (made by scripts/build-sitemap.mjs on every build).
+# The site is updated often (new models are added regularly) and all pages are open to crawl.
 
 User-agent: *
 Allow: /
