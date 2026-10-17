@@ -282,6 +282,11 @@ the GitHub repo, so every push to `main` builds and rolls out the site (~10–15
   `next.config.ts` then skips `output: "export"` (a static export fails there with
   `.next/standalone/.next/routes-manifest.json` not found).
 - `apphosting.yaml` scales to zero when idle and caps the backend at 4 instances (1 GiB each).
+- Keeping the bill low: every push builds a new 2–3 GB container image in Artifact Registry, and old images are not
+  deleted on their own. Keep the cleanup policy on (Cloud Console → Artifact Registry → the App Hosting repository →
+  Cleanup policies: keep the 2 most recent versions), and batch changes into one push instead of many small ones.
+  `scripts/prune-server-assets.mjs` drops `public/games` from the image, and `next.config.ts` gives models, clips and
+  thumbnails long cache headers so the CDN serves them instead of Cloud Run.
 - The project is on the Blaze plan (pay as you go, after the monthly no-cost amounts).
 - Custom domain: App Hosting → `three-d-models` → Settings → Domains → add `models.codelove.in`, then add the records
   Firebase shows at the DNS provider for `codelove.in` (replacing the Vercel CNAME).
