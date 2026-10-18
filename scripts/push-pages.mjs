@@ -6,7 +6,8 @@
  *
  *   npm run pages:push                          → all three repos
  *   npm run pages:push -- repo-models           → just that one
- *   npm run pages:push -- --fresh               → drop the old history first (keeps the repos small)
+ *   npm run pages:push -- --fresh               → drop the old history first (keeps the repos small); the site
+ *                                                 has only part of its files until the last batch is up
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

@@ -11,7 +11,8 @@
  * domain at /<repo-name>/, so the URLs stay exactly as they are today. Only repo-main gets the CNAME.
  *
  * All three must be pushed from the same build: the model pages load their JS from /_next/ in repo-main,
- * and those file names change on every build.
+ * and those file names change on every build. Push repo-main first (pages:push does), since it also keeps
+ * the previous builds' chunks.
  *
  * Run after `npm run build`:  npm run pages:split
  */
@@ -35,11 +36,11 @@ if (!fs.existsSync(path.join(OUT, "index.html"))) {
   process.exit(1);
 }
 
-/** Empties a repo folder but keeps its .git, so it stays the same local clone between builds. */
-function reset(dir) {
+/** Empties a repo folder but keeps its .git (and any names in `keep`), so it stays the same local clone between builds. */
+function reset(dir, keep = []) {
   fs.mkdirSync(dir, { recursive: true });
   for (const name of fs.readdirSync(dir)) {
-    if (name !== ".git") fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+    if (name !== ".git" && !keep.includes(name)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
   }
 }
 
@@ -55,7 +56,9 @@ function size(dir) {
 }
 
 const main = path.resolve("repo-main");
-reset(main);
+// Old builds' /_next/ chunks stay: repo-main goes up first, and until repo-models follows, the live model pages
+// still load the previous build's chunks. They are a few MB per build.
+reset(main, ["_next"]);
 for (const name of fs.readdirSync(OUT)) {
   if (name in REPOS || DROPPED.has(name)) continue;
   fs.cpSync(path.join(OUT, name), path.join(main, name), { recursive: true });
