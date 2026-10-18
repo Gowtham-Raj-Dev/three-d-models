@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowDownToLine, Copy, Crosshair, Dices, ExternalLink, Eye, EyeOff, Grid3x3, Lock, LockOpen, Sparkles, Trash2 } from "lucide-react";
 import { Dropdown } from "@/components/dropdown";
+import { asset } from "@/lib/asset";
 import { NumberField, PanelSection, Segmented, Toggle } from "@/components/builder/controls";
 import { defaultClip, ENVIRONMENTS, GROUNDS, type EnvKey, type GroundKind, type Part, type PartsIndex, type SceneDoc, type SceneItem, type Vec3 } from "@/lib/builder/types";
 
@@ -142,9 +143,9 @@ export function Inspector({
             <span className="truncate">
               {part.collection} · {part.tri.toLocaleString("en-US")} tris
             </span>
-            <Link href={`/models/${part.slug}/`} target="_blank" className="inline-flex shrink-0 items-center gap-1 text-muted hover:text-fg">
+            <a href={asset(`/models/${part.slug}/`)} target="_blank" className="inline-flex shrink-0 items-center gap-1 text-muted hover:text-fg">
               Model page <ExternalLink className="size-3" />
-            </Link>
+            </a>
           </p>
         )}
         <div className="mt-3 grid grid-cols-5 gap-1.5">

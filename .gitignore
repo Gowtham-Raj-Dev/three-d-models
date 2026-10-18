@@ -21,6 +21,11 @@
 # production
 /build
 
+# GitHub Pages: each folder is its own clone of a separate repo (npm run pages:split)
+/repo-main/
+/repo-library/
+/repo-models/
+
 # Rocketbox source checkout (several GB) and model build cache — regenerate with
 # `npm run models:fetch && npm run models:build`. The converted web assets in
 # public/models, public/thumbs and public/animations ARE committed.

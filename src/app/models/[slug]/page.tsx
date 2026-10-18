@@ -225,15 +225,15 @@ export default async function ModelPage({ params }: PageProps<"/models/[slug]">)
           </div>
           {siblings.length > 1 && (
             <div className="mt-3 flex items-center justify-between gap-2 text-sm">
-              <Link href={`/models/${prev.slug}/`} className="inline-flex min-w-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-muted hover:bg-white/[0.05] hover:text-fg">
+              <a href={asset(`/models/${prev.slug}/`)} className="inline-flex min-w-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-muted hover:bg-white/[0.05] hover:text-fg">
                 <ChevronLeft className="size-4 shrink-0" /> <span className="truncate">{prev.title}</span>
-              </Link>
+              </a>
               <span className="hidden text-xs text-subtle sm:block">
                 {index + 1} / {siblings.length} in {collection.name}
               </span>
-              <Link href={`/models/${next.slug}/`} className="inline-flex min-w-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-muted hover:bg-white/[0.05] hover:text-fg">
+              <a href={asset(`/models/${next.slug}/`)} className="inline-flex min-w-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-muted hover:bg-white/[0.05] hover:text-fg">
                 <span className="truncate">{next.title}</span> <ChevronRight className="size-4 shrink-0" />
-              </Link>
+              </a>
             </div>
           )}
         </div>

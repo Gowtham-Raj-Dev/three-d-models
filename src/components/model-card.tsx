@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { asset } from "@/lib/asset";
 import type { CardModel, Category } from "@/lib/catalog";
@@ -27,10 +26,12 @@ function fileSize(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// Model pages are plain links: on GitHub Pages they live in their own repo without the router's .txt payloads
+// (6,800 pages × 5 files would not fit under the 1 GB limit), so the browser loads the HTML page directly.
 export function ModelCard({ model, priority = false }: { model: CardModel; priority?: boolean }) {
   return (
-    <Link
-      href={`/models/${model.slug}/`}
+    <a
+      href={asset(`/models/${model.slug}/`)}
       className="group relative flex flex-col overflow-hidden rounded-2xl border border-line bg-surface transition duration-300 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[0_24px_60px_-24px_rgb(139_92_246/0.5)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
       <div className="relative aspect-[4/5] overflow-hidden bg-[radial-gradient(ellipse_at_50%_40%,#1a1726_0%,#0d0d13_70%)]">
@@ -60,6 +61,6 @@ export function ModelCard({ model, priority = false }: { model: CardModel; prior
           <span className="rounded-full border border-line px-2 py-0.5">GLB · {fileSize(model.glbBytes)}</span>
         </div>
       </div>
-    </Link>
+    </a>
   );
 }

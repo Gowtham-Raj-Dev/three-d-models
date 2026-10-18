@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { ModelViewer, type ViewerAnimation } from "@/components/viewer/model-viewer";
@@ -70,14 +69,14 @@ export function HeroShowcase({ items }: { items: HeroItem[] }) {
             </button>
           ))}
         </div>
-        <Link
-          href={`/models/${item.slug}/`}
+        <a
+          href={asset(`/models/${item.slug}/`)}
           className="group inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-fg"
         >
           <span className="text-fg">{item.title}</span>
           {item.clipLabel && <span className="text-subtle">· {item.clipLabel}</span>}
           <ArrowUpRight className="size-4 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-        </Link>
+        </a>
       </div>
     </div>
   );

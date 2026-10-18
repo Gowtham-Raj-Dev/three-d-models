@@ -6,6 +6,7 @@ import { JsonLd } from "@/components/json-ld";
 import { ModelCard } from "@/components/model-card";
 import { button, Eyebrow } from "@/components/ui";
 import { allCollections, CATEGORY_INFO, categorySlug, formatBytes, formatNumber, getCollection, SOURCES, toCard } from "@/lib/catalog";
+import { asset } from "@/lib/asset";
 import { pageMetadata } from "@/lib/seo";
 import { absoluteUrl } from "@/lib/site";
 
@@ -134,9 +135,9 @@ export default async function CollectionPage({ params }: PageProps<"/models/coll
           <ul className="columns-2 gap-6 text-sm sm:columns-3 lg:columns-4">
             {rest.map((m) => (
               <li key={m.slug} className="break-inside-avoid py-1">
-                <Link href={`/models/${m.slug}/`} className="text-muted hover:text-fg">
+                <a href={asset(`/models/${m.slug}/`)} className="text-muted hover:text-fg">
                   {m.title}
-                </Link>
+                </a>
               </li>
             ))}
           </ul>

@@ -11,6 +11,8 @@
     "build": "next build",
     "postbuild": "node scripts/fix-static-export.mjs",
     "start": "npx serve@latest out",
+    "pages:split": "node scripts/split-pages.mjs",
+    "pages:push": "node scripts/push-pages.mjs",
     "lint": "eslint",
     "sitemap": "node scripts/build-sitemap.mjs",
     "typecheck": "next typegen && tsc --noEmit",
