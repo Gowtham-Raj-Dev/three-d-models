@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HeartButton } from "@/components/heart-button";
 import { Logo } from "@/components/site-header";
 import { asset } from "@/lib/asset";
 import { CODELOVE, CODELOVE_GUIDES, SITE } from "@/lib/site";
@@ -111,15 +112,37 @@ export function SiteFooter() {
             </Link>
           ))}
         </nav>
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 pt-4 pb-6 text-xs leading-relaxed text-subtle sm:px-6 md:flex-row md:justify-between">
-          <p>
-            © {new Date().getFullYear()} {SITE.brand} — site by {SITE.author}. Models are free under the MIT, CC0, public-domain and CC BY licenses —{" "}
-            <Link href="/license/" className="text-muted underline underline-offset-2 hover:text-fg">
-              licensing
-            </Link>
-            .
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 pt-4 pb-6 text-xs leading-relaxed text-subtle sm:px-6 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <p>
+              © {new Date().getFullYear()} {SITE.brand} — site by {SITE.author}. Models are free under the MIT, CC0, public-domain and CC BY licenses —{" "}
+              <Link href="/license/" className="text-muted underline underline-offset-2 hover:text-fg">
+                licensing
+              </Link>
+              .
+            </p>
+            <p>Independent site — not affiliated with or endorsed by any model creator.</p>
+          </div>
+          <p className="inline-flex shrink-0 flex-wrap items-center gap-1.5 text-sm text-muted">
+            Built with <HeartButton /> by{" "}
+            <a
+              href="https://gowtham.codelove.in"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-fg transition-colors hover:text-accent"
+            >
+              Gowtham
+            </a>
+            <span className="hidden text-muted/50 sm:inline">•</span>
+            <a
+              href="https://codelove.in"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-fg transition-colors hover:text-accent"
+            >
+              CodeLove
+            </a>
           </p>
-          <p>Independent site — not affiliated with or endorsed by any model creator.</p>
         </div>
       </div>
     </footer>

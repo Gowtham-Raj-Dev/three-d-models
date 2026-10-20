@@ -24,6 +24,15 @@
   --color-accent: #a78bfa;
   --color-accent-2: #67e8f9;
   --color-ok: #4ade80;
+
+  /* Footer HeartButton: hearts that burst out of the button. */
+  --animate-fly-up: fly-up 2s ease-out forwards;
+
+  @keyframes fly-up {
+    0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+    50% { opacity: 1; }
+    100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1.5) rotate(var(--r)); opacity: 0; }
+  }
 }
 
 html {

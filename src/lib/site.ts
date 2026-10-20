@@ -76,6 +76,8 @@ export const CODELOVE = {
     { name: "Link in Bio", url: "https://linkinbio.codelove.in" },
     { name: "Video to GIF", url: "https://videotogif.codelove.in" },
     { name: "Video to Images", url: "https://videotoimages.codelove.in" },
+    { name: "Free YouTube Automation", url: "https://utubeflow.codelove.in" },
+    { name: "Free Java Games", url: "https://javagames-emu.codelove.in" },
   ],
 };
 
