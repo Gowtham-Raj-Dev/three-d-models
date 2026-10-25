@@ -48,8 +48,8 @@ export function SiteFooter() {
   return (
     <footer className="mt-24 border-t border-line bg-surface/40 sm:mt-32">
       {/* Tablets give the brand its own row: three link columns beside it only fit from lg up. */}
-      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-10 px-4 py-12 sm:px-6 sm:py-14 md:grid-cols-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
-        <div className="col-span-2 space-y-4 md:col-span-3 lg:col-span-1">
+      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-10 px-4 pt-12 sm:px-6 sm:pt-14 lg:grid-cols-[1.6fr_1fr_1fr]">
+        <div className="col-span-2 space-y-4 lg:col-span-1">
           <Logo />
           <p className="max-w-sm text-sm leading-relaxed text-muted">{SITE.description}</p>
         </div>
@@ -67,10 +67,13 @@ export function SiteFooter() {
             </ul>
           </div>
         ))}
-        {/* The main CodeLove site and its other tools. On phones the group spans the footer as a row of links. */}
-        <div className="col-span-2 md:col-span-1">
+      </div>
+      {/* The main CodeLove site and its other tools: a full-width row so it doesn't leave a gap beside one tall column. */}
+      <div className="mx-auto mt-12 grid max-w-7xl gap-10 border-t border-line px-4 pt-8 pb-12 sm:px-6 lg:grid-cols-[1fr_auto] lg:items-start">
+        <div className="grid gap-8">
+          <nav aria-label={`${CODELOVE.name} network`}>
           <h2 className={heading}>{CODELOVE.name} network</h2>
-          <ul className="flex flex-wrap gap-x-5 gap-y-2.5 text-sm text-muted md:block md:space-y-2.5">
+          <ul className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-sm text-muted sm:grid-cols-3 lg:grid-cols-4">
             {[{ name: CODELOVE.name, url: CODELOVE.url }, ...CODELOVE.tools].map((site) => (
               <li key={site.url}>
                 <a href={site.url} className="transition-colors hover:text-fg">
@@ -79,9 +82,11 @@ export function SiteFooter() {
               </li>
             ))}
           </ul>
+          </nav>
           {/* Guides on the main site for using the models. */}
-          <h2 className={`${heading} mt-8`}>Guides</h2>
-          <ul className="flex flex-wrap gap-x-5 gap-y-2.5 text-sm text-muted md:block md:space-y-2.5">
+          <nav aria-label="Guides">
+          <h2 className={heading}>Guides</h2>
+          <ul className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-sm text-muted sm:grid-cols-3 lg:grid-cols-4">
             {Object.values(CODELOVE_GUIDES).map((guide) => (
               <li key={guide.url}>
                 <a href={guide.url} className="transition-colors hover:text-fg">
@@ -90,8 +95,11 @@ export function SiteFooter() {
               </li>
             ))}
           </ul>
-          {/* The parent brand. */}
-          <a href={CODELOVE.url} aria-label={`${CODELOVE.name} — codelove.in`} className="mt-6 block">
+          </nav>
+        </div>
+        {/* The parent brand. */}
+        <div className="max-w-[260px] lg:justify-self-end">
+          <a href={CODELOVE.url} aria-label={`${CODELOVE.name} — codelove.in`} className="block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={asset("/codelove/codelove-footer-on-dark.png")}
@@ -103,7 +111,7 @@ export function SiteFooter() {
             />
           </a>
           {/* What CodeLove is, in one line — same text on every CodeLove site. */}
-          <p className="mt-4 max-w-[260px] text-sm leading-relaxed text-muted">
+          <p className="mt-4 text-sm leading-relaxed text-muted">
             CodeLove makes free web tools, apps and games for creators, students and developers — simple to use, no hidden
             fees.
           </p>
