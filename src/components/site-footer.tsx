@@ -102,6 +102,11 @@ export function SiteFooter() {
               className="h-auto w-full max-w-[235px]"
             />
           </a>
+          {/* What CodeLove is, in one line — same text on every CodeLove site. */}
+          <p className="mt-4 max-w-[260px] text-sm leading-relaxed text-muted">
+            CodeLove makes free web tools, apps and games for creators, students and developers — simple to use, no hidden
+            fees.
+          </p>
         </div>
       </div>
       <div className="border-t border-line">
