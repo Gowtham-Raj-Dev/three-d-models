@@ -103,12 +103,13 @@ const siteJsonLd = [
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      {/* The AdSense loader, on every page once a publisher ID is set. The site has no ad units, so ads show only where Auto ads is switched on in the AdSense account. */}
-      {ADSENSE_CLIENT ? (
-        <head>
+      <head>
+        <link rel="sitemap" type="application/xml" title="Sitemap" href="https://models.codelove.in/sitemap.xml" />
+        {/* The AdSense loader, on every page once a publisher ID is set. The site has no ad units, so ads show only where Auto ads is switched on in the AdSense account. */}
+        {ADSENSE_CLIENT ? (
           <script async src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`} crossOrigin="anonymous" />
-        </head>
-      ) : null}
+        ) : null}
+      </head>
       <body className="flex min-h-full flex-col">
         <JsonLd data={siteJsonLd} />
         <FirebaseAnalytics />

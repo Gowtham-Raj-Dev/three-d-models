@@ -64,7 +64,7 @@ export function HeroShowcase({ items }: { items: HeroItem[] }) {
             >
               {it.thumb && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={asset(it.thumb)} alt="" className="absolute inset-0 h-full w-full object-contain p-1" />
+                <img src={asset(it.thumb)} alt="" width={48} height={64} className="absolute inset-0 h-full w-full object-contain p-1" />
               )}
             </button>
           ))}

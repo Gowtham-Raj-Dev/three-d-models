@@ -54,7 +54,7 @@ export function ModelCard({ model, priority = false }: { model: CardModel; prior
         </span>
       </div>
       <div className="flex flex-1 flex-col gap-0.5 border-t border-line px-4 py-3.5">
-        <h3 className="truncate text-sm font-medium text-fg">{model.title}</h3>
+        <h2 className="truncate text-sm font-medium text-fg">{model.title}</h2>
         <p className="truncate text-xs text-muted">{model.subtitle}</p>
         <div className="mt-2 flex items-center justify-between text-[11px] text-subtle">
           <span>{new Intl.NumberFormat("en-US").format(model.triangles)} tris</span>

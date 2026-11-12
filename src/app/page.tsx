@@ -316,6 +316,8 @@ export default function Home() {
                   <img
                     src={asset(c.model.thumb.src)}
                     alt=""
+                    width={400}
+                    height={300}
                     loading="lazy"
                     className="absolute bottom-0 left-1/2 h-[88%] w-auto max-w-[90%] -translate-x-1/2 object-contain transition duration-500 group-hover:scale-[1.04]"
                   />

@@ -47,7 +47,7 @@ export async function generateMetadata({ params }: PageProps<"/models/category/[
   const count = inCategory(category).length;
   const info = CATEGORY_INFO[category];
   return pageMetadata({
-    title: `Free ${category} 3D Models — ${formatNumber(count)} GLB Downloads`,
+    title: `Free ${category} 3D Models (${formatNumber(count)})`,
     description: `Download ${formatNumber(count)} free ${noun(category)} 3D models: ${info.blurb}. Preview in 3D, download GLB in one click — free for personal and commercial use.`,
     path: `/models/category/${slug}/`,
     image: { url: `/og/category-${slug}.jpg`, alt: `Free ${category} 3D models` },
