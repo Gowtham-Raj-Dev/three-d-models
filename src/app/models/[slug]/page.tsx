@@ -28,7 +28,7 @@ import {
 } from "@/lib/catalog";
 import { modelFaqs, modelMetaDescription, modelOverview, type ModelContext } from "@/lib/model-content";
 import { pageMetadata } from "@/lib/seo";
-import { absoluteUrl, CODELOVE_GUIDES, SITE } from "@/lib/site";
+import { absoluteUrl, CODELOVE, CODELOVE_GUIDES, SITE } from "@/lib/site";
 
 export const dynamicParams = false;
 
@@ -99,7 +99,7 @@ function structuredData(model: ModelEntry, faqs: { q: string; a: string }[]) {
       license: src.licenseUrl,
       ...(model.credit ? { creator: { "@type": "Person", name: model.credit.author, url: model.credit.authorUrl }, isBasedOn: model.credit.url } : {}),
       isPartOf: { "@type": "CollectionPage", name: model.collection, url: absoluteUrl(`/models/collection/${model.collectionKey}/`) },
-      publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
+      publisher: { "@id": `${CODELOVE.url}/#organization` },
       keywords: [model.category, model.collection, model.rigged ? "rigged" : "", "GLB", "glTF"].filter(Boolean).join(", "),
     },
     {

@@ -1,22 +1,45 @@
+import { JsonLd } from "@/components/json-ld";
 import { PackDownloads } from "@/components/pack-downloads";
 import { Eyebrow } from "@/components/ui";
 import { CATEGORY_INFO, formatBytes, formatNumber, packsByCategory } from "@/lib/catalog";
 import { pageMetadata } from "@/lib/seo";
+import { absoluteUrl, CODELOVE, SITE } from "@/lib/site";
 
 const groups = packsByCategory();
 const packCount = groups.reduce((n, g) => n + g.packs.length, 0);
 
 export const metadata = pageMetadata({
-  title: `Free 3D Model Packs — ${packCount} Downloadable Collections (ZIP)`,
+  title: `Free 3D Model Packs — ${packCount} Downloadable GLB Collections (ZIP)`,
   description:
-    "Download whole collections of free 3D models at once: rigged characters, animations, cars, city kits, furniture, food, nature, trees and space packs — each a ZIP with GLB files and the license.",
+    "Download whole collections of free GLB 3D models at once: rigged characters, animations, cars, city kits, furniture, food, nature, trees and space packs — each a ZIP with GLB files and the license.",
   path: "/packs/",
+  keywords: ["free glb models", "free 3d models glb", "free gltf models", "3D model packs ZIP", "rock model b bulk", "low poly 3D packs", "free game asset packs"],
 });
 
 export default function PacksPage() {
   const totalBytes = groups.reduce((n, g) => n + g.packs.reduce((m, p) => m + p.bytes, 0), 0);
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: `Free 3D Model Packs — ${packCount} Collections`,
+      url: absoluteUrl("/packs/"),
+      description: metadata.description,
+      creator: { "@id": `${SITE.authorUrl}/#person` },
+      publisher: { "@id": `${CODELOVE.url}/#organization` },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: absoluteUrl("/") },
+        { "@type": "ListItem", position: 2, name: "Model packs", item: absoluteUrl("/packs/") },
+      ],
+    },
+  ];
   return (
     <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6 sm:pt-12">
+      <JsonLd data={jsonLd} />
       <header className="mb-10 max-w-3xl space-y-3 sm:mb-12">
         <Eyebrow>Bulk download</Eyebrow>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">Model packs</h1>

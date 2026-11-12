@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   applicationName: SITE.name,
   keywords: SITE.keywords,
   category: "technology",
-  authors: [{ name: SITE.author }],
+  authors: [{ name: SITE.author, url: SITE.authorUrl }],
   creator: SITE.author,
   publisher: SITE.brand,
   formatDetection: { telephone: false, email: false, address: false },
@@ -61,17 +61,26 @@ export const viewport: Viewport = {
 
 /** CodeLove's "@id" is on its own domain, so every CodeLove site's structured data names the same publisher. */
 const publisherId = `${CODELOVE.url}/#organization`;
+const personId = `${SITE.authorUrl}/#person`;
 
 const siteJsonLd = [
   {
     "@context": "https://schema.org",
+    "@type": "Person",
+    "@id": personId,
+    name: SITE.author,
+    url: SITE.authorUrl,
+    worksFor: { "@id": publisherId },
+  },
+  {
+    "@context": "https://schema.org",
     "@type": "WebSite",
     name: SITE.brand,
-    alternateName: [SITE.shortName, "CodeLove 3D Models", "CodeLove Models"],
+    alternateName: [SITE.shortName, "CodeLove 3D Models", "CodeLove Models", "Free GLB Models", "Free 3D Models GLB"],
     url: absoluteUrl("/"),
     description: SITE.description,
     inLanguage: "en",
-    creator: { "@type": "Person", name: SITE.author },
+    creator: { "@id": personId },
     publisher: { "@id": publisherId },
     // The gallery reads ?q= from the URL (src/components/model-gallery.tsx), so this search link is real.
     potentialAction: {
@@ -80,7 +89,15 @@ const siteJsonLd = [
       "query-input": "required name=search_term_string",
     },
   },
-  { "@context": "https://schema.org", "@type": "Organization", "@id": publisherId, name: CODELOVE.name, url: CODELOVE.url },
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "@id": publisherId,
+    name: CODELOVE.name,
+    url: CODELOVE.url,
+    founder: { "@id": personId },
+    sameAs: [CODELOVE.url, ...CODELOVE.tools.map((t) => t.url)],
+  },
 ];
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

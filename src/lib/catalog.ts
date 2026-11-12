@@ -60,7 +60,7 @@ export const CATEGORY_INFO: Record<Category, { singular: string; blurb: string; 
   "God of War": {
     singular: "God of War character / warrior",
     blurb: "Kratos, Spartan champions, archers and mythological deities",
-    keywords: ["Kratos 3D model", "God of War 3D model", "Spartan warrior 3D model", "Leviathan Axe 3D model", "Blades of Chaos 3D model", "Greek warrior 3D model"],
+    keywords: ["Kratos 3D model", "kratos ps2 model", "God of War 3D model", "Spartan warrior 3D model", "Leviathan Axe 3D model", "Blades of Chaos 3D model", "Greek warrior 3D model"],
   },
   Skeletons: {
     singular: "skeleton",
@@ -80,12 +80,12 @@ export const CATEGORY_INFO: Record<Category, { singular: string; blurb: string; 
   Gaming: {
     singular: "game asset",
     blurb: "Arcade machines, combat soldiers, battle arenas and RPG loot",
-    keywords: ["game assets 3D", "arcade machine 3D model", "soldier 3D model", "battle arena 3D model", "free game assets GLB"],
+    keywords: ["gaming 3d models", "game assets 3D", "arcade machine 3D model", "soldier 3D model", "soldier.glb", "battle arena 3D model", "free game assets GLB"],
   },
   Characters: {
     singular: "character",
     blurb: "Rigged people, professions and stylized characters",
-    keywords: ["free rigged 3D characters", "3D people models", "3D human model", "rigged character GLB", "3D avatar free", "animated 3D character"],
+    keywords: ["free rigged 3D characters", "glb characters free", "free glb characters", "3D people models", "3D human model", "rigged character GLB", "3D avatar free", "animated 3D character"],
   },
   Animals: {
     singular: "animal",
@@ -95,12 +95,12 @@ export const CATEGORY_INFO: Record<Category, { singular: string; blurb: string; 
   Vehicles: {
     singular: "vehicle",
     blurb: "Cars, trucks, trains, boats and karts",
-    keywords: ["free car 3D models", "vehicle 3D models", "police car 3D model", "truck 3D model", "train 3D model", "low poly car GLB"],
+    keywords: ["free car 3D models", "car glb file free download", "car glb", "vehicle 3D models", "police car 3D model", "truck 3D model", "train 3D model", "low poly car GLB"],
   },
   Buildings: {
     singular: "building",
     blurb: "Houses, city blocks, castles and roads",
-    keywords: ["free building 3D models", "house 3D model", "city 3D model", "castle 3D model", "road tiles 3D", "low poly buildings"],
+    keywords: ["free building 3D models", "building glb", "city glb", "glb restaurant", "house 3D model", "city 3D model", "castle 3D model", "road tiles 3D", "low poly buildings"],
   },
   Furniture: {
     singular: "furniture",
@@ -115,17 +115,17 @@ export const CATEGORY_INFO: Record<Category, { singular: string; blurb: string; 
   Nature: {
     singular: "nature",
     blurb: "Plants, flowers, rocks and terrain",
-    keywords: ["nature 3D models free", "plant 3D model", "rock 3D model", "flower 3D model", "grass 3D model", "low poly nature"],
+    keywords: ["nature 3D models free", "plant 3D model", "rock 3D model", "rock model b bulk", "flower 3D model", "grass 3D model", "low poly nature"],
   },
   Trees: {
     singular: "tree",
     blurb: "Oaks, pines, palms, autumn and snowy trees",
-    keywords: ["free tree 3D models", "palm tree 3D model", "pine tree 3D model", "low poly tree", "tree GLB"],
+    keywords: ["free tree 3D models", "tree glb", "tree glb model", "palm tree 3D model", "pine tree 3D model", "low poly tree", "tree GLB"],
   },
   Space: {
     singular: "space",
     blurb: "Spacecraft, rovers, planets and space bases",
-    keywords: ["space 3D models free", "NASA 3D models", "spacecraft 3D model", "satellite 3D model", "rocket 3D model", "planet 3D model"],
+    keywords: ["space 3D models free", "NASA 3D models", "james webb space telescope 3d model free download", "submillimeter wave astronomy satellite", "swas 3d", "mir 3d", "spacecraft 3D model", "satellite 3D model", "rocket 3D model", "planet 3D model"],
   },
   Weapons: {
     singular: "weapon",

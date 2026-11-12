@@ -26,7 +26,7 @@ import {
   toCard,
 } from "@/lib/catalog";
 import { pageMetadata } from "@/lib/seo";
-import { absoluteUrl, SITE } from "@/lib/site";
+import { absoluteUrl, CODELOVE, SITE } from "@/lib/site";
 import { formatClock, SITE_TOUR } from "@/lib/site-tour";
 
 export const metadata = pageMetadata({
@@ -151,8 +151,8 @@ export default function Home() {
     duration: `PT${Math.floor(SITE_TOUR.seconds / 60)}M${Math.floor(SITE_TOUR.seconds % 60)}S`,
     inLanguage: "en",
     transcript: SITE_TOUR.transcript.join(" "),
-    author: { "@type": "Person", name: SITE.author },
-    publisher: { "@type": "Organization", name: SITE.brand, url: absoluteUrl("/") },
+    author: { "@id": `${SITE.authorUrl}/#person` },
+    publisher: { "@id": `${CODELOVE.url}/#organization` },
   };
   const featured = FEATURED_IDS.map(getModelById).filter((m) => m !== undefined);
   const categoryTiles = CATEGORIES.map((c) => ({ category: c, count: countBy(c), model: categoryShowcase(c, 1)[0] })).filter((t) => t.count > 0);
