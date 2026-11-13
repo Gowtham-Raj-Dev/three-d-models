@@ -66,6 +66,25 @@ for (const name of fs.readdirSync(OUT)) {
 const notFound = fs.readFileSync(path.join(OUT, "404.html"), "utf8");
 fs.writeFileSync(path.join(main, "404.html"), notFound.replace("<head>", `<head>${GAMES_REDIRECT}`));
 
+// Google still has the old /games/… pages and reports them as 404. A real page with an instant refresh and a
+// canonical on the new address is treated as a redirect, so they move over to games.codelove.in instead.
+const GAMES = ["aisle-zero", "beat-street", "cannon-cove", "castaway", "crypt-knight", "hex-haven", "kingdom-clash",
+  "night-heist", "nova-strike", "order-up", "patti-veedu", "putt-paradise", "saucer-siege", "siege-smash",
+  "skate-rush", "sky-courier", "sky-hop", "turbo-karts"];
+const redirectPage = (to) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Moved to games.codelove.in</title>` +
+  `<link rel="canonical" href="${to}"><meta http-equiv="refresh" content="0; url=${to}">` +
+  `<script>location.replace(${JSON.stringify(to)})</script></head>` +
+  `<body><p>This page moved to <a href="${to}">${to}</a>.</p></body></html>`;
+const stub = (rel, to) => {
+  fs.mkdirSync(path.join(main, rel), { recursive: true });
+  fs.writeFileSync(path.join(main, rel, "index.html"), redirectPage(to));
+};
+stub("games", "https://games.codelove.in/");
+for (const g of GAMES) {
+  stub(`games/${g}`, `https://games.codelove.in/${g}/`);
+  stub(`games/${g}/play`, `https://games.codelove.in/${g}/play/`);
+}
+
 for (const [folder, repo] of Object.entries(REPOS)) {
   const dir = path.resolve(repo);
   reset(dir);

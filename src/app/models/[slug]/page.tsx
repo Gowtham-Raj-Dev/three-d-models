@@ -36,8 +36,25 @@ export function generateStaticParams() {
   return models.map((m) => ({ slug: m.slug }));
 }
 
+// Several packs ship a model with the same name (four "Horse"s, two "Duck"s…). Identical titles make Google treat
+// those pages as duplicates and leave them unindexed, so a shared name gets its collection (and, if still shared,
+// its slug) added.
+const titleCount = new Map<string, number>();
+const titleCollectionCount = new Map<string, number>();
+for (const m of models) {
+  titleCount.set(m.title, (titleCount.get(m.title) ?? 0) + 1);
+  const k = `${m.title}|${m.collection}`;
+  titleCollectionCount.set(k, (titleCollectionCount.get(k) ?? 0) + 1);
+}
+
+function displayName(m: ModelEntry) {
+  if ((titleCount.get(m.title) ?? 0) < 2) return m.title;
+  if ((titleCollectionCount.get(`${m.title}|${m.collection}`) ?? 0) < 2) return `${m.title} (${m.collection})`;
+  return `${m.title} (${m.collection}, ${m.slug})`;
+}
+
 function seoTitle(m: ModelEntry) {
-  return `${m.title} 3D Model — Free ${m.rigged ? "Rigged " : ""}GLB Download`;
+  return `${displayName(m)} 3D Model — Free ${m.rigged ? "Rigged " : ""}GLB Download`;
 }
 
 function seoKeywords(m: ModelEntry): string[] {
