@@ -93,6 +93,7 @@ export const CODELOVE = {
     { name: "Video to GIF", url: "https://videotogif.codelove.in" },
     { name: "Video to Images", url: "https://videotoimages.codelove.in" },
     { name: "Video Cut", url: "https://videocut.codelove.in" },
+    { name: "Free AI Video Maker", url: "https://videomaker.codelove.in" },
     { name: "Free YouTube Automation", url: "https://utubeflow.codelove.in" },
     { name: "Free Java Games", url: "https://javaplay.codelove.in" },
   ],
