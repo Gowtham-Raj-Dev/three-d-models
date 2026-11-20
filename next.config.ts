@@ -42,6 +42,9 @@ const nextConfig: NextConfig = {
   basePath: basePath || undefined,
   images: { unoptimized: true },
   env: { NEXT_PUBLIC_BASE_PATH: basePath },
+  // On a low-RAM PC the default (one static-page worker per CPU) runs out of memory with ~7,700 pages.
+  // NEXT_BUILD_CPUS=2 npm run build limits the workers; unset = Next.js default.
+  ...(Number(process.env.NEXT_BUILD_CPUS) > 0 && { experimental: { cpus: Number(process.env.NEXT_BUILD_CPUS) } }),
   // A static export can't set headers or redirect (its host has to), so only the App Hosting server build does.
   ...(appHosting && {
     // The games moved to their own site: /games/skate-rush/ is now games.codelove.in/skate-rush/.
