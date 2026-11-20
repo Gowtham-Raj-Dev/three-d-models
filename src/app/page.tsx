@@ -30,7 +30,7 @@ import { absoluteUrl, CODELOVE, SITE } from "@/lib/site";
 import { formatClock, SITE_TOUR } from "@/lib/site-tour";
 
 export const metadata = pageMetadata({
-  title: `${formatNumber(models.length)} Free 3D Models (GLB) | CodeLove 3D Models`,
+  title: `GLB 3D Models — ${formatNumber(models.length)} Free .glb Downloads | CodeLove`,
   description: SITE.description,
   path: "/",
   absoluteTitle: true,
@@ -104,10 +104,41 @@ const FAQ = [
     a: "Any glTF 2.0 tool or engine that supports the EXT_meshopt_compression and EXT_texture_webp extensions — for example three.js and Babylon.js. The files are optimized for real-time and web use.",
   },
   {
+    q: "Can I use them as three.js models?",
+    a: "Yes. Load any .glb with three.js GLTFLoader. The files use meshopt compression, so also call loader.setMeshoptDecoder(MeshoptDecoder) from three/addons/libs/meshopt_decoder.module.js (drei's useGLTF sets this up for you); the WebP textures load as they are. The For developers page has more on loading them.",
+  },
+  {
+    q: "Are there free rigged 3D characters?",
+    a: `Yes — ${formatNumber(riggedCount)} rigged characters and animals. The human characters share a Biped skeleton, so all ${catalog.animations.length} animation clips play on them, and every one downloads free as a single .glb.`,
+  },
+  {
+    q: "Do you have free car 3D models?",
+    a: `Yes. The Vehicles category has ${formatNumber(countBy("Vehicles"))} free models — cars, racing cars, toy cars, trains, boats and more — each a free .glb download, plus motorbikes in the Bikes category.`,
+  },
+  {
+    q: "Is CodeLove 3D Models a free Sketchfab alternative?",
+    a: "For downloading free models, yes: every model here downloads as a .glb with no account, and you can preview it in 3D first. It is a curated free library, though — you can't upload or sell your own models here like on Sketchfab.",
+  },
+  {
     q: "How do the animation clips work?",
     a: "Each clip is a skeleton-only .glb for the Biped rig used by the human characters. Adults share the same bone names (Bip01 …), so any clip plays on any adult; the child characters name their root Bip02.",
   },
 ];
+
+const COLLECTIONS_SHOWN = 24;
+
+function CollectionPill({ c }: { c: { key: string; name: string; count: number } }) {
+  return (
+    <li>
+      <Link
+        href={`/models/collection/${c.key}/`}
+        className="inline-flex items-center gap-2 rounded-full border border-line bg-surface/60 px-3.5 py-1.5 text-sm text-muted transition hover:border-line-strong hover:text-fg"
+      >
+        {c.name} <span className="text-xs text-subtle tabular-nums">{formatNumber(c.count)}</span>
+      </Link>
+    </li>
+  );
+}
 
 export default function Home() {
   const heroItems: HeroItem[] = HERO.flatMap(({ id, clip }) => {
@@ -158,6 +189,10 @@ export default function Home() {
   const categoryTiles = CATEGORIES.map((c) => ({ category: c, count: countBy(c), model: categoryShowcase(c, 1)[0] })).filter((t) => t.count > 0);
   const clips = clipGroups();
   const collectionCount = allCollections().length;
+  // Grouped by category (in the site's category order), then by name.
+  const collectionLinks = [...allCollections()].sort(
+    (a, b) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category) || a.name.localeCompare(b.name),
+  );
 
   const stats = [
     { value: formatNumber(models.length), label: "Free 3D models" },
@@ -185,7 +220,7 @@ export default function Home() {
               <ArrowRight className="size-3.5 shrink-0" />
             </Link>
             <h1 className="text-[2.6rem] leading-[1.04] font-semibold tracking-tight text-balance sm:text-6xl lg:text-[4.25rem]">
-              Free 3D models, <span className="text-gradient">ready for production.</span>
+              Free GLB 3D models, <span className="text-gradient">ready for production.</span>
             </h1>
             <p className="max-w-xl text-base leading-relaxed text-pretty text-muted sm:text-lg">
               God of War heroes, skeletons, bikes, gaming assets, rigged characters, vehicles, buildings and more — {formatNumber(models.length)}{" "}
@@ -334,6 +369,34 @@ export default function Home() {
             </Link>
           ))}
         </div>
+      </section>
+
+      {/* .glb 3D models explained + every collection, so each collection (and through it every model) is one click
+          from the home page — Google finds deep pages mostly through these links. */}
+      <section id="glb-3d-models" className="mx-auto max-w-7xl scroll-mt-24 px-4 pt-20 sm:px-6 sm:pt-28">
+        <SectionHeader
+          eyebrow="Collections"
+          title="Free .glb 3D models, by collection."
+          description={`Every model here is a .glb file: glTF 2.0 in one binary file, with the mesh, materials, textures and — for rigged characters and animals — the skeleton inside. Drop it into three.js, Babylon.js or any engine that reads glTF, no extra texture folders needed. Pick one of the ${formatNumber(collectionCount)} collections below to see its models.`}
+        />
+        {/* The first ones show; the rest sit in a closed <details> — still plain links in the HTML for crawlers. */}
+        <ul className="flex flex-wrap gap-2">
+          {collectionLinks.slice(0, COLLECTIONS_SHOWN).map((c) => (
+            <CollectionPill key={c.key} c={c} />
+          ))}
+        </ul>
+        {collectionLinks.length > COLLECTIONS_SHOWN ? (
+          <details className="group mt-3">
+            <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-full border border-line px-3.5 py-1.5 text-sm font-medium text-muted transition select-none hover:border-line-strong hover:text-fg group-open:mb-3">
+              <Plus className="size-4 transition-transform group-open:rotate-45" /> Show all {formatNumber(collectionLinks.length)} collections
+            </summary>
+            <ul className="flex flex-wrap gap-2">
+              {collectionLinks.slice(COLLECTIONS_SHOWN).map((c) => (
+                <CollectionPill key={c.key} c={c} />
+              ))}
+            </ul>
+          </details>
+        ) : null}
       </section>
 
       {/* Featured */}

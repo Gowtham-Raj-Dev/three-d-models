@@ -8,7 +8,11 @@ const COLUMNS = [
   {
     title: "Catalog",
     links: [
+      { href: "/#glb-3d-models", label: "Free .glb 3D models" },
       { href: "/models/", label: "All models" },
+      { href: "/models/collection/rigged-adults/", label: "Rigged people" },
+      { href: "/models/collection/rigged-animals/", label: "Rigged animals" },
+      { href: "/models/category/animals/", label: "Animals" },
       { href: "/models/category/god-of-war/", label: "God of War" },
       { href: "/models/category/skeletons/", label: "Skeletons" },
       { href: "/models/category/ghosts/", label: "Ghosts" },

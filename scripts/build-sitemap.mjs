@@ -51,7 +51,8 @@ const { allCollections, CATEGORIES, categorySlug, countBy, models, absoluteUrl, 
 const modelSlugs = (list) => list.map((m) => m.slug).join(",");
 // Same pages, in the same order, as the site's navigation: the most important first.
 const pages = [
-  { path: "/", data: models.length },
+  // The second value is the home page's copy version: change it when the home text/sections change.
+  { path: "/", data: [models.length, "home-2026-11-20-glb-collections"] },
   { path: "/models/", data: modelSlugs(models) },
   ...CATEGORIES.filter((c) => countBy(c) > 0).map((c) => ({
     path: `/models/category/${categorySlug(c)}/`,
