@@ -84,6 +84,14 @@ const FEATURES = [
 
 const FAQ = [
   {
+    q: "Where can I download free 3D models?",
+    a: `Right here: browse ${formatNumber(models.length)} free 3D models, preview each one in 3D and download it as a .glb file in one click. There is no account to make, and the models work in personal and commercial projects.`,
+  },
+  {
+    q: "Where can I get free GLB and glTF models?",
+    a: "Every model on this site is a free GLB (glTF 2.0 binary) file, so the free GLB models and free glTF models you find here open in three.js, Babylon.js, Blender, Unity, Godot and other glTF tools. Start from a collection and download single files or whole packs.",
+  },
+  {
     q: "Are the models really free?",
     a: "Yes. Every model, pack and animation clip can be downloaded for free, with no sign-up, and used in personal and commercial projects.",
   },
@@ -220,7 +228,7 @@ export default function Home() {
               <ArrowRight className="size-3.5 shrink-0" />
             </Link>
             <h1 className="text-[2.6rem] leading-[1.04] font-semibold tracking-tight text-balance sm:text-6xl lg:text-[4.25rem]">
-              Free GLB 3D models, <span className="text-gradient">ready for production.</span>
+              Free 3D models in GLB, <span className="text-gradient">ready for production.</span>
             </h1>
             <p className="max-w-xl text-base leading-relaxed text-pretty text-muted sm:text-lg">
               God of War heroes, skeletons, bikes, gaming assets, rigged characters, vehicles, buildings and more — {formatNumber(models.length)}{" "}
@@ -397,6 +405,37 @@ export default function Home() {
             </ul>
           </details>
         ) : null}
+      </section>
+
+      {/* Keyword-focused links into the main category pages. */}
+      <section className="mx-auto max-w-7xl px-4 pt-20 sm:px-6 sm:pt-28">
+        <SectionHeader eyebrow="Popular searches" title="Free 3D characters, car models and more." />
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="rounded-2xl border border-line bg-surface/60 p-6">
+            <h3 className="font-medium">Free 3D characters</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Browse <Link href="/models/category/characters/" className="underline underline-offset-2 hover:text-fg">free 3D characters</Link> and
+              the <Link href="/models/collection/rigged-adults/" className="underline underline-offset-2 hover:text-fg">rigged 3D characters</Link>{" "}
+              that share one Biped skeleton, so every animation clip plays on them.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-line bg-surface/60 p-6">
+            <h3 className="font-medium">Free car 3D models</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Download <Link href="/models/category/vehicles/" className="underline underline-offset-2 hover:text-fg">free car 3D models</Link>,
+              trains and boats, plus <Link href="/models/category/bikes/" className="underline underline-offset-2 hover:text-fg">bike models</Link>, as
+              ready-to-use GLB files.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-line bg-surface/60 p-6">
+            <h3 className="font-medium">Free GLB and glTF models</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Every <Link href="/models/" className="underline underline-offset-2 hover:text-fg">free GLB model</Link> loads in three.js; see the{" "}
+              <Link href="/developers/" className="underline underline-offset-2 hover:text-fg">three.js models guide</Link> or test a file in the{" "}
+              <Link href="/viewer/" className="underline underline-offset-2 hover:text-fg">GLB viewer</Link>.
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* Featured */}
