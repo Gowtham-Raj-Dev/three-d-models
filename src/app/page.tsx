@@ -30,7 +30,7 @@ import { absoluteUrl, CODELOVE, SITE } from "@/lib/site";
 import { formatClock, SITE_TOUR } from "@/lib/site-tour";
 
 export const metadata = pageMetadata({
-  title: `GLB 3D Models — ${formatNumber(models.length)} Free .glb Downloads | CodeLove`,
+  title: `Free 3D Models Download — ${formatNumber(models.length)} Free GLB Files | CodeLove`,
   description: SITE.description,
   path: "/",
   absoluteTitle: true,
