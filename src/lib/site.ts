@@ -96,6 +96,9 @@ export const CODELOVE = {
     { name: "Free AI Video Maker", url: "https://videomaker.codelove.in" },
     { name: "Free YouTube Automation", url: "https://utubeflow.codelove.in" },
     { name: "Free Java Games", url: "https://javaplay.codelove.in" },
+    { name: "VOLTARC Arcade", url: "https://voltarc.codelove.in" },
+    { name: "Satisfying Video Maker", url: "https://satisfying-video-maker.codelove.in" },
+    { name: "ILoveConvert", url: "https://iloveconvert.codelove.in" },
   ],
 };
 
